@@ -23,6 +23,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.data.MovieEntity
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 @Composable
@@ -39,6 +40,7 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
     var originId by rememberSaveable { mutableStateOf<String?>(null) }
     var originEpisode by rememberSaveable { mutableStateOf<String?>(null) }
     val updatedCatalog = remember(movies, loadedSources) { LibrarySearchCatalog(searchableItems(movies, loadedSources)) }
+    val latestCatalog by rememberUpdatedState(updatedCatalog)
     var catalog by remember { mutableStateOf(updatedCatalog) }
     var focusedResult by remember { mutableStateOf<String?>(null) }
     val results = remember(catalog, query) { catalog.results(query) }
@@ -47,33 +49,59 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
     val queryFocus = remember { FocusRequester() }
     val resultFocus = remember { FocusRequester() }
     val transitionFocus = remember { FocusRequester() }
+    val window = LocalWindowInfo.current
     var holdingFocus by remember { mutableStateOf(false) }
+    var holderFocused by remember { mutableStateOf(false) }
+    var fieldFocused by remember { mutableStateOf(false) }
     var focusRequest by remember { mutableIntStateOf(0) }
     fun holdFocus() { focusRequest++; holdingFocus = true; transitionFocus.requestFocus() }
+    suspend fun parkBeforeRemovingCard() {
+        holdFocus()
+        val request = focusRequest
+        // Enabling a focus target and removing its focused child in the same frame
+        // can send focus to the first tab. Keep the old card mounted until the
+        // holder itself owns focus, including on the first layout after recreation.
+        while (request == focusRequest && holdingFocus && window.isWindowFocused && !holderFocused) {
+            withFrameNanos { }
+            if (request == focusRequest && holdingFocus && window.isWindowFocused && !holderFocused) {
+                transitionFocus.requestFocus()
+            }
+        }
+    }
     var restore by remember { mutableStateOf(false) }
     // Move focus while the old card still exists. Disposing a focused card can otherwise
     // move the remote to the first tab, whose onFocus opens Home before Search can recover.
-    LaunchedEffect(updatedCatalog) {
-        if (catalog === updatedCatalog) return@LaunchedEffect
-        if (selectedShow != null) {
-            if (updatedCatalog.shows.none { it.id == selectedShow || it.episodes.any { e -> e.id == originEpisode } }) {
-                holdFocus()
-                selectedShow = null
-                restore = true
-            }
-        } else {
-            val previous = results.firstOrNull { it.id == focusedResult }
-            if (previous != null && updatedCatalog.results(query).none { it.id == previous.id }) {
-                holdFocus()
-                originId = previous.id
-                originEpisode = when (previous) {
-                    is LibrarySearchResult.Media -> previous.item.id
-                    is LibrarySearchResult.Show -> previous.show.episodes.first().id
+    LaunchedEffect(Unit) {
+        // Serialize Room updates so a second emission cannot cancel a handoff
+        // midway and leave focus on the temporary holder.
+        snapshotFlow { latestCatalog }.collect { replacement ->
+            if (catalog === replacement) return@collect
+            val openShow = selectedShow
+            if (openShow != null) {
+                if (replacement.shows.none { it.id == openShow || it.episodes.any { e -> e.id == originEpisode } }) {
+                    parkBeforeRemovingCard()
+                    if (selectedShow == openShow) {
+                        selectedShow = null
+                        restore = true
+                    }
                 }
-                restore = true
+            } else {
+                val previous = focusedResult?.let { id -> catalog.results(query).firstOrNull { it.id == id } }
+                if (previous != null && replacement.results(query).none { it.id == previous.id }) {
+                    val oldQuery = query
+                    parkBeforeRemovingCard()
+                    if (selectedShow == null && query == oldQuery) {
+                        originId = previous.id
+                        originEpisode = when (previous) {
+                            is LibrarySearchResult.Media -> previous.item.id
+                            is LibrarySearchResult.Show -> previous.show.episodes.first().id
+                        }
+                        restore = true
+                    }
+                }
             }
+            catalog = replacement
         }
-        catalog = updatedCatalog
     }
     var queryReady by remember(selectedShow) { mutableStateOf(false) }
     val returnId = results.firstOrNull { it.id == originId }?.id ?: results.firstOrNull {
@@ -83,7 +111,7 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
         }
     }?.id
     var resultReady by remember(selectedShow, returnId) { mutableStateOf(false) }
-    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    val windowFocused = window.isWindowFocused
     val request = focusRequest
     val requestedShow = selectedShow
     val requestedOrigin = originId
@@ -103,11 +131,20 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
     LaunchedEffect(requestedRestore, requestedShow, returnId, requestedResultReady, requestedQueryReady, windowFocused, request) {
         if (requestedRestore && requestedShow == null && windowFocused && requestIsCurrent()) {
             if (returnId != null && requestedResultReady && resultFocus.requestFocus()) { restore = false; holdingFocus = false }
-            else if (returnId == null && requestedQueryReady && queryFocus.requestFocus()) { restore = false; holdingFocus = false }
+            else if (returnId == null && requestedQueryReady) {
+                // A newly attached text editor may defer focus during layout or an
+                // IME transition. Release the holder only after the field owns focus.
+                while (restore && requestIsCurrent() && window.isWindowFocused && !fieldFocused) {
+                    queryFocus.requestFocus()
+                    if (!fieldFocused) withFrameNanos { }
+                }
+                if (requestIsCurrent() && fieldFocused) { restore = false; holdingFocus = false }
+            }
         }
     }
 
-    Box(Modifier.fillMaxSize().focusRequester(transitionFocus).focusProperties { canFocus = holdingFocus }.focusable()) {
+    Box(Modifier.fillMaxSize().focusRequester(transitionFocus).onFocusChanged { holderFocused = it.isFocused }
+        .focusProperties { canFocus = holdingFocus }.focusable()) {
     if (selectedShow != null) {
         TVShowBrowser(emptyList(), onOpen, initialShowId = selectedShow, preparedShows = catalog.shows,
             onExit = { holdFocus(); selectedShow = null; restore = true }, restoreNavigationFocus = true,
@@ -119,7 +156,8 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
             focusRequest++; query = it; originId = null; originEpisode = null; restore = false
             scope.launch { grid.scrollToItem(0) }
         }, "Titles, shows, genres, files", Modifier.padding(horizontal = ScreenPadding).fillMaxWidth()
-            .testTag("library-search-field").focusRequester(queryFocus).onGloballyPositioned { queryReady = true },
+            .testTag("library-search-field").focusRequester(queryFocus).onFocusChanged { fieldFocused = it.isFocused }
+            .onGloballyPositioned { queryReady = true },
             imeAction = ImeAction.Search)
         when {
             query.isBlank() -> EmptyState("Search your collection", "Find a show, a specific episode, a movie or a photo.")

@@ -195,8 +195,7 @@ class SearchNavigationTest {
         }
     }
     private fun focused(matcher: SemanticsMatcher) {
-        compose.waitUntilExactlyOneExists(matcher and isFocused(), timeoutMillis = 15_000)
-        compose.onNode(matcher).assertIsFocused()
+        visible(matcher and isFocused()).assertIsFocused()
     }
     private fun activate(matcher: SemanticsMatcher) {
         val node = visible(matcher)
