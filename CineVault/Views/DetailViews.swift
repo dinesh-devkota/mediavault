@@ -82,6 +82,9 @@ struct MovieDetailView: View {
                     #endif
                     playbackControls
                         .padding(.top, 16)
+                    if movie.episodeInfo != nil {
+                        NextEpisodeLink(episode: movie)
+                    }
                     personalActions
                     fileDetails
                         .padding(.top, 24)
@@ -271,6 +274,21 @@ struct MovieDetailView: View {
 }
 
 extension PlaybackController: Identifiable {}
+
+private struct NextEpisodeLink: View {
+    let episode: Movie
+    @Query private var library: [Movie]
+
+    var body: some View {
+        if let next = ContinueWatching.next(after: episode, in: library) {
+            NavigationLink(value: next.movie) {
+                Label(next.subtitle, systemImage: "forward.end")
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("next-episode")
+        }
+    }
+}
 
 /// Rename, re-match against TMDB, hide or reset a movie.
 struct EditMovieView: View {

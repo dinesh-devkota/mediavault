@@ -154,6 +154,18 @@ Photos appear as photos and open their album viewer.
 
 ![Apple TV search showing one card for 24, with eight seasons and 192 episodes in the sample library](screenshots/search.png)
 
+## Continue a series from Home
+
+**Continue Watching** shows one card per series you have started. **Resume**
+opens the episode you paused and keeps its saved position. When you finish an
+episode, the card can offer the next unwatched episode in your library.
+
+Check the season and episode number on the card. For example, if you finish
+`S01E01` and `S01E03` is the next playable episode on your NAS, **Next available**
+lets you decide whether to skip ahead. Select the card to see the details,
+then choose **Play** or **Resume**. You can also open the next episode from
+the current episode’s details. Specials are followed separately.
+
 ## Check the scan and playback
 
 Keep the NAS reachable while scanning. Progress and partial results can appear

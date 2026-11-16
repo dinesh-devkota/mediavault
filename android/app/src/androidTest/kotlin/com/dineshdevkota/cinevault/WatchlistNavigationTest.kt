@@ -6,6 +6,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.hasText
@@ -98,6 +99,49 @@ class WatchlistNavigationTest {
         launchHomeAfterScan().use {
             visible("FEATURED") // Wait for the movie rows, rather than the initial empty state.
             assertFalse("An empty Watchlist rail should disappear", hasVisibleText("Watchlist"))
+        }
+    }
+
+    @Test
+    fun continueWatchingOpensTheNextAvailableEpisodeAndKeepsItsPlaceOnBack() = runBlocking<Unit> {
+        val source = source("Series fixture")
+        val movies = container.database.movies()
+        suspend fun addEpisode(number: Int): MovieEntity {
+            val file = "24.S01E${number.toString().padStart(2, '0')}.mp4"
+            return MovieEntity(sourceId = source.id, filePath = "TV/24/Season 1/$file", fileName = file,
+                fileSize = 100, parsedTitle = "24", parsedYear = null, title = "Hour $number", year = null,
+                seriesTitle = "24", seriesTmdbId = 2400, seasonNumber = 1, episodeNumber = number,
+                metadataFetched = true).also { movies.insert(it) }
+        }
+        val first = addEpisode(1)
+        movies.markFinished(first.id, 2_700_000, 1_000)
+        addEpisode(3)
+        val fourth = addEpisode(4)
+
+        launchHomeAfterScan().use {
+            val card = hasTestTag("continue:show:tmdb:2400") and hasClickAction()
+            compose.waitUntilExactlyOneExists(card, timeoutMillis = 10_000)
+            visible("Next available · S01E03")
+            compose.onNode(card).performSemanticsAction(SemanticsActions.RequestFocus)
+            compose.onNode(card).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+            visible("24 · Season 1 · Episode 3")
+            val next = hasTestTag("next-episode:${fourth.id}") and hasClickAction()
+            compose.waitUntilExactlyOneExists(next, timeoutMillis = 10_000)
+            compose.onNode(next).performSemanticsAction(SemanticsActions.RequestFocus)
+            compose.onNode(next).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+            visible("24 · Season 1 · Episode 4")
+            device.pressBack()
+            visible("24 · Season 1 · Episode 3")
+            device.pressBack()
+            compose.waitUntilExactlyOneExists(card and isFocused(), timeoutMillis = 10_000)
+            assertFalse(movies.get(fourth.id)!!.isWatched)
+            movies.saveProgress(fourth.id, 125_000, 2_700_000, 2_000)
+            visible("Resume · S01E04 · 42:55 left")
+            compose.onNode(card).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+            visible("24 · Season 1 · Episode 4")
+            visible("Resume 2:05")
+            device.pressBack()
+            visible("Continue Watching")
         }
     }
 

@@ -35,6 +35,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,6 +50,10 @@ import com.dineshdevkota.cinevault.playback.PlayerActivity
 import com.dineshdevkota.cinevault.playback.PlaybackValidator
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.util.Locale
 
 class MovieDetailActivity : ComponentActivity() {
@@ -171,6 +176,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                         }
                     }
                 }
+                if (current.episodeInfo != null) NextEpisodeButton(current)
                 Text("Supported containers still depend on the audio and video codecs this TV can decode.",
                     style = MaterialTheme.typography.bodySmall, color = SecondaryText)
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -251,6 +257,24 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun NextEpisodeButton(current: MovieEntity) {
+    val context = LocalContext.current
+    val database = context.container.database
+    val next by remember(current.id) {
+        combine(database.movies().observeAll(), database.sources().observeAll()) { movies, sources ->
+            val selected = movies.firstOrNull { it.id == current.id }
+            selected?.let { nextEpisodeFor(it, movies, sources) }
+        }.flowOn(Dispatchers.Default)
+    }.collectAsStateWithLifecycle(initialValue = null)
+    next?.let { choice ->
+        OutlinedButton(onClick = { MovieDetailActivity.start(context, choice.movie.id) },
+            modifier = Modifier.testTag("next-episode:${choice.movie.id}")) {
+            Text(choice.label)
         }
     }
 }

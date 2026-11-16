@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -62,7 +63,10 @@ import com.dineshdevkota.cinevault.core.LibraryQuery
 import com.dineshdevkota.cinevault.core.LibrarySort
 import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.photos.photoAvailable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val tabs = listOf("Home", "Library", "Photos", "Search", "Sources", "Settings")
 
@@ -155,10 +159,15 @@ private fun HomeTab(
 ) {
     var selectedShowId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedShowCollection by rememberSaveable { mutableStateOf(HomeShowCollection.ALL) }
-    val status by LocalContext.current.container.scanner.status.collectAsStateWithLifecycle()
+    val container = LocalContext.current.container
+    val status by container.scanner.status.collectAsStateWithLifecycle()
+    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
     val available = remember(movies) { movies.filter { !it.isPhoto && !it.isHidden && !it.isMissing }.sortedByDescending { it.addedAt } }
     val collections = remember(available) { available.groupBy { it.mediaKind } }
-    val continuing = remember(movies) { LibraryQuery.continueWatching(movies).filter { it.mediaKind != MediaKind.MUSIC }.take(20) }
+    val loadedSources = sources
+    val continuing by produceState<List<ContinueWatchingItem>>(emptyList(), movies, loadedSources) {
+        value = withContext(Dispatchers.Default) { continueWatchingItems(movies, loadedSources.orEmpty()) }
+    }
     val watchlist = remember(movies) { LibraryQuery.watchlist(movies).filterNot { it.isPhoto } }
     val unwatched = remember(available) { available.filter { !it.isWatched } }
     val featured = remember(available) {
@@ -186,9 +195,9 @@ private fun HomeTab(
             )
         }
         if (available.isEmpty()) {
-            item { EmptyHome(movies, openPhotos, openSources) }
+            item { loadedSources?.let { EmptyHome(movies, it, openPhotos, openSources) } }
         } else {
-            if (continuing.isNotEmpty()) item { MovieRow("Continue Watching", continuing, onOpen, wide = true) }
+            if (continuing.isNotEmpty()) item(key = "continue-watching") { ContinueWatchingRow(continuing, onOpen) }
             if (watchlist.isNotEmpty()) item {
                 CollectionRow("Watchlist", watchlist, onOpen) {
                     selectedShowCollection = HomeShowCollection.WATCHLIST
@@ -217,13 +226,11 @@ private fun HomeTab(
 }
 
 @Composable
-private fun EmptyHome(movies: List<MovieEntity>, openPhotos: () -> Unit, openSources: () -> Unit) {
+private fun EmptyHome(movies: List<MovieEntity>, sources: List<SourceEntity>, openPhotos: () -> Unit, openSources: () -> Unit) {
     val context = LocalContext.current
     val container = context.container
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
-    val loadedSources = sources ?: return
-    val hasPhotos = remember(movies, loadedSources) {
-        val byId = loadedSources.associateBy { it.id }
+    val hasPhotos = remember(movies, sources) {
+        val byId = sources.associateBy { it.id }
         movies.any { photoAvailable(it, byId[it.sourceId]) }
     }
     val scanning by container.scanner.isScanning.collectAsStateWithLifecycle()
@@ -234,7 +241,7 @@ private fun EmptyHome(movies: List<MovieEntity>, openPhotos: () -> Unit, openSou
     ) {
         when {
             hasPhotos -> HomePrompt("Your photo albums are ready", "Browse your photos by folder.", "Browse Photos", openPhotos)
-            loadedSources.isEmpty() -> HomePrompt("Connect your first shared folder",
+            sources.isEmpty() -> HomePrompt("Connect your first shared folder",
                 "Choose a folder on your NAS to add movies, shows, music and photos.", "Find my NAS") { NasSetupActivity.start(context) }
             scanning -> HomePrompt("Scanning your folders", "Your media will appear as the scan finds it.", "Open Sources", openSources)
             else -> HomePrompt("No media in your library yet", "Open Sources to check your folders or scan again.", "Open Sources", openSources)

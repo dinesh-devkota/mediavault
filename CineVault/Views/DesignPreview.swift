@@ -75,6 +75,20 @@ struct DesignPreview: View {
                     }
                 }
             }
+            if ProcessInfo.processInfo.arguments.contains("--ui-preview") {
+                for number in [1, 3, 4] {
+                    let path = String(format: "TV Shows/24/Season 1/24.S01E%02d.mp4", number)
+                    let episode = Movie(filePath: path, fileSize: 100, source: source)
+                    episode.resetToFileName()
+                    episode.setTitle("Day 1 · Hour \(number)")
+                    episode.dateAdded = .distantPast
+                    if number == 1 {
+                        episode.isWatched = true
+                        episode.lastPlayedAt = Date()
+                    }
+                    context.insert(episode)
+                }
+            }
             try context.save()
             guard let featuredMovie else {
                 fatalError("The design preview library is empty.")

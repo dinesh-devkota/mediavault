@@ -265,10 +265,6 @@ struct HomeView: View {
     }
 
     private var available: [Movie] { movies.filter { !$0.isHidden && !$0.isMissing && $0.mediaKind != .photo } }
-    private var continuing: [Movie] {
-        available.filter { $0.isInProgress && $0.mediaKind != .music }
-            .sorted { ($0.lastPlayedAt ?? .distantPast) > ($1.lastPlayedAt ?? .distantPast) }
-    }
     private var featured: Movie? {
         let unwatched = available.filter { !$0.isInProgress && !$0.isWatched && $0.mediaKind != .music }
         return unwatched.first { $0.backdropPath != nil } ?? unwatched.first ?? available.first
@@ -305,7 +301,7 @@ struct HomeView: View {
                                    detail: "Open Sources to check your folders or scan again.", button: "Open Sources", action: openSources)
                     }
                 } else {
-                    ContinueWatchingRow(movies: Array(continuing.prefix(20)))
+                    ContinueWatchingRow()
                     CollectionPosterRow(title: "Watchlist", movies: LibraryQuery.watchlist(movies))
                     if let featured {
                         FeaturedMovieCard(movie: featured)
@@ -600,22 +596,31 @@ struct FeaturedMovieCard: View {
 }
 
 struct ContinueWatchingRow: View {
-    let movies: [Movie]
-    @FocusState private var focusedMovie: UUID?
+    @Query private var library: [Movie]
 
     var body: some View {
-        if !movies.isEmpty {
+        ContinueWatchingCards(suggestions: ContinueWatching.home(library))
+    }
+}
+
+private struct ContinueWatchingCards: View {
+    let suggestions: [WatchSuggestion]
+    @FocusState private var focusedItem: String?
+
+    var body: some View {
+        if !suggestions.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Continue Watching").font(.system(size: 32, weight: .semibold))
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 36) {
-                        ForEach(movies) { movie in
-                            NavigationLink(value: movie) {
-                                ContinueWatchingCard(movie: movie, isFocused: focusedMovie == movie.id)
+                        ForEach(suggestions) { item in
+                            NavigationLink(value: item.movie) {
+                                ContinueWatchingCard(item: item, isFocused: focusedItem == item.id)
                             }
                             .buttonStyle(ArtworkButtonStyle())
                             .focusEffectDisabled()
-                            .focused($focusedMovie, equals: movie.id)
+                            .focused($focusedItem, equals: item.id)
+                            .accessibilityLabel("\(item.title), \(item.subtitle)")
                         }
                     }
                     .padding(.vertical, 24)
@@ -627,13 +632,13 @@ struct ContinueWatchingRow: View {
 }
 
 struct ContinueWatchingCard: View {
-    let movie: Movie
+    let item: WatchSuggestion
     let isFocused: Bool
     private let width: CGFloat = 400
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            MovieBackdrop(movie: movie, usePosterFallback: true)
+            MovieBackdrop(movie: item.movie, usePosterFallback: true)
                 .frame(width: width, height: 225)
                 .overlay(alignment: .bottom) {
                     LinearGradient(colors: [.clear, .black.opacity(0.75)],
@@ -641,21 +646,23 @@ struct ContinueWatchingCard: View {
                         .frame(height: 90)
                 }
                 .overlay(alignment: .bottom) {
-                    ProgressView(value: movie.progress)
-                        .tint(CinemaTheme.accent)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
+                    if item.movie.isInProgress && item.movie.duration > 0 {
+                        ProgressView(value: item.movie.progress)
+                            .tint(CinemaTheme.accent)
+                            .padding(.horizontal, 14)
+                            .padding(.bottom, 12)
+                    }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .strokeBorder(.white.opacity(isFocused ? 0.9 : 0.10), lineWidth: isFocused ? 3 : 1)
                 }
-            Text(movie.title)
+            Text(item.title)
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
-            Text(movie.displayYear.isEmpty ? "Continue watching" : movie.displayYear)
+            Text(item.subtitle)
                 .font(.system(size: 20))
                 .foregroundStyle(CinemaTheme.secondaryText)
         }

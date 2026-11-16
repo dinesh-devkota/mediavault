@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +34,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -128,28 +133,39 @@ fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Mod
 }
 
 @Composable
-fun ContinueCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.width(300.dp)) {
+private fun ContinueCard(item: ContinueWatchingItem, onClick: () -> Unit) {
+    val movie = item.movie
+    val remaining = (movie.durationMs - movie.playbackPositionMs).coerceAtLeast(0)
+    val time = if (movie.durationMs > 0) "${formatDuration(remaining)} left" else "at ${formatDuration(movie.playbackPositionMs)}"
+    val caption = when {
+        item.action != ContinueAction.RESUME -> item.label
+        movie.episodeInfo != null -> "${item.label} · $time"
+        else -> "${item.label} $time"
+    }
+    Column(Modifier.width(300.dp)) {
         Card(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).pointerClick(onClick = onClick),
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).testTag("continue:${item.id}")
+                .semantics { contentDescription = "${item.title}, $caption" }.pointerClick(onClick = onClick),
             shape = CardDefaults.shape(CardShape),
         ) {
             Box(Modifier.fillMaxSize()) {
-                Artwork(Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w780"), movie.title, Modifier.fillMaxSize())
-                ProgressLine(movie.progress, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp))
+                Artwork(Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w780"), movie.title,
+                    Modifier.fillMaxSize().clearAndSetSemantics {})
+                if (movie.isInProgress && movie.durationMs > 0) {
+                    ProgressLine(movie.progress, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp))
+                }
             }
         }
         Text(
-            movie.title,
+            item.title,
             style = MaterialTheme.typography.titleSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 10.dp),
         )
-        val remaining = (movie.durationMs - movie.playbackPositionMs).coerceAtLeast(0)
         Text(
-            if (movie.durationMs > 0) "${formatDuration(remaining)} left" else "Resume at ${formatDuration(movie.playbackPositionMs)}",
+            caption,
             style = MaterialTheme.typography.labelMedium,
             color = SecondaryText,
         )
@@ -157,21 +173,30 @@ fun ContinueCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = M
 }
 
 @Composable
-fun MovieRow(title: String, movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, wide: Boolean = false) {
+fun MovieRow(title: String, movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) {
+    MediaRow(title) {
+        items(movies, key = { it.id }) { movie ->
+            PosterCard(movie, onClick = { onOpen(movie) }, modifier = Modifier.width(PosterWidth))
+        }
+    }
+}
+
+@Composable
+internal fun ContinueWatchingRow(choices: List<ContinueWatchingItem>, onOpen: (MovieEntity) -> Unit) {
+    MediaRow("Continue Watching") {
+        items(choices, key = { it.id }) { choice -> ContinueCard(choice, onClick = { onOpen(choice.movie) }) }
+    }
+}
+
+@Composable
+private fun MediaRow(title: String, content: LazyListScope.() -> Unit) {
     Column {
         Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = ScreenPadding))
         LazyRow(
             contentPadding = PaddingValues(horizontal = ScreenPadding, vertical = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
-        ) {
-            items(movies, key = { it.id }) { movie ->
-                if (wide) {
-                    ContinueCard(movie, onClick = { onOpen(movie) })
-                } else {
-                    PosterCard(movie, onClick = { onOpen(movie) }, modifier = Modifier.width(PosterWidth))
-                }
-            }
-        }
+            content = content,
+        )
     }
 }
 

@@ -79,7 +79,7 @@ jobs:
           LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview)
           echo "$LAUNCH"
           PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-home.png" "Continue Watching"
+          capture_when_ready "$RUNNER_TEMP/cinevault-home.png" "Continue Watching" "Next available" "S01E03"
           xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
           LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-detail)
           echo "$LAUNCH"
