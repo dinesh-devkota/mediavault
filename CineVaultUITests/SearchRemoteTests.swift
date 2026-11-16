@@ -5,7 +5,7 @@ final class SearchRemoteTests: XCTestCase {
     func testMenuReturnsToTheSelectedEpisodeSeasonAndSearchResult() {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-preview-search"]
+        app.launchArguments = ["--ui-preview-search-input"]
         app.launch()
 
         let remote = XCUIRemote.shared
@@ -24,8 +24,13 @@ final class SearchRemoteTests: XCTestCase {
                           "Expected remote focus on \(label).\n\(app.debugDescription)", file: file, line: line)
         }
 
-        XCTAssertTrue(app.staticTexts["1 result"].waitForExistence(timeout: 15))
-        // The native search field and keyboard may initially own focus.
+        let field = app.searchFields["Titles, shows, episodes, genres, files"]
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        field.typeText("24")
+        XCTAssertTrue(app.staticTexts["1 result"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertEqual(field.value as? String, "24")
+        // Move from the system keyboard to the grouped show.
         for _ in 0..<6 {
             if focusedCard(show).exists { break }
             remote.press(.down)

@@ -343,17 +343,23 @@ struct HomeView: View {
 
 @MainActor
 struct SearchView: View {
-    @Query private var movies: [Movie]
     @State private var text = ""
 
-    init(initialQuery: String = "") { _text = State(initialValue: initialQuery) }
+    var body: some View {
+        LibrarySearchResultsView(text: text)
+            .searchable(text: $text, prompt: "Titles, shows, episodes, genres, files")
+    }
+}
+
+struct LibrarySearchResultsView: View {
+    let text: String
+    @Query private var movies: [Movie]
 
     var body: some View {
         SearchResultsView(text: text, found: LibrarySearch.results(in: movies, text: text))
             .navigationDestination(for: SearchShowSelection.self) { selection in
                 SearchShowDestination(selection: selection)
             }
-            .searchable(text: $text, prompt: "Titles, shows, episodes, genres, files")
     }
 }
 
@@ -374,10 +380,12 @@ private struct SearchResultsView: View {
                     if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ContentUnavailableView("Search your collection", systemImage: "magnifyingglass",
                             description: Text("Find movies, shows, episodes, music and photos."))
+                            .frame(maxWidth: .infinity)
                             .padding(.top, 100)
                     } else if found.isEmpty {
                         ContentUnavailableView("No results", systemImage: "magnifyingglass",
                             description: Text("Try a show name, episode title, genre or file name."))
+                            .frame(maxWidth: .infinity)
                             .padding(.top, 100)
                     } else {
                         Text("\(found.count) \(found.count == 1 ? "result" : "results")").foregroundStyle(CinemaTheme.secondaryText)
@@ -400,8 +408,11 @@ private struct SearchResultsView: View {
                             }, scrollToPhoto: { proxy.scrollTo($0, anchor: .center) })
                         }
                     }
-                }.padding(.horizontal, 70).padding(.bottom, 100)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 70).padding(.bottom, 100)
             }
+            .frame(maxWidth: .infinity)
             .task {
                 let selected = lastFocusedResult.flatMap { found.focusIDs.contains($0) ? $0 : nil }
                     ?? focusedMovieAnchor.flatMap { found.focusID(containing: $0) }
@@ -424,6 +435,7 @@ private struct SearchResultsView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CinemaBackground())
     }
 

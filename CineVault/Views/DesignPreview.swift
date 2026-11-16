@@ -9,7 +9,8 @@ struct DesignPreview: View {
     static let isDetail = ProcessInfo.processInfo.arguments.contains("--ui-preview-detail")
     static let isFilters = ProcessInfo.processInfo.arguments.contains("--ui-preview-filters")
     static let isSearch = ProcessInfo.processInfo.arguments.contains("--ui-preview-search")
-    static let isEnabled = isDetail || isFilters || isSearch || ProcessInfo.processInfo.arguments.contains("--ui-preview")
+    static let isSearchInput = ProcessInfo.processInfo.arguments.contains("--ui-preview-search-input")
+    static let isEnabled = isDetail || isFilters || isSearch || isSearchInput || ProcessInfo.processInfo.arguments.contains("--ui-preview")
 
     private static let filterPreferences: LibraryPreferences = {
         let suite = "com.dineshdevkota.cinevault.preview.filters"
@@ -62,7 +63,7 @@ struct DesignPreview: View {
                 if index == 0 { featuredMovie = movie }
                 context.insert(movie)
             }
-            if Self.isSearch {
+            if Self.isSearch || Self.isSearchInput {
                 for season in 1...8 {
                     for number in 1...24 {
                         let file = String(format: "TV Shows/24/Season %d/24.S%02dE%02d.mp4", season, season, number)
@@ -87,8 +88,13 @@ struct DesignPreview: View {
 
     var body: some View {
         Group {
-            if Self.isSearch {
-                NavigationStack { SearchView(initialQuery: "24").movieDestination() }
+            if Self.isSearch || Self.isSearchInput {
+                NavigationStack {
+                    Group {
+                        if Self.isSearch { LibrarySearchResultsView(text: "24") }
+                        else { SearchView() }
+                    }.movieDestination()
+                }
                     .tint(CinemaTheme.accent)
                     .preferredColorScheme(.dark)
             } else if Self.isFilters {
