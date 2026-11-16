@@ -1,13 +1,18 @@
 package com.dineshdevkota.cinevault
 
 import android.os.Build
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Condition
 import androidx.test.uiautomator.UiDevice
+import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.data.SourceEntity
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
@@ -23,7 +28,7 @@ class TVNavigationTest {
     fun remoteCanReachEveryTabAndReturnHome() {
         ActivityScenario.launch(MainActivity::class.java).use { activity ->
             scenario = activity
-            visible("Your movie collection starts here")
+            visible("Connect your first shared folder")
             device.pressDPadRight()
             visible("No movies yet")
             device.pressDPadRight()
@@ -35,7 +40,7 @@ class TVNavigationTest {
             device.pressDPadRight()
             visible("Metadata (themoviedb.org)")
             device.pressBack()
-            visible("Your movie collection starts here")
+            visible("Connect your first shared folder")
         }
     }
 
@@ -43,13 +48,46 @@ class TVNavigationTest {
     fun selectedTabAndFocusSurviveActivityRecreation() {
         ActivityScenario.launch(MainActivity::class.java).use { activity ->
             scenario = activity
-            visible("Your movie collection starts here")
+            visible("Connect your first shared folder")
             repeat(4) { device.pressDPadRight() }
             visible("No NAS sources yet")
             activity.recreate()
             visible("No NAS sources yet")
             device.pressDPadRight()
             visible("Metadata (themoviedb.org)")
+        }
+    }
+
+    @Test
+    fun homeActionsFollowVisiblePhotosAndOpenTheCorrectTab() = runBlocking<Unit> {
+        val container = ApplicationProvider.getApplicationContext<CineVaultApp>().container
+        val database = container.database
+        assumeTrue("Use a disposable empty test library", database.sources().all().isEmpty())
+        val source = SourceEntity(name = "Home test folder", host = "127.0.0.1", port = 1, share = "media",
+            ignoredFolders = listOf("Trips"))
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { activity ->
+                scenario = activity
+                visible("Find my NAS")
+                database.sources().upsert(source)
+                database.movies().insert(MovieEntity(sourceId = source.id, filePath = "Trips/Bridge.jpg",
+                    fileName = "Bridge.jpg", fileSize = 128, parsedTitle = "Bridge", parsedYear = null,
+                    title = "Bridge", year = null))
+                visible("No media in your library yet")
+                device.pressDPadDown()
+                device.pressDPadCenter()
+                visible(source.name)
+                device.pressBack()
+                visible("Open Sources")
+                database.sources().upsert(source.copy(ignoredFolders = emptyList()))
+                visible("Browse Photos")
+                device.pressDPadDown()
+                device.pressDPadCenter()
+                visible("Trips")
+            }
+        } finally {
+            database.movies().deleteForSource(source.id)
+            database.sources().delete(source.id)
         }
     }
 

@@ -2,7 +2,6 @@ package com.dineshdevkota.cinevault.photos
 
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
-import com.dineshdevkota.cinevault.core.ScanExclusions
 import java.util.Locale
 
 data class PhotoAlbum(val id: String, val sourceId: String, val folder: String, val photos: List<MovieEntity>) {
@@ -14,10 +13,7 @@ fun photoAlbumId(photo: MovieEntity): String = "${photo.sourceId}:${photo.filePa
 /** Photos from different NAS sources are never merged just because their folder names match. */
 fun photoAvailable(photo: MovieEntity, source: SourceEntity?): Boolean {
     if (source == null || !photo.isPhoto || photo.isHidden || photo.isMissing) return false
-    val path = ScanExclusions.normalizeFile(photo.filePath) ?: return false
-    val root = if (source.rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(source.rootPath) ?: return false
-    return (root.isEmpty() || path.startsWith("$root/", ignoreCase = true)) &&
-        !ScanExclusions.isFileExcluded(path, root, source.ignoredFolders, source.ignoredFiles)
+    return source.includesFile(photo.filePath)
 }
 
 fun photoAlbums(items: List<MovieEntity>, sources: List<SourceEntity>? = null): List<PhotoAlbum> {

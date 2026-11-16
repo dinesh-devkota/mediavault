@@ -134,6 +134,7 @@ struct LibraryView: View {
 
     var body: some View {
         let results = visible
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 HStack(alignment: .bottom) {
@@ -173,13 +174,14 @@ struct LibraryView: View {
                                            description: Text("Try another filter, source, decade or genre."))
                         .padding(.top, 100)
                 } else if kind == .tvShow {
-                    TVShowBrowserView(episodes: results)
+                    TVShowBrowserView(episodes: results, scrollToFocus: { proxy.scrollTo($0, anchor: .center) })
                 } else {
                     PosterGrid(movies: results)
                 }
             }
             .padding(.horizontal, 70)
             .padding(.bottom, 100)
+        }
         }
         .background(CinemaBackground())
         .sheet(isPresented: $presentingChoices, onDismiss: { focusedControl = control }) { choiceSheet }
@@ -259,8 +261,17 @@ extension LibraryView {
 #endif
 
 struct HomeView: View {
+    let openPhotos: () -> Void
+    let openSources: () -> Void
     @Query(sort: \Movie.dateAdded, order: .reverse) private var movies: [Movie]
+    @Query private var sources: [MediaSource]
+    @State private var addingSource = false
     @EnvironmentObject private var scanner: LibraryScanner
+
+    init(openPhotos: @escaping () -> Void, openSources: @escaping () -> Void) {
+        self.openPhotos = openPhotos
+        self.openSources = openSources
+    }
 
     private var available: [Movie] { movies.filter { !$0.isHidden && !$0.isMissing && $0.mediaKind != .photo } }
     private var continuing: [Movie] {
@@ -276,14 +287,8 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 48) {
                 HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("YOUR PERSONAL CINEMA")
-                            .font(.system(size: 18, weight: .semibold))
-                            .tracking(3)
-                            .foregroundStyle(CinemaTheme.accent)
-                        Text("Welcome to CoveShelf")
-                            .font(.system(size: 54, weight: .bold))
-                    }
+                    Text("Welcome to CoveShelf")
+                        .font(.system(size: 54, weight: .bold))
                     Spacer()
                     if let status = scanner.status {
                         Text(status)
@@ -294,9 +299,20 @@ struct HomeView: View {
                 }
 
                 if available.isEmpty {
-                    ContentUnavailableView("Your movie collection starts here", systemImage: "play.rectangle.on.rectangle",
-                                           description: Text("Add a NAS source, then add a TMDB key for artwork and details."))
-                        .padding(.top, 100)
+                    if movies.contains(where: PhotoLibrary.isAvailable) {
+                        homePrompt("Your photo albums are ready", symbol: "photo.on.rectangle",
+                                   detail: "Browse your photos by folder.", button: "Browse Photos", action: openPhotos)
+                    } else if sources.isEmpty {
+                        homePrompt("Connect your first shared folder", symbol: "externaldrive.connected.to.line.below",
+                                   detail: "Choose a folder on your NAS to add movies, shows, music and photos.",
+                                   button: "Find my NAS") { addingSource = true }
+                    } else if scanner.isScanning {
+                        homePrompt("Scanning your folders", symbol: "arrow.clockwise",
+                                   detail: "Your media will appear as the scan finds it.", button: "Open Sources", action: openSources)
+                    } else {
+                        homePrompt("No media in your library yet", symbol: "folder",
+                                   detail: "Open Sources to check your folders or scan again.", button: "Open Sources", action: openSources)
+                    }
                 } else {
                     ContinueWatchingRow(movies: Array(continuing.prefix(20)))
                     CollectionPosterRow(title: "Watchlist", movies: LibraryQuery.watchlist(movies))
@@ -317,50 +333,140 @@ struct HomeView: View {
             .padding(.bottom, 100)
         }
         .background(CinemaBackground())
+        .sheet(isPresented: $addingSource) { NASSetupView() }
+    }
+
+    private func homePrompt(_ title: String, symbol: String, detail: String, button: String,
+                            action: @escaping () -> Void) -> some View {
+        ContentUnavailableView {
+            Label(title, systemImage: symbol)
+        } description: {
+            Text(detail)
+        } actions: {
+            Button(button, action: action).buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 68)
     }
 }
 
+@MainActor
 struct SearchView: View {
     @Query private var movies: [Movie]
     @State private var text = ""
 
-    private var results: [Movie] {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
-        let needle = TitleMatcher.normalize(text)
-        return movies.filter { LibrarySearch.matches($0, text: text, normalized: needle) &&
-            ($0.mediaKind != .photo || PhotoLibrary.isAvailable($0)) }
-        .sorted { $0.sortTitle < $1.sortTitle }
-    }
+    init(initialQuery: String = "") { _text = State(initialValue: initialQuery) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                Text("Search").font(.system(size: 62, weight: .bold))
-                if text.isEmpty {
-                    ContentUnavailableView("Search your collection", systemImage: "magnifyingglass",
-                                           description: Text("Find movies, shows, music and photos by title or file name."))
-                        .padding(.top, 100)
-                } else if results.isEmpty {
-                    ContentUnavailableView("No results", systemImage: "magnifyingglass",
-                                           description: Text("Try a different search."))
-                        .padding(.top, 100)
-                } else {
-                    Text("\(results.count) results")
-                        .foregroundStyle(CinemaTheme.secondaryText)
-                    if results.contains(where: { $0.mediaKind != .photo }) {
-                        PosterGrid(movies: results.filter { $0.mediaKind != .photo })
+        SearchResultsView(text: text, found: LibrarySearch.results(in: movies, text: text))
+            .searchable(text: $text, prompt: "Titles, shows, episodes, genres, files")
+    }
+}
+
+private struct SearchResultsView: View {
+    let text: String
+    let found: LibrarySearchResults
+    @State private var lastFocusedResult: String?
+    @State private var focusedMovieAnchor: UUID?
+    @FocusState private var focusedResult: String?
+    private let posterColumns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
+    private let episodeColumns = [GridItem(.adaptive(minimum: 400, maximum: 400), spacing: 48)]
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 32) {
+                    Text("Search").font(.system(size: 62, weight: .bold)).id("search-top")
+                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ContentUnavailableView("Search your collection", systemImage: "magnifyingglass",
+                            description: Text("Find movies, shows, episodes, music and photos."))
+                            .padding(.top, 100)
+                    } else if found.isEmpty {
+                        ContentUnavailableView("No results", systemImage: "magnifyingglass",
+                            description: Text("Try a show name, episode title, genre or file name."))
+                            .padding(.top, 100)
+                    } else {
+                        Text("\(found.count) \(found.count == 1 ? "result" : "results")").foregroundStyle(CinemaTheme.secondaryText)
+                        if !found.shows.isEmpty {
+                            Text("TV Shows").font(.title2)
+                            showGrid(found.shows)
+                        }
+                        if !found.episodes.isEmpty {
+                            Text("Episodes").font(.title2)
+                            episodeGrid(found.episodes)
+                        }
+                        if !found.titles.isEmpty {
+                            if !found.shows.isEmpty || !found.episodes.isEmpty || !found.photos.isEmpty { Text("Movies & Music").font(.title2) }
+                            titleGrid(found.titles)
+                        }
+                        if !found.photos.isEmpty {
+                            Text("Photos").font(.title2)
+                            PhotoGrid(photos: found.photos, showsSourceName: true, onSelection: { _ in
+                                lastFocusedResult = nil; focusedMovieAnchor = nil
+                            }, scrollToPhoto: { proxy.scrollTo($0, anchor: .center) })
+                        }
                     }
-                    if results.contains(where: { $0.mediaKind == .photo }) {
-                        Text("Photos").font(.title2)
-                        PhotoGrid(photos: results.filter { $0.mediaKind == .photo })
-                    }
+                }.padding(.horizontal, 70).padding(.bottom, 100)
+            }
+            .task {
+                let selected = lastFocusedResult.flatMap { found.focusIDs.contains($0) ? $0 : nil }
+                    ?? focusedMovieAnchor.flatMap { found.focusID(containing: $0) }
+                guard let selected else { return }
+                await Task.yield()
+                guard !Task.isCancelled, lastFocusedResult != nil else { return }
+                proxy.scrollTo(selected, anchor: .center)
+                await Task.yield()
+                guard !Task.isCancelled, lastFocusedResult != nil else { return }
+                focusedResult = selected
+            }
+            .onChange(of: text) { _, _ in
+                lastFocusedResult = nil; focusedMovieAnchor = nil; focusedResult = nil
+                proxy.scrollTo("search-top", anchor: .top)
+            }
+            .onChange(of: focusedResult) { _, value in
+                if let value {
+                    lastFocusedResult = value
+                    focusedMovieAnchor = found.movieID(forFocusID: value)
                 }
             }
-            .padding(.horizontal, 70)
-            .padding(.bottom, 100)
         }
         .background(CinemaBackground())
-        .searchable(text: $text, prompt: "Titles, genres, files")
+    }
+
+    private func showGrid(_ shows: [ShowSearchResult]) -> some View {
+        LazyVGrid(columns: posterColumns, spacing: 55) {
+            ForEach(shows) { result in
+                let key = "show:\(result.id)"
+                NavigationLink {
+                    TVShowDestination(episodes: result.show.episodes, initialShowID: result.show.id)
+                } label: {
+                    TVShowArtwork(title: result.show.title, subtitle: result.subtitle,
+                        path: result.show.posterPath, focused: focusedResult == key)
+                }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
+            }
+        }.padding(.vertical, 24)
+    }
+
+    private func episodeGrid(_ episodes: [SearchEpisodeResult]) -> some View {
+        LazyVGrid(columns: episodeColumns, spacing: 48) {
+            ForEach(episodes) { result in
+                let key = "episode:\(result.id)"
+                NavigationLink(value: result.movie) {
+                    TVShowArtwork(title: result.movie.title, subtitle: result.subtitle,
+                        path: result.movie.backdropPath, wide: true, focused: focusedResult == key)
+                }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
+            }
+        }.padding(.vertical, 24)
+    }
+
+    private func titleGrid(_ movies: [Movie]) -> some View {
+        LazyVGrid(columns: posterColumns, spacing: 55) {
+            ForEach(movies) { movie in
+                let key = "title:\(movie.id)"
+                NavigationLink(value: movie) { PosterView(movie: movie, isFocused: focusedResult == key) }
+                    .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
+            }
+        }.padding(.vertical, 24)
     }
 }
 
@@ -375,7 +481,8 @@ struct PosterGrid: View {
                 NavigationLink(value: movie) {
                     PosterView(movie: movie, isFocused: focusedMovie == movie.id)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ArtworkButtonStyle())
+                .focusEffectDisabled()
                 .focused($focusedMovie, equals: movie.id)
             }
         }
@@ -398,7 +505,8 @@ struct PosterRow: View {
                             NavigationLink(value: movie) {
                                 PosterView(movie: movie, isFocused: focusedMovie == movie.id)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(ArtworkButtonStyle())
+                            .focusEffectDisabled()
                             .focused($focusedMovie, equals: movie.id)
                         }
                     }
@@ -482,7 +590,8 @@ struct ContinueWatchingRow: View {
                             NavigationLink(value: movie) {
                                 ContinueWatchingCard(movie: movie, isFocused: focusedMovie == movie.id)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(ArtworkButtonStyle())
+                            .focusEffectDisabled()
                             .focused($focusedMovie, equals: movie.id)
                         }
                     }
@@ -547,6 +656,7 @@ struct PosterView: View {
                         .foregroundStyle(.white.opacity(0.5))
                     Text(movie.title)
                         .font(.headline)
+                        .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
                         .padding(.horizontal, 18)

@@ -11,6 +11,7 @@ import com.dineshdevkota.cinevault.core.EpisodeInfo
 import com.dineshdevkota.cinevault.core.EpisodeParser
 import com.dineshdevkota.cinevault.core.MediaFile
 import com.dineshdevkota.cinevault.core.MediaKind
+import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.core.TitleMatcher
 import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.smb.SourceConfig
@@ -36,6 +37,13 @@ data class SourceEntity(
     @ColumnInfo(defaultValue = "'[]'") val ignoredFolders: List<String> = emptyList(),
     @ColumnInfo(defaultValue = "'[]'") val ignoredFiles: List<String> = emptyList(),
 ) {
+    fun includesFile(filePath: String): Boolean {
+        val path = ScanExclusions.normalizeFile(filePath) ?: return false
+        val root = if (rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(rootPath) ?: return false
+        return (root.isEmpty() || path.startsWith("$root/", ignoreCase = true)) &&
+            !ScanExclusions.isFileExcluded(path, root, ignoredFolders, ignoredFiles)
+    }
+
     fun config(secrets: SecretBox): SourceConfig = SourceConfig(
         id = id,
         host = host,

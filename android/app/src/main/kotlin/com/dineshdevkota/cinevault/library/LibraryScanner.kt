@@ -126,7 +126,8 @@ class LibraryScanner(
             statusFlow.value = "Scan cancelled for ${source.name}. Items already found are kept."
             throw e
         } catch (e: Exception) {
-            statusFlow.value = "Scan failed for ${source.name}: ${SmbService.describe(e)}. Items already found are kept; retry the scan."
+            val reason = SmbService.describe(e).trimEnd().removeSuffix(".")
+            statusFlow.value = "Scan failed for ${source.name}: $reason. Items already found are kept. Retry from Sources."
         }
     }
 

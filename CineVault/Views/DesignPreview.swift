@@ -8,7 +8,8 @@ import SwiftUI
 struct DesignPreview: View {
     static let isDetail = ProcessInfo.processInfo.arguments.contains("--ui-preview-detail")
     static let isFilters = ProcessInfo.processInfo.arguments.contains("--ui-preview-filters")
-    static let isEnabled = isDetail || isFilters || ProcessInfo.processInfo.arguments.contains("--ui-preview")
+    static let isSearch = ProcessInfo.processInfo.arguments.contains("--ui-preview-search")
+    static let isEnabled = isDetail || isFilters || isSearch || ProcessInfo.processInfo.arguments.contains("--ui-preview")
 
     private static let filterPreferences: LibraryPreferences = {
         let suite = "com.dineshdevkota.cinevault.preview.filters"
@@ -61,6 +62,18 @@ struct DesignPreview: View {
                 if index == 0 { featuredMovie = movie }
                 context.insert(movie)
             }
+            if Self.isSearch {
+                for season in 1...8 {
+                    for number in 1...24 {
+                        let file = String(format: "TV Shows/24/Season %d/24.S%02dE%02d.mp4", season, season, number)
+                        let episode = Movie(filePath: file, fileSize: 100, source: source)
+                        episode.resetToFileName()
+                        episode.setTitle("Day \(season) · Hour \(number)")
+                        episode.genres = ["Drama"]
+                        context.insert(episode)
+                    }
+                }
+            }
             try context.save()
             guard let featuredMovie else {
                 fatalError("The design preview library is empty.")
@@ -74,7 +87,11 @@ struct DesignPreview: View {
 
     var body: some View {
         Group {
-            if Self.isFilters {
+            if Self.isSearch {
+                NavigationStack { SearchView(initialQuery: "24").movieDestination() }
+                    .tint(CinemaTheme.accent)
+                    .preferredColorScheme(.dark)
+            } else if Self.isFilters {
                 NavigationStack {
                     LibraryView(previewingGenres: Self.filterPreferences)
                 }

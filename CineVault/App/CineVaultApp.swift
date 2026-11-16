@@ -40,19 +40,23 @@ struct CineVaultApp: App {
 }
 
 struct RootView: View {
+    private enum Tab: Hashable { case home, library, photos, search, sources, settings }
+    @State private var tab: Tab = .home
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var scanner: LibraryScanner
     @EnvironmentObject private var playbackServices: PlaybackServices
 
     var body: some View {
-        TabView {
-            NavigationStack { HomeView().movieDestination() }.tabItem { Text("Home") }
-            NavigationStack { LibraryView().movieDestination() }.tabItem { Text("Library") }
-            NavigationStack { PhotosView().movieDestination() }.tabItem { Text("Photos") }
-            NavigationStack { SearchView().movieDestination() }.tabItem { Image(systemName: "magnifyingglass") }
-            NavigationStack { SourcesView() }.tabItem { Text("Sources") }
-            NavigationStack { SettingsView() }.tabItem { Image(systemName: "gearshape") }
+        TabView(selection: $tab) {
+            NavigationStack {
+                HomeView(openPhotos: { tab = .photos }, openSources: { tab = .sources }).movieDestination()
+            }.tabItem { Text("Home") }.tag(Tab.home)
+            NavigationStack { LibraryView().movieDestination() }.tabItem { Text("Library") }.tag(Tab.library)
+            NavigationStack { PhotosView().movieDestination() }.tabItem { Text("Photos") }.tag(Tab.photos)
+            NavigationStack { SearchView().movieDestination() }.tabItem { Image(systemName: "magnifyingglass") }.tag(Tab.search)
+            NavigationStack { SourcesView() }.tabItem { Text("Sources") }.tag(Tab.sources)
+            NavigationStack { SettingsView() }.tabItem { Image(systemName: "gearshape") }.tag(Tab.settings)
         }
         .tint(CinemaTheme.accent)
         .preferredColorScheme(.dark)

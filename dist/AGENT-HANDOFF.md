@@ -614,3 +614,11 @@ documentation; its application source is identical to the validated revision.
 - Follow-on usability priorities from the Infuse review: one continuation card
   per TV show, explicit next-episode actions, series-aware grouped search and
   reliable remote focus restoration. These are not included in this batch yet.
+
+## Photo validation follow-up (2026-11-15)
+
+Revision `54cc008` passed all five [development checks](https://github.com/dinesh-devkota/mediavault/actions/runs/42916421418).
+All 12 Apple TV photo tests passed, including reading from the authenticated
+fixture share. The [Android TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/42916421208)
+passed 48 emulator tests with zero skips. The earlier photo navigation and
+scan-summary failures are resolved.

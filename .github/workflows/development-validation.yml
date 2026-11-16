@@ -127,8 +127,8 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             -resultBundlePath "$RUNNER_TEMP/nas-results.xcresult" \
             -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test-without-building | tail -n 200
-      - name: Report simulator test failures
-        if: failure()
+      - name: Report simulator test results
+        if: always()
         run: |
           if [[ -d "$RUNNER_TEMP/nas-results.xcresult" ]] && \
              xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/nas-results.xcresult" > "$RUNNER_TEMP/nas-summary.json"; then
@@ -136,6 +136,11 @@ jobs:
           import json, os
           from pathlib import Path
           summary = json.loads((Path(os.environ["RUNNER_TEMP"]) / "nas-summary.json").read_text())
+          counts = {key: summary[key] for key in ("totalTestCount", "passedTests", "failedTests", "skippedTests") if key in summary}
+          message = "Apple TV simulator tests: " + json.dumps(counts, sort_keys=True)
+          print(message)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
+              output.write(message + "\n")
           for failure in summary.get("testFailures", []):
               message = (failure.get("testName", "") + ": " + failure.get("failureText", ""))[:4000]
               message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
@@ -251,6 +256,10 @@ jobs:
           LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-photo)
           PID="${LAUNCH##*: }"
           capture_when_ready "$RUNNER_TEMP/cinevault-photo.png" "Golden Hour" "Next" "Back"
+          xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
+          LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-search)
+          PID="${LAUNCH##*: }"
+          capture_when_ready "$RUNNER_TEMP/cinevault-search.png" "Search" "1 result" "192 episodes"
       - uses: actions/upload-artifact@v4
         with:
           name: cinevault-ui-preview
@@ -262,6 +271,7 @@ jobs:
             ${{ runner.temp }}/cinevault-nas-folder.png
             ${{ runner.temp }}/cinevault-photos.png
             ${{ runner.temp }}/cinevault-photo.png
+            ${{ runner.temp }}/cinevault-search.png
           if-no-files-found: error
           retention-days: 7
       - name: Upload screenshots for failed previews

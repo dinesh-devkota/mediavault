@@ -140,6 +140,17 @@ For example, choosing *Comedy* and *Drama* includes titles in either genre.
 Adding the *1990s* narrows those titles to that decade. Choose **Clear filters**
 to see the whole section again. **Sort** changes the order of the results.
 
+## Find a show or an episode
+
+Search a series name to see one show card, then choose its season and episode.
+The show opens with all its available seasons, even when only some episodes
+match your search. Matched series names and local folder names both work.
+
+Use an episode title or a code such as `S02E03` to find a specific episode.
+Broad searches group many matching episodes under a show card with a match
+count. **Back** keeps your search text and restores your place in the results.
+Photos appear as photos and open their album viewer.
+
 ## Check the scan and playback
 
 Keep the NAS reachable while scanning. Progress and partial results can appear

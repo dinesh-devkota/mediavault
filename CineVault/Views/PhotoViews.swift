@@ -56,7 +56,7 @@ struct PhotosView: View {
                                 }
                                 .foregroundStyle(.white)
                                 .frame(width: 380, alignment: .leading)
-                            }.buttonStyle(.plain).focusEffectDisabled().focused($focusedAlbum, equals: album.id)
+                            }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedAlbum, equals: album.id)
                         }
                     }.padding(.vertical, 24)
                 }
@@ -73,25 +73,28 @@ struct PhotoAlbumView: View {
     private var album: PhotoAlbum? { PhotoLibrary.albums(items).first { $0.id == albumID } }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(album?.title ?? "Album").font(.system(size: 54, weight: .bold))
-                        if let album {
-                            Text("\(album.sourceName) · \(album.photos.count) \(album.photos.count == 1 ? "photo" : "photos")")
-                                .foregroundStyle(CinemaTheme.secondaryText)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(album?.title ?? "Album").font(.system(size: 54, weight: .bold))
+                            if let album {
+                                Text("\(album.sourceName) · \(album.photos.count) \(album.photos.count == 1 ? "photo" : "photos")")
+                                    .foregroundStyle(CinemaTheme.secondaryText)
+                            }
                         }
+                        Spacer()
+                        Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
                     }
-                    Spacer()
-                    Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
-                }
-                if let album, !album.photos.isEmpty {
-                    PhotoGrid(photos: album.photos, focusesFirstPhoto: true)
-                } else {
-                    ContentUnavailableView("No photos in this album", systemImage: "photo", description: Text("Scan its source to check for photos."))
-                }
-            }.padding(.horizontal, 70).padding(.bottom, 100)
+                    if let album, !album.photos.isEmpty {
+                        PhotoGrid(photos: album.photos, focusesFirstPhoto: true,
+                                  scrollToPhoto: { proxy.scrollTo($0, anchor: .center) })
+                    } else {
+                        ContentUnavailableView("No photos in this album", systemImage: "photo", description: Text("Scan its source to check for photos."))
+                    }
+                }.padding(.horizontal, 70).padding(.bottom, 100)
+            }
         }.background(CinemaBackground())
     }
 }
@@ -103,14 +106,20 @@ struct PhotoGrid: View {
     var focusesFirstPhoto = false
     var showsSourceName = false
     var onSelection: (UUID) -> Void = { _ in }
+    let scrollToPhoto: (UUID) -> Void
     @FocusState private var focusedPhoto: UUID?
     @State private var selected: Movie?
+    @State private var openedPhotoID: UUID?
     private let columns = [GridItem(.adaptive(minimum: 350, maximum: 350), spacing: 38)]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 38) {
             ForEach(photos) { photo in
-                Button { onSelection(photo.id); selected = photo } label: {
+                Button {
+                    openedPhotoID = photo.id
+                    onSelection(photo.id)
+                    selected = photo
+                } label: {
                     VStack(alignment: .leading, spacing: 10) {
                         PhotoThumbnail(photo: photo, width: 350, height: 220, focused: focusedPhoto == photo.id)
                         Text(PhotoLibrary.title(photo)).font(.system(size: 22, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
@@ -118,11 +127,28 @@ struct PhotoGrid: View {
                             Text(photo.source?.name ?? "NAS").font(.caption).foregroundStyle(CinemaTheme.secondaryText).lineLimit(1)
                         }
                     }.foregroundStyle(.white).frame(width: 350, alignment: .leading)
-                }.buttonStyle(.plain).focusEffectDisabled().focused($focusedPhoto, equals: photo.id)
+                }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedPhoto, equals: photo.id).id(photo.id)
             }
         }.padding(.vertical, 24)
-        .fullScreenCover(item: $selected) { PhotoDestination(photo: $0) }
-        .onAppear { if focusesFirstPhoto && focusedPhoto == nil { focusedPhoto = photos.first?.id } }
+        .fullScreenCover(item: $selected, onDismiss: restorePhotoFocus) { PhotoDestination(photo: $0) }
+        .onAppear {
+            if focusesFirstPhoto && focusedPhoto == nil && openedPhotoID == nil { focusedPhoto = photos.first?.id }
+        }
+    }
+
+    private func restorePhotoFocus() {
+        guard let id = openedPhotoID else { return }
+        if photos.contains(where: { $0.id == id }) {
+            scrollToPhoto(id)
+            Task { @MainActor in
+                await Task.yield()
+                guard openedPhotoID == id, selected == nil else { return }
+                focusedPhoto = id
+                openedPhotoID = nil
+            }
+        } else {
+            openedPhotoID = nil
+        }
     }
 }
 
@@ -180,6 +206,7 @@ struct PhotoThumbnail: View {
             } catch is CancellationError { }
             catch { if identity == request && !Task.isCancelled { failed = true } }
         }
+        .onDisappear { image = nil }
         .accessibilityLabel(PhotoLibrary.title(photo))
     }
 }

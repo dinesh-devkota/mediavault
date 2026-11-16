@@ -70,7 +70,8 @@ private val tabs = listOf("Home", "Library", "Photos", "Search", "Sources", "Set
 fun RootScreen() {
     val context = LocalContext.current
     val container = context.container
-    val movies by remember { container.database.movies().observeAll() }.collectAsStateWithLifecycle(emptyList())
+    val loadedMovies by remember { container.database.movies().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val movies = loadedMovies.orEmpty()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val tabFocus = remember { List(tabs.size) { FocusRequester() } }
     val openMovie: (MovieEntity) -> Unit = {
@@ -82,6 +83,11 @@ fun RootScreen() {
     var tabsPlaced by remember { mutableStateOf(false) }
     val view = LocalView.current
     val windowFocused = LocalWindowInfo.current.isWindowFocused
+
+    fun openTab(index: Int) {
+        tab = index
+        tabFocus[index].requestFocus()
+    }
 
     // Like tvOS: Back first returns to the tab bar, then to Home, then leaves the app.
     BackHandler(enabled = !tabRowFocused || tab != 0) {
@@ -125,10 +131,12 @@ fun RootScreen() {
         }
         Box(Modifier.weight(1f)) {
             when (tab) {
-                0 -> HomeTab(movies, openMovie)
+                0 -> loadedMovies?.let {
+                    HomeTab(it, openMovie, openPhotos = { openTab(2) }, openSources = { openTab(4) })
+                }
                 1 -> MoviesTab(movies, openMovie)
                 2 -> PhotosTab(movies)
-                3 -> SearchTab(movies, openMovie)
+                3 -> SearchTab(loadedMovies, openMovie)
                 4 -> SourcesTab(movies)
                 else -> SettingsTab()
             }
@@ -139,8 +147,12 @@ fun RootScreen() {
 private enum class HomeShowCollection { ALL, WATCHLIST, UNWATCHED }
 
 @Composable
-private fun HomeTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) {
-    val context = LocalContext.current
+private fun HomeTab(
+    movies: List<MovieEntity>,
+    onOpen: (MovieEntity) -> Unit,
+    openPhotos: () -> Unit,
+    openSources: () -> Unit,
+) {
     var selectedShowId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedShowCollection by rememberSaveable { mutableStateOf(HomeShowCollection.ALL) }
     val status by LocalContext.current.container.scanner.status.collectAsStateWithLifecycle()
@@ -170,20 +182,11 @@ private fun HomeTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) {
             ScreenHeader(
                 "Welcome to CoveShelf",
                 Modifier.padding(horizontal = ScreenPadding),
-                kicker = "YOUR PERSONAL CINEMA",
                 trailing = status,
             )
         }
         if (available.isEmpty()) {
-            item {
-                EmptyState(
-                    "Your movie collection starts here",
-                    "Add a NAS source, then add a TMDB key for artwork and details.",
-                )
-                Button(onClick = { NasSetupActivity.start(context) }, modifier = Modifier.padding(horizontal = ScreenPadding)) {
-                    Text("Find my NAS")
-                }
-            }
+            item { EmptyHome(movies, openPhotos, openSources) }
         } else {
             if (continuing.isNotEmpty()) item { MovieRow("Continue Watching", continuing, onOpen, wide = true) }
             if (watchlist.isNotEmpty()) item {
@@ -211,6 +214,39 @@ private fun HomeTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun EmptyHome(movies: List<MovieEntity>, openPhotos: () -> Unit, openSources: () -> Unit) {
+    val context = LocalContext.current
+    val container = context.container
+    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val loadedSources = sources ?: return
+    val hasPhotos = remember(movies, loadedSources) {
+        val byId = loadedSources.associateBy { it.id }
+        movies.any { photoAvailable(it, byId[it.sourceId]) }
+    }
+    val scanning by container.scanner.isScanning.collectAsStateWithLifecycle()
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = ScreenPadding, vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        when {
+            hasPhotos -> HomePrompt("Your photo albums are ready", "Browse your photos by folder.", "Browse Photos", openPhotos)
+            loadedSources.isEmpty() -> HomePrompt("Connect your first shared folder",
+                "Choose a folder on your NAS to add movies, shows, music and photos.", "Find my NAS") { NasSetupActivity.start(context) }
+            scanning -> HomePrompt("Scanning your folders", "Your media will appear as the scan finds it.", "Open Sources", openSources)
+            else -> HomePrompt("No media in your library yet", "Open Sources to check your folders or scan again.", "Open Sources", openSources)
+        }
+    }
+}
+
+@Composable
+private fun HomePrompt(title: String, detail: String, button: String, action: () -> Unit) {
+    Text(title, style = MaterialTheme.typography.headlineSmall)
+    Text(detail, style = MaterialTheme.typography.bodyLarge, color = SecondaryText)
+    Button(onClick = action) { Text(button) }
 }
 
 @Composable
@@ -369,42 +405,6 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
                     else -> posters(visible, onOpen)
                 }
             }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SearchTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) {
-    val container = LocalContext.current.container
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(emptyList())
-    val sourceById = remember(sources) { sources.associateBy { it.id } }
-    var text by rememberSaveable { mutableStateOf("") }
-    val results = remember(movies, text, sourceById) {
-        if (text.isBlank()) emptyList() else movies.filter {
-            LibraryQuery.searchMatches(it, text) && (!it.isPhoto || photoAvailable(it, sourceById[it.sourceId]))
-        }.sortedBy { it.sortTitle }
-    }
-
-    MovieGrid {
-        fullWidth { ScreenHeader("Search") }
-        fullWidth {
-            TvTextField(
-                text,
-                { text = it },
-                "Titles, genres, files",
-                Modifier.width(640.dp),
-                imeAction = ImeAction.Search,
-            )
-        }
-        when {
-            text.isBlank() -> fullWidth {
-                EmptyState("Search your collection", "Find media and photos by title, genre or file name.")
-            }
-            results.isEmpty() -> fullWidth { EmptyState("No results", "Try a different search.") }
-            else -> {
-                fullWidth { Text("${results.size} results", color = SecondaryText) }
-                posters(results, onOpen)
             }
         }
     }

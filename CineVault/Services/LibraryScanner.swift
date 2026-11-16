@@ -95,7 +95,9 @@ final class LibraryScanner: ObservableObject {
         } catch is CancellationError {
             status = "Scan cancelled for \(source.name)."
         } catch {
-            status = "Scan failed for \(source.name): \(error.localizedDescription). Items already found are kept; retry the scan."
+            let reason = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let separator = reason.hasSuffix(".") ? " " : ". "
+            status = "Scan failed for \(source.name): \(reason)\(separator)Items already found are kept. Retry from Sources."
         }
     }
 

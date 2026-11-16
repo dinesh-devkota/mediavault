@@ -108,10 +108,13 @@ enum CollectionRowItem: Identifiable {
 struct TVShowBrowserView: View {
     let episodes: [Movie]
     var initialShowID: String? = nil
+    var scrollToFocus: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var selectedShowID: String?
     @State private var selectedSeason: Int?
     @State private var selectedEpisodeID: UUID?
+    @State private var lastFocusedSeason: Int?
+    @State private var focusRequestID = UUID()
     @State private var initialized = false
     @State private var shows: [TVShowGroup] = []
     @FocusState private var focusedItem: String?
@@ -136,16 +139,25 @@ struct TVShowBrowserView: View {
                 selectedShowID = initialShowID
                 selectedEpisodeID = shows.first { $0.id == initialShowID }?.episodes.first?.id
             }
+            restoreSelectionFocus()
+        }
+        .onDisappear { focusRequestID = UUID() }
+        .onChange(of: focusedItem) { _, value in
+            if let value, let id = UUID(uuidString: value), selectedShow?.episodes.contains(where: { $0.id == id }) == true {
+                selectedEpisodeID = id
+            }
         }
         .onChange(of: episodes.map(TVShowGroup.revision)) { _, _ in
             shows = TVShowGroup.groups(episodes)
         }
         .onChange(of: shows.map(\.id)) { _, _ in
-            if let show = selectedShow { selectedShowID = show.id }
+            if let show = selectedShow { selectedShowID = show.id; restoreSelectionFocus() }
             else { selectedShowID = nil; selectedSeason = nil; selectedEpisodeID = nil }
         }
         .onChange(of: selectedShow?.seasons) { _, values in
-            if let selectedSeason, values?.contains(selectedSeason) != true { self.selectedSeason = nil }
+            if let selectedSeason, values?.contains(selectedSeason) != true {
+                self.selectedSeason = nil; restoreSelectionFocus()
+            }
         }
     }
 
@@ -170,7 +182,7 @@ struct TVShowBrowserView: View {
                                 subtitle: episode.isWatched ? "Watched" : episode.isInProgress ? "In progress" : "Episode",
                                 path: episode.backdropPath, wide: true, focused: focusedItem == key)
                         }
-                        .buttonStyle(.plain).focused($focusedItem, equals: key)
+                        .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: key).id(key)
                     }
                 }
             } else if let show = selectedShow {
@@ -178,11 +190,11 @@ struct TVShowBrowserView: View {
                     ForEach(show.seasons, id: \.self) { season in
                         let items = show.episodes(in: season)
                         let key = "season:\(season)"
-                        Button { selectedSeason = season } label: {
-                            TVShowArtwork(title: TVShowGroup.seasonTitle(season), subtitle: "\(items.count) episodes",
+                        Button { selectedSeason = season; lastFocusedSeason = season; restoreSelectionFocus() } label: {
+                            TVShowArtwork(title: TVShowGroup.seasonTitle(season), subtitle: "\(items.count) \(items.count == 1 ? "episode" : "episodes")",
                                 path: items.compactMap(\.seasonPosterPath).first, focused: focusedItem == key)
                         }
-                        .buttonStyle(.plain).focused($focusedItem, equals: key)
+                        .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: key).id(key)
                     }
                 }
             } else {
@@ -191,12 +203,13 @@ struct TVShowBrowserView: View {
                         Button {
                             selectedShowID = show.id
                             selectedEpisodeID = show.episodes.first?.id
-                            selectedSeason = nil
+                            selectedSeason = nil; lastFocusedSeason = nil
+                            restoreSelectionFocus()
                         } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
                                 path: show.posterPath, focused: focusedItem == show.id)
                         }
-                        .buttonStyle(.plain).focused($focusedItem, equals: show.id)
+                        .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: show.id).id(show.id)
                     }
                 }
             }
@@ -205,9 +218,54 @@ struct TVShowBrowserView: View {
     }
 
     private func goBack() {
-        if selectedSeason != nil { selectedSeason = nil }
+        if let season = selectedSeason {
+            selectedSeason = nil; lastFocusedSeason = season
+            restoreSelectionFocus()
+        }
         else if initialShowID != nil { dismiss() }
-        else { selectedShowID = nil; selectedEpisodeID = nil }
+        else {
+            let showID = selectedShow?.id ?? selectedShowID
+            selectedShowID = nil; selectedEpisodeID = nil; lastFocusedSeason = nil
+            focusAfterPlacement(showID)
+        }
+    }
+
+    private func restoreSelectionFocus() {
+        guard let show = selectedShow else { return }
+        if let season = selectedSeason {
+            let items = show.episodes(in: season)
+            let episode = selectedEpisodeID.flatMap { id in items.first { $0.id == id } } ?? items.first
+            focusAfterPlacement(episode?.id.uuidString)
+        } else {
+            let season = lastFocusedSeason.flatMap { show.seasons.contains($0) ? $0 : nil } ?? show.seasons.first
+            focusAfterPlacement(season.map { "season:\($0)" })
+        }
+    }
+
+    private func focusAfterPlacement(_ item: String?) {
+        let token = UUID(); focusRequestID = token
+        Task { @MainActor in
+            await Task.yield()
+            guard focusRequestID == token else { return }
+            if let item { scrollToFocus(item) }
+            await Task.yield()
+            guard focusRequestID == token else { return }
+            focusedItem = item
+        }
+    }
+}
+
+struct TVShowDestination: View {
+    let episodes: [Movie]
+    let initialShowID: String
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                TVShowBrowserView(episodes: episodes, initialShowID: initialShowID,
+                    scrollToFocus: { proxy.scrollTo($0, anchor: .center) })
+                    .padding(.horizontal, 70).padding(.bottom, 100)
+            }
+        }.background(CinemaBackground())
     }
 }
 
@@ -230,19 +288,15 @@ struct CollectionPosterRow: View {
                                     NavigationLink(value: movie) {
                                         PosterView(movie: movie, isFocused: focusedItem == item.id)
                                     }
-                                    .buttonStyle(.plain).focused($focusedItem, equals: item.id)
+                                    .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: item.id)
                                 case .show(let show):
                                     NavigationLink {
-                                        ScrollView {
-                                            TVShowBrowserView(episodes: show.episodes, initialShowID: show.id)
-                                                .padding(.horizontal, 70).padding(.bottom, 100)
-                                        }
-                                        .background(CinemaBackground())
+                                        TVShowDestination(episodes: show.episodes, initialShowID: show.id)
                                     } label: {
                                         TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
                                             path: show.posterPath, focused: focusedItem == item.id)
                                     }
-                                    .buttonStyle(.plain).focused($focusedItem, equals: item.id)
+                                    .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: item.id)
                                 }
                             }
                         }
@@ -269,16 +323,12 @@ struct TVShowRow: View {
                 LazyHStack(alignment: .top, spacing: 42) {
                     ForEach(shows) { show in
                         NavigationLink {
-                            ScrollView {
-                                TVShowBrowserView(episodes: episodes, initialShowID: show.id)
-                                    .padding(.horizontal, 70).padding(.bottom, 100)
-                            }
-                            .background(CinemaBackground())
+                            TVShowDestination(episodes: episodes, initialShowID: show.id)
                         } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
                                 path: show.posterPath, focused: focusedShow == show.id)
                         }
-                        .buttonStyle(.plain).focused($focusedShow, equals: show.id)
+                        .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedShow, equals: show.id)
                     }
                 }
                 .padding(.vertical, 24)
@@ -291,7 +341,7 @@ struct TVShowRow: View {
     }
 }
 
-private struct TVShowArtwork: View {
+struct TVShowArtwork: View {
     let title: String
     let subtitle: String
     let path: String?

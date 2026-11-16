@@ -23,6 +23,15 @@ enum CinemaTheme {
     }
 }
 
+/// Artwork labels draw their own focus ring and scale. The button supplies only press feedback.
+struct ArtworkButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.82 : 1)
+    }
+}
+
 struct CinemaBackground: View {
     var body: some View {
         LinearGradient(
