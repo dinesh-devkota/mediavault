@@ -622,3 +622,30 @@ All 12 Apple TV photo tests passed, including reading from the authenticated
 fixture share. The [Android TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/42916421208)
 passed 48 emulator tests with zero skips. The earlier photo navigation and
 scan-summary failures are resolved.
+
+## Home and TV search (2026-11-15)
+
+- Home opens NAS setup on first launch. A connected, empty library links to
+  Sources with scan feedback. A photo-only library links to its albums.
+- On both platforms, a series title or genre returns one card per matching show.
+  A specific episode title or `24 S02E03` can open an episode directly. A digit
+  query such as `24` skips standalone media whose only match is the year `2024`.
+- Remote Back restores the search context. A show tracks available episodes
+  when metadata or source rules change. The in-app and repository media guides
+  include the new navigation and search examples.
+- Local Android validation on the final matching change passed 146 unit tests,
+  lint and packaging. The isolated emulator passed seven Home, search and photo
+  navigation tests, plus two repeat runs of all three search tests. A manual
+  first-launch remote check opened NAS setup from Home.
+- The final [Android TV validation](https://github.com/dinesh-devkota/mediavault/actions/runs/43802132668)
+  passed all 52 runtime tests with zero skips. The saved `CineVault_TV` emulator
+  received the in-place update. Its installed SHA-256 matched the tested APK
+  (`cf51def5b6fe7bc71d882ee47694c380cae1d55ab40a55fbf68eb1523042e872`).
+  The emulator was closed after verification.
+- Public development revision `1c157f8` passed all five [development checks](https://github.com/dinesh-devkota/mediavault/actions/runs/43803766845).
+  The Apple TV simulator passed 104 tests with zero skips. The UI test entered
+  `24` through the native search field, opened Season 2 and Episode 2, then
+  used Menu three times to return focus to the original search result. All
+  eight [TV previews](https://github.com/dinesh-devkota/mediavault/actions/runs/43803766845/artifacts/14198100237)
+  passed visual text checks. The grouped result is in `docs/screenshots/search.png`.
+  Physical Apple TV playback still requires the owner's device and signing setup.

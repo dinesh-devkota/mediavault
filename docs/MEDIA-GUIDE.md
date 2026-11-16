@@ -152,6 +152,8 @@ Broad searches group many matching episodes under a show card with a match
 count. **Back** keeps your search text and restores your place in the results.
 Photos appear as photos and open their album viewer.
 
+![Apple TV search showing one card for 24, with eight seasons and 192 episodes in the sample library](screenshots/search.png)
+
 ## Check the scan and playback
 
 Keep the NAS reachable while scanning. Progress and partial results can appear
