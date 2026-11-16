@@ -60,6 +60,17 @@ class LibrarySearchTest {
         assertEquals(listOf(twentyFour), result.show.episodes)
     }
 
+    @Test fun numericQueriesMatchWholeNumbersInMovieAndPhotoNames() {
+        val movie = media("24 Hour Film").copy(fileName = "feature.mp4")
+        val photo = media("At the lake", "jpg").copy(fileName = "trip-24.jpg")
+        val otherFilm = media("Evening").copy(fileName = "Evening.2024.mp4", genres = listOf("Drama"))
+        val otherPhoto = media("Hike 124", "jpg").copy(fileName = "trip-240.jpg")
+        val library = LibrarySearchCatalog(listOf(movie, photo, otherFilm, otherPhoto))
+        assertEquals(setOf(movie.id, photo.id), library.results("24").map { (it as LibrarySearchResult.Media).item.id }.toSet())
+        assertEquals(otherFilm.id, (library.results("Drama").single() as LibrarySearchResult.Media).item.id)
+        assertEquals(otherPhoto.id, (library.results("trip-240").single() as LibrarySearchResult.Media).item.id)
+    }
+
     @Test fun sourceEditsExcludeStaleEpisodesBeforeSeriesIdentityAndMatchesAreBuilt() {
         val source = SourceEntity(id = "nas", name = "NAS", host = "nas", share = "media", rootPath = "TV")
         val allowed = episode(1)

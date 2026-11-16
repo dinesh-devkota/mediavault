@@ -32,6 +32,14 @@ final class GroupedSearchTests: XCTestCase {
         XCTAssertEqual(LibrarySearch.results(in: Array(episodes.reversed()), text: "24").shows.first?.id, hit.id)
     }
 
+    func testShowEntryFocusStartsWithTheFirstAvailableEpisodeInReverseScanOrder() throws {
+        let episodes = show(seasons: 2, episodes: 3)
+        let reversed = Array(episodes.reversed())
+        let group = try XCTUnwrap(TVShowGroup.groups(reversed).first)
+        XCTAssertEqual(group.firstEpisode?.id, episodes[0].id)
+        XCTAssertEqual(group.episodes(in: 2).first?.id, episodes[3].id)
+    }
+
     func testCanonicalAndLocalSeriesNamesFindOneFullPartiallyMatchedShow() throws {
         let episodes = show("Local Name", episodes: 3)
         episodes[0].seriesTitle = "Canonical Title"; episodes[0].seriesTMDBID = 42
@@ -83,6 +91,21 @@ final class GroupedSearchTests: XCTestCase {
         XCTAssertTrue(LibrarySearch.results(in: original + remake, text: "24").isEmpty)
         let numeric = show("24", episodes: 2)
         XCTAssertEqual(LibrarySearch.results(in: original + remake + numeric, text: "24").shows.count, 1)
+    }
+
+    func testNumericSearchUsesWholeNumbersInMovieAndPhotoTitlesFilesAndGenres() {
+        let nas = source()
+        let movie = episode("Movies/Feature.mp4", title: "24 Hour Party People", source: nas)
+        let photo = episode("Photos/IMG-24.jpg", title: "Camping", source: nas)
+        let genre = episode("Movies/Portrait.mp4", source: nas)
+        genre.genres = ["24 FPS"]
+        let recentMovie = episode("Movies/Orbit (2024).mp4", title: "Orbit", source: nas)
+        let recentPhoto = episode("Photos/IMG-2024.jpg", title: "Summer 2024", source: nas)
+        let recentGenre = episode("Music/Track.flac", source: nas)
+        recentGenre.genres = ["Hits of 2024"]
+        let result = LibrarySearch.results(in: [movie, photo, genre, recentMovie, recentPhoto, recentGenre], text: "24")
+        XCTAssertEqual(Set(result.titles.map(\.id)), [movie.id, genre.id])
+        XCTAssertEqual(result.photos.map(\.id), [photo.id])
     }
 
     func testHiddenMissingIgnoredAndOldRootEpisodesNeverLeakThroughFullShow() throws {

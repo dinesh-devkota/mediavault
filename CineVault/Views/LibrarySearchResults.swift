@@ -75,7 +75,18 @@ struct LibrarySearchResults {
     }
 }
 
-extension LibrarySearch {
+enum LibrarySearch {
+    static func matches(_ movie: Movie, text: String, normalized: String) -> Bool {
+        guard !movie.isMissing, !movie.isHidden, !normalized.isEmpty else { return false }
+        if normalized.allSatisfy(\.isNumber) {
+            return contains(normalized, in: movie.title) || contains(normalized, in: movie.fileName) ||
+                movie.genres.contains { contains(normalized, in: $0) }
+        }
+        return TitleMatcher.normalize(movie.title).contains(normalized) ||
+            movie.genres.contains { $0.localizedCaseInsensitiveContains(text) } ||
+            movie.fileName.localizedCaseInsensitiveContains(text)
+    }
+
     @MainActor
     static func isAvailable(_ movie: Movie) -> Bool {
         guard !movie.isDeleted, !movie.isMissing, !movie.isHidden else { return false }

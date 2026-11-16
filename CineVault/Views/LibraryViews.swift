@@ -87,15 +87,6 @@ final class LibraryPreferences: ObservableObject {
     }
 }
 
-enum LibrarySearch {
-    static func matches(_ movie: Movie, text: String, normalized: String) -> Bool {
-        !movie.isMissing && !movie.isHidden &&
-            ((!normalized.isEmpty && TitleMatcher.normalize(movie.title).contains(normalized))
-             || movie.genres.contains { $0.localizedCaseInsensitiveContains(text) }
-             || movie.fileName.localizedCaseInsensitiveContains(text))
-    }
-}
-
 struct LibraryView: View {
     private enum Control: String, Hashable { case sort = "Sort", show = "Show", genre = "Genre", source = "Source", decade = "Decade", section = "Section" }
     @State private var kind: MediaKind = .movie

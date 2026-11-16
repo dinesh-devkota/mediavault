@@ -64,8 +64,11 @@ private fun searchLibrary(titles: List<MovieEntity>, shows: List<TVShowGroup>, t
         }
         return false
     }
-    val results = titles.filter { LibraryQuery.searchMatches(it, query) }
-        .mapTo(mutableListOf<LibrarySearchResult>()) { LibrarySearchResult.Media(it) }
+    val numericQuery = query.all(Char::isDigit)
+    val results = titles.filter { item ->
+        if (numericQuery) matches(item.title) || matches(item.fileName) || item.genres.any(::matches)
+        else LibraryQuery.searchMatches(item, query)
+    }.mapTo(mutableListOf<LibrarySearchResult>()) { LibrarySearchResult.Media(it) }
     for (show in shows) {
         fun seriesAliases(episode: MovieEntity): List<Pair<String?, Int?>> {
             val local = EpisodeParser.parse(episode.filePath)

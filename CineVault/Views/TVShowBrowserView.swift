@@ -35,8 +35,15 @@ struct TVShowGroup: Identifiable {
     func episodes(in season: Int) -> [Movie] {
         episodes.filter { Self.season($0) == season }.sorted {
             let left = Self.episode($0), right = Self.episode($1)
-            return left == right ? $0.filePath < $1.filePath : left < right
+            if left != right { return left < right }
+            if $0.filePath != $1.filePath { return $0.filePath < $1.filePath }
+            return $0.id.uuidString < $1.id.uuidString
         }
+    }
+
+    var firstEpisode: Movie? {
+        guard let season = seasons.first else { return nil }
+        return episodes(in: season).first
     }
 
     /// The caller owns filtering and ordering, including the Hidden and Watchlist views.
@@ -138,7 +145,7 @@ struct TVShowBrowserView: View {
                 initialized = true
                 shows = TVShowGroup.groups(episodes)
                 selectedShowID = initialShowID
-                selectedEpisodeID = shows.first { $0.id == initialShowID }?.episodes.first?.id
+                selectedEpisodeID = shows.first { $0.id == initialShowID }?.firstEpisode?.id
             }
             restoreSelectionFocus()
         }
@@ -207,7 +214,7 @@ struct TVShowBrowserView: View {
                     ForEach(shows) { show in
                         Button {
                             selectedShowID = show.id
-                            selectedEpisodeID = show.episodes.first?.id
+                            selectedEpisodeID = show.firstEpisode?.id
                             selectedSeason = nil; lastFocusedSeason = nil
                             restoreSelectionFocus()
                         } label: {
