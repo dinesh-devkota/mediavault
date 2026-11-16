@@ -11,20 +11,36 @@ final class ContinueWatchingRemoteTests: XCTestCase {
         let show = app.descendants(matching: .any).matching(
             NSPredicate(format: "label == %@", "24, Next available · S01E03")
         ).firstMatch
-        func moveDown(to target: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
-            XCTAssertTrue(target.waitForExistence(timeout: 12), app.debugDescription, file: file, line: line)
-            for _ in 0..<5 {
-                if target.hasFocus { return }
-                remote.press(.down)
-            }
-            XCTAssertTrue(target.hasFocus, app.debugDescription, file: file, line: line)
+        XCTAssertTrue(show.waitForExistence(timeout: 12), app.debugDescription)
+        let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == YES")).firstMatch
+        let focusedCard = app.buttons.matching(
+            NSPredicate(format: "hasFocus == YES AND identifier BEGINSWITH %@", "continue-watching-")
+        ).firstMatch
+        // The Home tab sits above the middle of the horizontal shelf. Down can land on a movie.
+        for _ in 0..<4 {
+            if focusedCard.exists { break }
+            remote.press(focused.exists && focused.frame.midY > show.frame.midY ? .up : .down)
         }
-        moveDown(to: show)
+        XCTAssertTrue(focusedCard.exists, app.debugDescription)
+        for _ in 0..<5 {
+            if show.hasFocus { break }
+            remote.press(.left)
+        }
+        XCTAssertTrue(show.hasFocus, app.debugDescription)
         remote.press(.select)
         let third = app.staticTexts["24 · Season 1 · Episode 3"]
         XCTAssertTrue(third.waitForExistence(timeout: 10))
         let next = app.descendants(matching: .any).matching(identifier: "next-episode").firstMatch
-        moveDown(to: next)
+        XCTAssertTrue(next.waitForExistence(timeout: 10), app.debugDescription)
+        for _ in 0..<6 {
+            if next.hasFocus { break }
+            if focused.exists && focused.frame.minX > next.frame.maxX {
+                remote.press(.left)
+            } else {
+                remote.press(focused.exists && focused.frame.midY > next.frame.midY ? .up : .down)
+            }
+        }
+        XCTAssertTrue(next.hasFocus, app.debugDescription)
         XCTAssertEqual(next.label, "Next episode · S01E04")
         remote.press(.select)
         XCTAssertTrue(app.staticTexts["24 · Season 1 · Episode 4"].waitForExistence(timeout: 10))

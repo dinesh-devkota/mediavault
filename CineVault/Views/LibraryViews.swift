@@ -621,6 +621,7 @@ private struct ContinueWatchingCards: View {
                             .focusEffectDisabled()
                             .focused($focusedItem, equals: item.id)
                             .accessibilityLabel("\(item.title), \(item.subtitle)")
+                            .accessibilityIdentifier("continue-watching-\(item.id)")
                         }
                     }
                     .padding(.vertical, 24)
