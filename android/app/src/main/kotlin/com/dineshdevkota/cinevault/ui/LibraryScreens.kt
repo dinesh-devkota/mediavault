@@ -68,7 +68,7 @@ import com.dineshdevkota.cinevault.photos.photoAvailable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val tabs = listOf("Home", "Library", "Photos", "Search", "Sources", "Settings")
+private val tabs = listOf("Home", "Library", "Photos", "Search", "Sources", "Settings", "Web Video")
 
 @Composable
 fun RootScreen() {
@@ -142,7 +142,8 @@ fun RootScreen() {
                 2 -> PhotosTab(movies)
                 3 -> SearchTab(loadedMovies, openMovie)
                 4 -> SourcesTab(movies)
-                else -> SettingsTab()
+                5 -> SettingsTab()
+                6 -> WebVideoTab()
             }
         }
     }

@@ -39,6 +39,8 @@ class TVNavigationTest {
             visible("No NAS sources yet")
             device.pressDPadRight()
             visible("Metadata (themoviedb.org)")
+            device.pressDPadRight()
+            visible("Open YouTube")
             device.pressBack()
             visible("Connect your first shared folder")
         }

@@ -98,6 +98,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.tv.material)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.browser)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)

@@ -40,7 +40,7 @@ struct CineVaultApp: App {
 }
 
 struct RootView: View {
-    private enum Tab: Hashable { case home, library, photos, search, sources, settings }
+    private enum Tab: Hashable { case home, library, photos, search, sources, settings, webVideo }
     @State private var tab: Tab = .home
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -57,6 +57,7 @@ struct RootView: View {
             NavigationStack { SearchView().movieDestination() }.tabItem { Image(systemName: "magnifyingglass") }.tag(Tab.search)
             NavigationStack { SourcesView() }.tabItem { Text("Sources") }.tag(Tab.sources)
             NavigationStack { SettingsView() }.tabItem { Image(systemName: "gearshape") }.tag(Tab.settings)
+            NavigationStack { WebVideoView() }.tabItem { Text("Web Video") }.tag(Tab.webVideo)
         }
         .tint(CinemaTheme.accent)
         .preferredColorScheme(.dark)

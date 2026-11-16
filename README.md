@@ -10,6 +10,15 @@ On either TV, **Continue Watching** shows one card per active series. Resume
 the file you paused or see the season and episode number before playing the
 next available file on your NAS. [Continue a series from Home](docs/MEDIA-GUIDE.md#continue-a-series-from-home)
 
+## Web Video
+
+**Web Video** opens YouTube and other HTTPS video sites in a Brave Custom Tab
+on Android TV. Install Brave or the [development TV companion](https://github.com/dinesh-devkota/brave-core/tree/codex/mediavault-android-tv)
+on the same TV. The browser's Shields settings govern ad blocking. Site support
+and remote navigation vary. On Apple TV, **Web Video** plays direct HTTPS
+streams such as HLS and MP4. For YouTube and other web pages, open the site
+in Brave on an iPhone, iPad, or Mac and use Screen Mirroring to the Apple TV.
+
 ## Android TV
 
 The Android TV app includes direct SMB playback, a personal Watchlist,
