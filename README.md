@@ -6,6 +6,10 @@ A personal media library for **Apple TV and Android TV** that plays movies,
 shows and music and displays photo albums directly from a NAS over SMB.
 Built with SwiftUI on tvOS and Compose for TV on Android.
 
+On either TV, **Continue Watching** shows one card per active series. Resume
+the file you paused or see the season and episode number before playing the
+next available file on your NAS. [Continue a series from Home](docs/MEDIA-GUIDE.md#continue-a-series-from-home)
+
 ## Android TV
 
 The Android TV app includes direct SMB playback, a personal Watchlist,
@@ -40,7 +44,7 @@ Apple TV simulator previews with a sample library and placeholder artwork:
 
 **Home**
 
-![CoveShelf home screen](docs/screenshots/home.png)
+![CoveShelf Home on Apple TV with a Continue Watching card for 24 showing Next available, Season 1 Episode 3](docs/screenshots/home.png)
 
 **Movie details**
 

@@ -649,3 +649,35 @@ scan-summary failures are resolved.
   eight [TV previews](https://github.com/dinesh-devkota/mediavault/actions/runs/43803766845/artifacts/14198100237)
   passed visual text checks. The grouped result is in `docs/screenshots/search.png`.
   Physical Apple TV playback still requires the owner's device and signing setup.
+
+## Continue Watching by series (2026-11-16)
+
+- Public development revision `72507b9` adds one Home card per active series
+  on both TV platforms. The card opens the exact paused copy or the next
+  unwatched episode. Numbering gaps display **Next available** and the target
+  episode number. A button on episode details opens the next episode's details.
+- Suggestions use played time and current source rules. Specials stay in their
+  own sequence. Progress is specific to the selected file. Playback still
+  goes through the existing player and authorization checks.
+- Local Android validation passed 151 unit tests, lint and packaging. All nine
+  Home, search and watchlist remote tests passed on the disposable emulator.
+  The new test opens `S01E03` after a numbering gap, navigates to `S01E04` and
+  back, and verifies the Home card resumes the fourth episode at 2:05.
+- The [Apple TV simulator](https://github.com/dinesh-devkota/mediavault/actions/runs/43889101794)
+  passed all 110 tests. The remote opened the suggested episode, selected its
+  successor and returned to the original detail screen. All eight previews
+  passed their visual checks. `docs/screenshots/home.png` shows the gap in *24*.
+- Development revision `cbbf604` also restores Android TV remote focus when a
+  folder rule removes the show open in Search. All three search navigation
+  cases passed on four consecutive emulator runs with this fix.
+- Both hosted suites passed on `cbbf604` with zero skips, including all 110
+  [Apple TV tests](https://github.com/dinesh-devkota/mediavault/actions/runs/43891556566)
+  and 53 [Android TV tests](https://github.com/dinesh-devkota/mediavault/actions/runs/43891556583).
+  Android needed a fresh emulator after a boot failure and a test-runner layout
+  error while waiting for a NAS folder. The completed run verified that the
+  selected folder, ignored files and scan results persisted.
+- The owner's saved `CineVault_TV` emulator received an in-place update. Its
+  installed APK matched the locally tested build, SHA-256
+  `ec288e6d9e9d5b2e1b6f5855dd62df9ea905bea67ee0ff4b4db80952e179cddc`.
+  The emulator was closed after verification. Physical Apple TV playback is
+  still unverified.
