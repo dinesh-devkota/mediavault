@@ -1,0 +1,27 @@
+include: project.yml
+
+targets:
+  CineVault:
+    info:
+      properties:
+        # The Intel simulator can run the app without the physical device's arm64 capability.
+        UIRequiredDeviceCapabilities:REPLACE: []
+  CineVaultUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources:
+      - path: CineVaultUITests
+    dependencies:
+      - target: CineVault
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  CineVault:
+    build:
+      targets:
+        CineVaultUITests: [test]
+    test:
+      targets:
+        - CineVaultUITests

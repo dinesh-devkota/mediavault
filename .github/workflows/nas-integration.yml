@@ -30,7 +30,7 @@ jobs:
       - name: Generate project
         run: |
           python3 scripts/generate_app_icons.py
-          xcodegen generate
+          xcodegen generate --spec project.simulator-tests.yml
       - name: Select a tvOS simulator
         id: simulator
         run: |
@@ -53,14 +53,11 @@ jobs:
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
-            CODE_SIGNING_ALLOWED=NO build-for-testing | tail -n 160
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
       - name: Test against local SMB fixture
         run: |
           set -euo pipefail
           DEVICE='${{ steps.simulator.outputs.device }}'
-          APP="$RUNNER_TEMP/cinevault-tests/Build/Products/Debug-appletvsimulator/CineVault.app"
-          # The physical-device arm64 requirement does not apply to the simulator.
-          plutil -remove UIRequiredDeviceCapabilities "$APP/Info.plist"
           python scripts/nas_fixture.py "$RUNNER_TEMP/nas-fixture" >"$RUNNER_TEMP/nas-fixture.log" 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
@@ -83,7 +80,7 @@ jobs:
             -destination "id=$DEVICE" -configuration Debug \
             -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             -resultBundlePath "$RUNNER_TEMP/nas-results.xcresult" \
-            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test-without-building | tail -n 200
+            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES test-without-building | tail -n 200
       - name: Report simulator test results
         if: always()
         run: |

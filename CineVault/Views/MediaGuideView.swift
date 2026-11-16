@@ -32,7 +32,7 @@ struct MediaGuideView: View {
                     .focusable()
             }
             Section("TV shows and music") {
-                Text("Use S01E01-style episode names. Open a show's poster, choose a season, then an episode. Keep audio music in artist/album folders. TMDB's Music category is for screen content; it does not provide an MP3 album catalog.")
+                Text("Use S01E01-style episode names. Search for 24 to browse the show by season, or enter 24 S02E03 to open one episode. Back returns you to your results. Keep songs in artist and album folders. TMDB’s Music category covers movies and shows about music.")
                     .focusable()
             }
             Section("Photo albums") {

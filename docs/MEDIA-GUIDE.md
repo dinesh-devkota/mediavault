@@ -5,8 +5,9 @@ network. Your files stay on the NAS; no media server or transcoding box is neede
 
 ## Connect one shared parent folder
 
-In **Sources**, choose **Add NAS** (**Add NAS Source** on Android), then select a discovered NAS or enter
-its address. CoveShelf tries guest access first. If your NAS requires an account,
+On first launch, choose **Find my NAS** on Home. To connect another folder, open
+**Sources** and choose **Add NAS** (**Add NAS Source** on Android). Select a
+discovered NAS or enter its address. CoveShelf tries guest access first. If your NAS requires an account,
 choose **Sign in** and enter its username and password in the app. A read-only NAS
 account is recommended; keep its password out of chat, screenshots, and issue reports.
 

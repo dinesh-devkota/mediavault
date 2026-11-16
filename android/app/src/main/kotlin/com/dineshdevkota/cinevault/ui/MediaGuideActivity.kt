@@ -94,9 +94,9 @@ private fun MediaGuideScreen() {
         item {
             GuideSection(
                 "TV shows and music",
-                "Use S01E01-style episode names. Open a show's poster, choose a season, then an episode. " +
-                    "Keep audio music in artist/album folders. TMDB's Music category is for screen content; " +
-                    "it does not provide an MP3 album catalog.",
+                "Use S01E01-style episode names. Search for 24 to browse the show by season, or enter " +
+                    "24 S02E03 to open one episode. Back returns you to your results. Keep songs in artist " +
+                    "and album folders. TMDB’s Music category covers movies and shows about music.",
             )
         }
         item {

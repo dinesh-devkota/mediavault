@@ -29,6 +29,28 @@ struct SearchEpisodeResult: Identifiable {
     }
 }
 
+struct SearchShowSelection: Hashable {
+    let showID: String
+    let episodeIDs: [UUID]
+
+    init(_ show: TVShowGroup) {
+        showID = show.id
+        episodeIDs = show.episodes.map(\.id)
+    }
+
+    @MainActor
+    func resolve(in movies: [Movie], currentShowID: String? = nil) -> TVShowGroup? {
+        let eligible = movies.filter { LibrarySearch.isAvailable($0) && $0.source != nil && $0.mediaKind == .tvShow }
+        let groups = TVShowGroup.groups(eligible)
+        let preferredID = currentShowID ?? showID
+        if let current = groups.first(where: { $0.id == preferredID }) { return current }
+        let groupByEpisode = Dictionary(groups.flatMap { show in
+            show.episodes.map { ($0.id, show) }
+        }, uniquingKeysWith: { first, _ in first })
+        return episodeIDs.lazy.compactMap { groupByEpisode[$0] }.first
+    }
+}
+
 struct LibrarySearchResults {
     var titles: [Movie] = []
     var shows: [ShowSearchResult] = []
@@ -54,6 +76,14 @@ struct LibrarySearchResults {
 }
 
 extension LibrarySearch {
+    @MainActor
+    static func isAvailable(_ movie: Movie) -> Bool {
+        guard !movie.isDeleted, !movie.isMissing, !movie.isHidden else { return false }
+        guard let source = movie.source else { return true }
+        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath) &&
+            !source.isIgnored(filePath: movie.filePath)
+    }
+
     /// Build complete eligible series before matching so a search never truncates the destination's seasons.
     @MainActor
     static func results(in movies: [Movie], text: String) -> LibrarySearchResults {
@@ -62,11 +92,7 @@ extension LibrarySearch {
         guard !normalized.isEmpty else { return LibrarySearchResults() }
         var result = LibrarySearchResults()
         var seriesEpisodes: [Movie] = []
-        for movie in movies where !movie.isDeleted && !movie.isMissing && !movie.isHidden {
-            if let source = movie.source {
-                guard !source.isDeleted, PhotoLocation.contains(path: movie.filePath, root: source.rootPath),
-                      !source.isIgnored(filePath: movie.filePath) else { continue }
-            }
+        for movie in movies where isAvailable(movie) {
             switch movie.mediaKind {
             case .tvShow:
                 if movie.source != nil { seriesEpisodes.append(movie) }

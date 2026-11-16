@@ -131,4 +131,26 @@ final class GroupedSearchTests: XCTestCase {
         XCTAssertFalse(matched.focusIDs.contains(oldFocus))
         XCTAssertEqual(matched.focusID(containing: anchor), "show:tmdb:42")
     }
+
+    func testOpenSearchShowTracksLibraryAndSourceEditsUntilNoEligibleEpisodesRemain() throws {
+        let original = show("Local Name", episodes: 2)
+        let nas = try XCTUnwrap(original[0].source)
+        let hit = try XCTUnwrap(LibrarySearch.results(in: original, text: "Local Name").shows.first)
+        let selection = SearchShowSelection(hit.show)
+        let added = episode("TV/Local Name/Season 2/Local Name.S02E01.mp4", source: nas)
+        let library = original + [added] + show("Other Show", episodes: 1)
+
+        nas.ignoredFiles = [original[0].filePath]
+        original[1].seriesTitle = "Canonical Name"
+        original[1].seriesTMDBID = 42
+        let current = try XCTUnwrap(selection.resolve(in: library))
+        XCTAssertEqual(current.id, "tmdb:42")
+        XCTAssertEqual(Set(current.episodes.map(\.id)), [original[1].id, added.id])
+
+        original[1].isMissing = true
+        added.seriesTMDBID = 42
+        XCTAssertEqual(selection.resolve(in: library, currentShowID: current.id)?.episodes.map(\.id), [added.id])
+        nas.rootPath = "Photos"
+        XCTAssertNil(selection.resolve(in: library, currentShowID: current.id))
+    }
 }

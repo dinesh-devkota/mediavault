@@ -122,6 +122,7 @@ struct TVShowBrowserView: View {
     private var selectedShow: TVShowGroup? {
         shows.first { $0.id == selectedShowID }
             ?? shows.first { show in selectedEpisodeID.map { id in show.episodes.contains { $0.id == id } } ?? false }
+            ?? shows.first { $0.id == initialShowID }
     }
     private var posterColumns: [GridItem] {
         [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
@@ -149,6 +150,10 @@ struct TVShowBrowserView: View {
         }
         .onChange(of: episodes.map(TVShowGroup.revision)) { _, _ in
             shows = TVShowGroup.groups(episodes)
+            if let season = selectedSeason, let items = selectedShow?.episodes(in: season),
+               !items.isEmpty && !items.contains(where: { $0.id == selectedEpisodeID }) {
+                restoreSelectionFocus()
+            }
         }
         .onChange(of: shows.map(\.id)) { _, _ in
             if let show = selectedShow { selectedShowID = show.id; restoreSelectionFocus() }

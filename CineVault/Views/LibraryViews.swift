@@ -359,6 +359,9 @@ struct SearchView: View {
 
     var body: some View {
         SearchResultsView(text: text, found: LibrarySearch.results(in: movies, text: text))
+            .navigationDestination(for: SearchShowSelection.self) { selection in
+                SearchShowDestination(selection: selection)
+            }
             .searchable(text: $text, prompt: "Titles, shows, episodes, genres, files")
     }
 }
@@ -437,9 +440,7 @@ private struct SearchResultsView: View {
         LazyVGrid(columns: posterColumns, spacing: 55) {
             ForEach(shows) { result in
                 let key = "show:\(result.id)"
-                NavigationLink {
-                    TVShowDestination(episodes: result.show.episodes, initialShowID: result.show.id)
-                } label: {
+                NavigationLink(value: SearchShowSelection(result.show)) {
                     TVShowArtwork(title: result.show.title, subtitle: result.subtitle,
                         path: result.show.posterPath, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
@@ -467,6 +468,25 @@ private struct SearchResultsView: View {
                     .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
+    }
+}
+
+private struct SearchShowDestination: View {
+    let selection: SearchShowSelection
+    @Query private var movies: [Movie]
+    @State private var currentShowID: String?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let show = selection.resolve(in: movies, currentShowID: currentShowID)
+        Group {
+            if let show {
+                TVShowDestination(episodes: show.episodes, initialShowID: show.id)
+            } else {
+                Color.clear.task { dismiss() }
+            }
+        }
+        .onChange(of: show?.id, initial: true) { _, id in currentShowID = id }
     }
 }
 
