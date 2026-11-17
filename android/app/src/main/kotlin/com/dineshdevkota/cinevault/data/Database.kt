@@ -53,6 +53,9 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE id = :id")
     suspend fun get(id: String): MovieEntity?
 
+    @Query("SELECT * FROM movies WHERE id IN (:ids)")
+    suspend fun forIds(ids: List<String>): List<MovieEntity>
+
     @Query("SELECT * FROM movies WHERE sourceId = :sourceId")
     suspend fun forSource(sourceId: String): List<MovieEntity>
 
@@ -92,6 +95,9 @@ interface MovieDao {
 
     @Query("UPDATE movies SET isWatched = :watched, playbackPositionMs = 0 WHERE id = :id")
     suspend fun setWatched(id: String, watched: Boolean)
+
+    @Query("UPDATE movies SET isWatched = :watched, playbackPositionMs = 0 WHERE id IN (:ids)")
+    suspend fun setWatched(ids: List<String>, watched: Boolean): Int
 
     @Query("UPDATE movies SET playbackPositionMs = 0 WHERE id = :id")
     suspend fun resetProgress(id: String)

@@ -156,6 +156,9 @@ struct LibraryView: View {
                     filterButton(.section, value: kind.label)
                 }
 
+                BulkWatchControl(title: "Select", scope: "\(kind.label) · current results", movies: results,
+                                 startsSelected: false, groupShows: true, includeHidden: preferences.filter == .hidden)
+
                 if !movies.contains(where: { $0.mediaKind == kind }) {
                     ContentUnavailableView("No \(kind.label.lowercased()) yet", systemImage: kind == .music ? "music.note" : "film",
                                            description: Text("Add the parent media folder in Sources. Its subfolders are scanned automatically."))
@@ -242,6 +245,14 @@ struct LibraryView: View {
 
 #if DEBUG
 extension LibraryView {
+    init(previewingBulk: Bool) {
+        self.init()
+        let suite = "com.dineshdevkota.cinevault.preview.bulk"
+        guard let defaults = UserDefaults(suiteName: suite) else { fatalError("Preview defaults unavailable") }
+        defaults.removePersistentDomain(forName: suite)
+        _preferences = StateObject(wrappedValue: LibraryPreferences(defaults: defaults))
+    }
+
     init(previewingGenres preferences: LibraryPreferences) {
         self.init()
         _preferences = StateObject(wrappedValue: preferences)

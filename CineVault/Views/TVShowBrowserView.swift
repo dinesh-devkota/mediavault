@@ -1,4 +1,5 @@
 import CineVaultCore
+import SwiftData
 import SwiftUI
 
 struct TVShowGroup: Identifiable {
@@ -125,6 +126,7 @@ struct TVShowBrowserView: View {
     @State private var initialized = false
     @State private var shows: [TVShowGroup] = []
     @FocusState private var focusedItem: String?
+    @Query private var library: [Movie]
 
     private var selectedShow: TVShowGroup? {
         shows.first { $0.id == selectedShowID }
@@ -183,6 +185,14 @@ struct TVShowBrowserView: View {
                             .font(.system(size: 32, weight: .semibold))
                     }
                 }
+            }
+            if let show = selectedShow {
+                // Home and filtered library shelves may pass only some of a show's episodes.
+                // Resolve its full current library before offering a show or season action.
+                let currentShow = SearchShowSelection(show).resolve(in: library) ?? show
+                let currentEpisodes = selectedSeason.map { currentShow.episodes(in: $0) } ?? currentShow.episodes
+                let scope = selectedSeason.map { "\(currentShow.title) · \(TVShowGroup.seasonTitle($0))" } ?? "\(currentShow.title) · all seasons"
+                BulkWatchControl(title: "Watched status", scope: scope, movies: currentEpisodes)
             }
             if let show = selectedShow, let season = selectedSeason {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 400, maximum: 400), spacing: 48)], spacing: 48) {

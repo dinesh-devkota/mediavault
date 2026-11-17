@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -106,16 +107,18 @@ private fun WatchedBadge(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean? = null) {
     Column(modifier) {
         Card(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).pointerClick(onClick = onClick),
+            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).pointerClick(onClick = onClick)
+                .then(if (selected == null) Modifier else Modifier.testTag("bulk-item:${movie.id}").semantics { this.selected = selected }),
             shape = CardDefaults.shape(CardShape),
         ) {
             Box(Modifier.fillMaxSize()) {
                 Artwork(Tmdb.imageUrl(movie.posterPath, "w342"), movie.title, Modifier.fillMaxSize())
                 if (movie.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
+                selected?.let { SelectionBadge(it, Modifier.align(Alignment.TopStart).padding(8.dp)) }
                 if (movie.isInProgress) {
                     ProgressLine(movie.progress, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(10.dp))
                 }

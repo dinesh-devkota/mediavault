@@ -118,6 +118,15 @@ private fun MediaGuideScreen() {
         }
         item {
             GuideSection(
+                "Change watched status in bulk",
+                "Choose Select in Library, select videos, open Watched status, then choose Mark watched or Mark unwatched. " +
+                    "Select all results uses your current filters. Open a show or season and choose Watched status " +
+                    "to update all its available episodes, including those outside Watchlist. Review the count before applying. Back cancels selection. " +
+                    "Both actions clear the selected files' saved resume positions.",
+            )
+        }
+        item {
+            GuideSection(
                 "Supported playback formats",
                 "Video: MP4, M4V, MOV, MKV, WebM, AVI, standard MPEG-TS, MPEG-PS, and FLV. " +
                     "Audio: MP3, M4A, AAC, FLAC, WAV, Ogg, and Opus. The TV must also support the codecs " +

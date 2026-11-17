@@ -247,6 +247,113 @@ class WatchlistNavigationTest {
         assertFalse(hasVisibleText("Alpha Other"))
     }
 
+    @Test
+    fun bulkSelectionUsesFilteredResultsAndKeepsFocusWhenTheyDisappear() = runBlocking {
+        val source = source("Bulk fixture")
+        val first = movie(source, "First drama", 1994)
+        val second = movie(source, "Second drama", 1996)
+        val other = movie(source, "Other comedy", 1996, genre = "Comedy")
+        container.database.movies().saveProgress(first.id, 45_000, 120_000, 123)
+        container.settings.libraryFilter = LibraryFilter.UNWATCHED
+        container.settings.libraryFacets = LibraryFacets(genres = setOf("Drama"))
+        launchHomeAfterScan().use { main ->
+            device.pressDPadRight()
+            visible("2 titles")
+            activate("Select")
+            activateTag("bulk-item:${first.id}")
+            visible("Watched status (1)")
+            device.pressBack()
+            visible("Select")
+            assertFalse(requireNotNull(container.database.movies().get(first.id)).isWatched)
+            activate("Select")
+            activate("Select all results")
+            visible("Watched status (2)")
+            activate("Watched status (2)")
+            visible("2 selected files. Saved resume positions will be cleared.")
+            device.pressBack()
+            visible("Watched status (2)")
+            activate("Watched status (2)")
+            activate("Mark watched")
+            visible("2 files marked watched.")
+            visible("No matching movies")
+            compose.waitUntilExactlyOneExists(hasTestTag("bulk-select") and isFocused(), timeoutMillis = 10_000)
+            for (item in listOf(first, second)) {
+                val saved = requireNotNull(container.database.movies().get(item.id))
+                assertTrue(saved.isWatched)
+                assertEquals(0L, saved.playbackPositionMs)
+            }
+            assertEquals(123L, requireNotNull(container.database.movies().get(first.id)).lastPlayedAt)
+            assertFalse(requireNotNull(container.database.movies().get(other.id)).isWatched)
+            main.recreate()
+            visible("No matching movies")
+            activate("Show: Unwatched")
+            activate("Watched")
+            visible("2 titles")
+            activate("Select")
+            activate("Select all results")
+            activate("Watched status (2)")
+            activate("Mark unwatched")
+            visible("2 files marked unwatched.")
+            assertFalse(requireNotNull(container.database.movies().get(first.id)).isWatched)
+            assertFalse(requireNotNull(container.database.movies().get(second.id)).isWatched)
+        }
+    }
+
+    @Test
+    fun wholeSeasonAndShowActionsIncludeWatchedEpisodesOutsideTheFilter() = runBlocking {
+        val source = source("Bulk series fixture")
+        suspend fun episode(season: Int, number: Int, watched: Boolean = false): MovieEntity {
+            val file = "24.S${season.toString().padStart(2, '0')}E${number.toString().padStart(2, '0')}.mp4"
+            return MovieEntity(sourceId = source.id, filePath = "TV/24/$file", fileName = file,
+                fileSize = 100, parsedTitle = "24", parsedYear = null, title = "Hour $number", year = null,
+                seriesTitle = "24", seriesTmdbId = 2400, seasonNumber = season, episodeNumber = number,
+                isWatched = watched, playbackPositionMs = 45_000, metadataFetched = true)
+                .also { container.database.movies().insert(it) }
+        }
+        val first = episode(1, 1, watched = true)
+        val second = episode(1, 2)
+        val nextSeason = episode(2, 1)
+        container.settings.libraryFilter = LibraryFilter.UNWATCHED
+        launchHomeAfterScan().use {
+            device.pressDPadRight()
+            activate("Section: Movies")
+            activate("TV Shows")
+            // Section switches reset filter. Reapply it to verify complete-series actions.
+            activate("Show: All")
+            activate("Unwatched")
+            activateTag("tv-show:tmdb:2400")
+            activateTag("tv-season:tmdb:2400:1")
+            activate("Watched status")
+            visible("24 · Season 1 · All available episodes")
+            visible("2 selected files. Saved resume positions will be cleared.")
+            activate("Mark unwatched")
+            visible("2 files marked unwatched.")
+            for (item in listOf(first, second)) {
+                val saved = requireNotNull(container.database.movies().get(item.id))
+                assertFalse(saved.isWatched)
+                assertEquals(0L, saved.playbackPositionMs)
+            }
+            assertEquals(45_000L, requireNotNull(container.database.movies().get(nextSeason.id)).playbackPositionMs)
+            activate("Back")
+            activate("Watched status")
+            visible("24 · All available episodes")
+            visible("3 selected files. Saved resume positions will be cleared.")
+            activate("Mark watched")
+            withTimeout(10_000) {
+                container.database.movies().observeAll().first { items -> items.size == 3 && items.all { it.isWatched } }
+            }
+            visible("3 files marked watched.")
+            compose.waitUntilExactlyOneExists(hasTestTag("bulk-select") and isFocused(), timeoutMillis = 10_000)
+        }
+    }
+
+    private fun activateTag(tag: String) {
+        val matcher = hasTestTag(tag) and hasClickAction()
+        compose.waitUntilExactlyOneExists(matcher, timeoutMillis = 10_000)
+        compose.onNode(matcher).performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.onNode(matcher).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+    }
+
     private fun activate(text: String) {
         val matcher = hasText(text) and hasClickAction()
         compose.waitUntilExactlyOneExists(matcher, timeoutMillis = 10_000)

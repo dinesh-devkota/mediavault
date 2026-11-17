@@ -166,6 +166,24 @@ lets you decide whether to skip ahead. Select the card to see the details,
 then choose **Play** or **Resume**. You can also open the next episode from
 the current episode’s details. Specials are followed separately.
 
+## Change watched status in bulk
+
+In **Library**, choose **Select** and select the videos you want to change.
+**Select all results** uses your current filters. On Android TV, open
+**Watched status** after selecting the cards. Check the selected count,
+then choose **Mark watched** or **Mark unwatched**. **Clear** removes the
+selection, and **Back** cancels it.
+
+To update a show, open its season list and choose **Watched status**. Open a
+season first to update that season's episodes. These shortcuts cover the whole
+available show or season, including watched episodes and episodes outside your
+Watchlist. Hidden, missing and excluded files are left out. Review the named
+scope and count before applying a change.
+
+Both actions clear saved resume positions for the selected files. Marking a
+video unwatched lets you start it again from the beginning. Alternate copies
+are separate files and are included in the count when selected.
+
 ## Check the scan and playback
 
 Keep the NAS reachable while scanning. Progress and partial results can appear

@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -29,13 +31,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Card
@@ -44,7 +50,11 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.core.Tmdb
+import com.dineshdevkota.cinevault.core.MediaKind
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.container
+import com.dineshdevkota.cinevault.library.watchStatusItems
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
 internal fun CollectionRow(
@@ -99,7 +109,12 @@ internal fun TVShowBrowser(
     fun holdFocus() { if (restoreNavigationFocus) { focusRequest++; holdingFocus = true; transitionFocus.requestFocus() } }
     val show = shows.firstOrNull { it.id == showId }
         ?: shows.firstOrNull { candidate -> anchorId != null && candidate.episodes.any { it.id == anchorId } }
+    val selection = remember { WatchSelection() }
+    val container = LocalContext.current.container
+    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allMovies by remember { container.database.movies().observeAll() }.collectAsStateWithLifecycle(initialValue = emptyList())
     val goBack: () -> Unit = {
+        selection.finish()
         if (season != null) { holdFocus(); season = null }
         else if (initialShowId != null && onExit != null) onExit()
         else { showId = null; anchorId = null }
@@ -123,6 +138,19 @@ internal fun TVShowBrowser(
     }
     val children = remember(show, season) { show?.episodes.orEmpty().filter { tvSeason(it) == season }
         .sortedWith(compareBy(::tvEpisode).thenBy { it.filePath }) }
+    val scopeItems = if (show == null) shows.flatMap { it.episodes } else if (season == null) show.episodes else children
+    val selectable = remember(scopeItems, sources) { watchStatusItems(scopeItems, sources) }
+    val selectableIds = remember(selectable) { selectable.map { it.id }.toSet() }
+    val completeShow = remember(allMovies, sources, show?.id, anchorId) {
+        val allEpisodes = watchStatusItems(allMovies, sources).filter { !it.isHidden && it.mediaKind == MediaKind.TV_SHOW }
+        groupTVShows(allEpisodes).firstOrNull { it.id == show?.id || (anchorId != null && it.episodes.any { episode -> episode.id == anchorId }) }
+    }
+    val wholeScopeItems = completeShow?.episodes.orEmpty().filter { season == null || tvSeason(it) == season }
+    val scopeTitle = show?.let { selected -> season?.let { "${selected.title} · ${tvSeasonTitle(it)}" } ?: selected.title } ?: "TV Shows"
+    fun selectionFor(items: List<MovieEntity>): Boolean? {
+        val ids = items.map { it.id }.filter { it in selectableIds }
+        return if (selection.selecting && ids.isNotEmpty()) selection.ids.containsAll(ids) else null
+    }
     val showGrid = rememberLazyGridState()
     val seasonGrid = rememberLazyGridState()
     val episodeGrid = rememberLazyGridState()
@@ -164,6 +192,9 @@ internal fun TVShowBrowser(
                     style = MaterialTheme.typography.titleLarge)
             }
         }
+        BulkWatchControls(selectable, "$scopeTitle · Current results", selection,
+            Modifier.padding(horizontal = ScreenPadding), allowWholeScope = show != null,
+            wholeScopeItems = wholeScopeItems, wholeScopeTitle = "$scopeTitle · All available episodes")
         LazyVerticalGrid(
             modifier = Modifier.weight(1f), state = grid,
             columns = GridCells.Adaptive(if (season == null) 148.dp else 260.dp),
@@ -171,17 +202,28 @@ internal fun TVShowBrowser(
             horizontalArrangement = Arrangement.spacedBy(28.dp), verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
             if (show == null) {
+                if (shows.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                    EmptyState("No matching TV shows", "Try another filter or check your sources.")
+                }
                 items(shows, key = { it.id }) { item ->
                     TVArtworkCard(item.title, "${item.seasons.size} seasons", item.posterPath,
+                        selected = selectionFor(item.episodes),
                         cardModifier = focusModifier(item.id == targetKey, "tv-show:${item.id}"),
-                        onClick = { holdFocus(); showId = item.id; anchorId = item.episodes.firstOrNull()?.id; season = null })
+                        onClick = {
+                            if (selection.selecting) selection.toggle(item.episodes.map { it.id }.filter { it in selectableIds })
+                            else { holdFocus(); showId = item.id; anchorId = item.episodes.firstOrNull()?.id; season = null }
+                        })
                 }
             } else if (season == null) {
                 items(show.seasons, key = { it }) { number ->
                     val children = show.episodes.filter { tvSeason(it) == number }
                     TVArtworkCard(tvSeasonTitle(number), "${children.size} episodes", children.firstNotNullOfOrNull { it.seasonPosterPath },
+                        selected = selectionFor(children),
                         cardModifier = focusModifier(number == targetSeason, "tv-season:${show.id}:$number"),
-                        onClick = { holdFocus(); lastSeason = number; season = number })
+                        onClick = {
+                            if (selection.selecting) selection.toggle(children.map { it.id }.filter { it in selectableIds })
+                            else { holdFocus(); lastSeason = number; season = number }
+                        })
                 }
             } else {
                 items(children, key = { it.id }) { episode ->
@@ -189,8 +231,12 @@ internal fun TVShowBrowser(
                     TVArtworkCard(number?.let { "E$it · ${episode.title}" } ?: episode.title,
                         if (episode.isWatched) "Watched" else if (episode.isInProgress) "In progress" else "Episode",
                         episode.backdropPath, wide = true,
+                        selected = selectionFor(listOf(episode)),
                         cardModifier = focusModifier(episode.id == targetEpisode, "tv-episode:${episode.id}"),
-                        onClick = { lastEpisode = episode.id; onOpen(episode) })
+                        onClick = {
+                            if (selection.selecting) selection.toggle(listOf(episode.id).filter { it in selectableIds })
+                            else { lastEpisode = episode.id; onOpen(episode) }
+                        })
                 }
             }
         }
@@ -200,13 +246,17 @@ internal fun TVShowBrowser(
 @Composable
 internal fun TVArtworkCard(
     title: String, subtitle: String, path: String?, modifier: Modifier = Modifier,
-    wide: Boolean = false, cardModifier: Modifier = Modifier, onClick: () -> Unit,
+    wide: Boolean = false, cardModifier: Modifier = Modifier, selected: Boolean? = null, onClick: () -> Unit,
 ) {
     Column(modifier) {
         Card(onClick = onClick,
-            modifier = cardModifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else 2f / 3f).pointerClick(onClick = onClick),
+            modifier = cardModifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else 2f / 3f).pointerClick(onClick = onClick)
+                .then(if (selected == null) Modifier else Modifier.semantics { this.selected = selected }),
             shape = CardDefaults.shape(RoundedCornerShape(10.dp))) {
-            Artwork(Tmdb.imageUrl(path, if (wide) "w780" else "w342"), title, Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize()) {
+                Artwork(Tmdb.imageUrl(path, if (wide) "w780" else "w342"), title, Modifier.fillMaxSize())
+                selected?.let { SelectionBadge(it, Modifier.align(Alignment.TopStart).padding(8.dp)) }
+            }
         }
         Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp).clearAndSetSemantics {})

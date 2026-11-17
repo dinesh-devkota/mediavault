@@ -1,5 +1,6 @@
 package com.dineshdevkota.cinevault.library
 
+import androidx.room.withTransaction
 import com.dineshdevkota.cinevault.core.TitleEdit
 import com.dineshdevkota.cinevault.core.TmdbMovieSummary
 import com.dineshdevkota.cinevault.core.WatchRules
@@ -44,6 +45,17 @@ class LibraryEditor(
     /** Queue behind the player's final save so it cannot undo this later user action. */
     suspend fun setWatched(movieId: String, watched: Boolean) {
         progressWriter.await { database.movies().setWatched(movieId, watched) }
+    }
+
+    /** One atomic edit, ordered after player saves and bounded below SQLite's bind limit. */
+    suspend fun setWatched(movieIds: Collection<String>, watched: Boolean): Int = progressWriter.await {
+        database.withTransaction {
+            val sources = database.sources().all()
+            movieIds.distinct().chunked(900).sumOf { chunk ->
+                val ids = watchStatusItems(database.movies().forIds(chunk), sources).map { it.id }
+                if (ids.isEmpty()) 0 else database.movies().setWatched(ids, watched)
+            }
+        }
     }
 
     /**

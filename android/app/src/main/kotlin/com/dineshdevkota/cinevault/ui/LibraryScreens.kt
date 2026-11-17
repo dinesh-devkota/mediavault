@@ -65,6 +65,7 @@ import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.photos.photoAvailable
+import com.dineshdevkota.cinevault.library.watchStatusItems
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -310,10 +311,16 @@ private fun LazyGridScope.fullWidth(content: @Composable () -> Unit) {
     item(span = { GridItemSpan(maxLineSpan) }) { content() }
 }
 
-private fun LazyGridScope.posters(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) {
+private fun LazyGridScope.posters(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit,
+    selection: WatchSelection? = null, selectable: Set<String> = emptySet()) {
     items(movies, key = { it.id }) { movie ->
         if (movie.isPhoto) PhotoTile(movie, onClick = { onOpen(movie) })
-        else PosterCard(movie, onClick = { onOpen(movie) })
+        else PosterCard(movie, selected = if (selection?.selecting == true && movie.id in selectable) movie.id in selection.ids else null,
+            onClick = {
+                if (selection?.selecting == true) {
+                    if (movie.id in selectable) selection.toggle(listOf(movie.id))
+                } else onOpen(movie)
+            })
     }
 }
 
@@ -346,6 +353,9 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
         LibraryQuery.visible(collection, sort, filter, facets)
     }
     val tvShows = remember(visible, kind) { if (kind == MediaKind.TV_SHOW) groupTVShows(visible) else emptyList() }
+    val selection = remember(kind) { WatchSelection() }
+    val selectable = remember(visible, sources) { watchStatusItems(visible, sources.orEmpty()) }
+    val selectableIds = remember(selectable) { selectable.map { it.id }.toSet() }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ScreenHeader(
@@ -397,8 +407,10 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
                 ) { Text("Clear filters") }
             }
         }
+        if (kind != MediaKind.TV_SHOW) BulkWatchControls(selectable, "${kind.label} · Current results", selection,
+            Modifier.padding(horizontal = ScreenPadding))
         Box(Modifier.weight(1f)) {
-            if (kind == MediaKind.TV_SHOW && visible.isNotEmpty()) {
+            if (kind == MediaKind.TV_SHOW) {
                 TVShowBrowser(visible, onOpen, preparedShows = tvShows)
             } else {
             // Five columns on a 960dp-wide TV leave room for a complete poster
@@ -409,7 +421,7 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
                     visible.isEmpty() -> fullWidth {
                         EmptyState(if (kind == MediaKind.MOVIE) "No matching movies" else "No matching items", "Try another filter, source, decade or genre.")
                     }
-                    else -> posters(visible, onOpen)
+                    else -> posters(visible, onOpen, selection, selectableIds)
                 }
             }
             }

@@ -10,7 +10,9 @@ struct DesignPreview: View {
     static let isFilters = ProcessInfo.processInfo.arguments.contains("--ui-preview-filters")
     static let isSearch = ProcessInfo.processInfo.arguments.contains("--ui-preview-search")
     static let isSearchInput = ProcessInfo.processInfo.arguments.contains("--ui-preview-search-input")
-    static let isEnabled = isDetail || isFilters || isSearch || isSearchInput || ProcessInfo.processInfo.arguments.contains("--ui-preview")
+    static let isBulk = ProcessInfo.processInfo.arguments.contains("--ui-preview-bulk")
+    static let isBulkShow = ProcessInfo.processInfo.arguments.contains("--ui-preview-bulk-show")
+    static let isEnabled = isDetail || isFilters || isSearch || isSearchInput || isBulk || isBulkShow || ProcessInfo.processInfo.arguments.contains("--ui-preview")
 
     private static let filterPreferences: LibraryPreferences = {
         let suite = "com.dineshdevkota.cinevault.preview.filters"
@@ -23,6 +25,7 @@ struct DesignPreview: View {
 
     private let container: ModelContainer
     private let featuredMovie: Movie
+    private let bulkEpisodes: [Movie]
 
     init() {
         do {
@@ -42,6 +45,7 @@ struct DesignPreview: View {
                 ("The Last Signal", 2019, "Thriller", "A mysterious message changes the course of an ordinary night."),
             ]
             var featuredMovie: Movie?
+            var bulkEpisodes: [Movie] = []
             for (index, sample) in samples.enumerated() {
                 let movie = Movie(filePath: "Movies/\(sample.title).mp4",
                                   fileSize: Int64(index + 2) * 1_000_000_000,
@@ -89,12 +93,25 @@ struct DesignPreview: View {
                     context.insert(episode)
                 }
             }
+            if Self.isBulkShow {
+                for season in 1...2 {
+                    for number in 1...2 {
+                        let path = String(format: "TV Shows/24/Season %d/24.S%02dE%02d.mp4", season, season, number)
+                        let episode = Movie(filePath: path, fileSize: 100, source: source)
+                        episode.resetToFileName()
+                        episode.setTitle("Day \(season) · Hour \(number)")
+                        context.insert(episode)
+                        bulkEpisodes.append(episode)
+                    }
+                }
+            }
             try context.save()
             guard let featuredMovie else {
                 fatalError("The design preview library is empty.")
             }
             self.container = container
             self.featuredMovie = featuredMovie
+            self.bulkEpisodes = bulkEpisodes
         } catch {
             fatalError("Unable to create the in-memory design preview: \(error)")
         }
@@ -102,7 +119,17 @@ struct DesignPreview: View {
 
     var body: some View {
         Group {
-            if Self.isSearch || Self.isSearchInput {
+            if Self.isBulkShow, let show = TVShowGroup.groups(bulkEpisodes).first {
+                NavigationStack {
+                    TVShowDestination(episodes: bulkEpisodes, initialShowID: show.id).movieDestination()
+                }
+                .tint(CinemaTheme.accent)
+                .preferredColorScheme(.dark)
+            } else if Self.isBulk {
+                NavigationStack { LibraryView(previewingBulk: true).movieDestination() }
+                    .tint(CinemaTheme.accent)
+                    .preferredColorScheme(.dark)
+            } else if Self.isSearch || Self.isSearchInput {
                 NavigationStack {
                     Group {
                         if Self.isSearch { LibrarySearchResultsView(text: "24") }
