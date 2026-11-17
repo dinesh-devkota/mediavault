@@ -704,3 +704,16 @@ scan-summary failures are resolved.
   passed all 57 tests with zero skips. The saved `CineVault_TV` emulator
   received the tested Android APK, verified installed SHA-256
   `221eeb852684e8a76fc37f7d83a41db4c99f3da1ae58c6c71e847695bf7db37b`.
+- The new Apple remote test exposed a debug-preview lifetime bug: saving a
+  season recreated its in-memory store while the screen retained old models.
+  The preview now owns the store through `@StateObject`. Production scenes
+  continue to use SwiftUI's managed model container. The Search remote test
+  waits for a stable card to appear and then gain focus during navigation.
+- The user guide includes verified selection screenshots for both platforms.
+- Revision `0edff81` passed all 116 [Apple TV simulator tests](https://github.com/dinesh-devkota/mediavault/actions/runs/44189313739),
+  with zero failures or skips. Both bulk remote journeys passed, including
+  saving one season while leaving the other season unwatched. The final
+  Android source passed all 57 [runtime tests](https://github.com/dinesh-devkota/mediavault/actions/runs/44184967734)
+  with zero skips. The unsigned Apple release build, 66 core tests, five
+  helper tests and eight visual previews had also passed on the feature.
+  Physical Apple TV playback remains unverified.
