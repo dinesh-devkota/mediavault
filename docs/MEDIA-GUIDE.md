@@ -188,6 +188,8 @@ are separate files and are included in the count when selected.
 
 ![Android TV confirmation for all available episodes in Season 1 of the sample show 24](screenshots/android-season-watched.png)
 
+![Apple TV watched-status sheet with two selected movies and both bulk actions](screenshots/apple-bulk-selection.png)
+
 ## Check the scan and playback
 
 Keep the NAS reachable while scanning. Progress and partial results can appear

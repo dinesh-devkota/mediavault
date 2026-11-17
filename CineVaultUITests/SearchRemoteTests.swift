@@ -14,14 +14,18 @@ final class SearchRemoteTests: XCTestCase {
         let episode = "E2 · Day 2 · Hour 2"
 
         // SwiftUI combines a card's title and subtitle into its accessible label.
-        func focusedCard(_ label: String) -> XCUIElement {
-            app.descendants(matching: .any).matching(
-                NSPredicate(format: "hasFocus == YES AND label CONTAINS %@", label)
+        func card(_ label: String) -> XCUIElement {
+            app.buttons.matching(
+                NSPredicate(format: "label CONTAINS %@", label)
             ).firstMatch
         }
         func assertFocus(_ label: String, file: StaticString = #filePath, line: UInt = #line) {
-            XCTAssertTrue(focusedCard(label).waitForExistence(timeout: 8),
-                          "Expected remote focus on \(label).\n\(app.debugDescription)", file: file, line: line)
+            let target = card(label)
+            XCTAssertTrue(target.waitForExistence(timeout: 8), app.debugDescription, file: file, line: line)
+            // Wait for the card to appear, then observe its focus as layout settles.
+            let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == YES"), object: target)
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 8), .completed,
+                           "Expected remote focus on \(label).\n\(app.debugDescription)", file: file, line: line)
         }
 
         let field = app.searchFields["Titles, shows, episodes, genres, files"]
@@ -32,7 +36,7 @@ final class SearchRemoteTests: XCTestCase {
         XCTAssertEqual(field.value as? String, "24")
         // Move from the system keyboard to the grouped show.
         for _ in 0..<6 {
-            if focusedCard(show).exists { break }
+            if card(show).exists && card(show).hasFocus { break }
             remote.press(.down)
         }
         assertFocus(show)
