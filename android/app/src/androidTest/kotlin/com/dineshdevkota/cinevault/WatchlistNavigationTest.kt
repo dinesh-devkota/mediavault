@@ -14,6 +14,8 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.printToString
+import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -262,6 +264,11 @@ class WatchlistNavigationTest {
             activate("Select")
             activateTag("bulk-item:${first.id}")
             visible("Watched status (1)")
+            container.database.sources().upsert(source.copy(ignoredFiles = listOf(first.filePath)))
+            visible("Watched status (0)")
+            container.database.sources().upsert(source)
+            compose.waitUntilExactlyOneExists(hasTestTag("bulk-item:${first.id}"), timeoutMillis = 10_000)
+            visible("Watched status (0)")
             device.pressBack()
             visible("Select")
             assertFalse(requireNotNull(container.database.movies().get(first.id)).isWatched)
@@ -349,7 +356,11 @@ class WatchlistNavigationTest {
 
     private fun activateTag(tag: String) {
         val matcher = hasTestTag(tag) and hasClickAction()
-        compose.waitUntilExactlyOneExists(matcher, timeoutMillis = 10_000)
+        try {
+            compose.waitUntilExactlyOneExists(matcher, timeoutMillis = 10_000)
+        } catch (failure: AssertionError) {
+            throw AssertionError("$tag\n${compose.onRoot(useUnmergedTree = true).printToString()}", failure)
+        }
         compose.onNode(matcher).performSemanticsAction(SemanticsActions.RequestFocus)
         compose.onNode(matcher).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
     }
@@ -408,7 +419,11 @@ class WatchlistNavigationTest {
     }
 
     private fun visible(text: String) {
-        compose.waitUntil("visible TV text '$text'", timeoutMillis = 10_000) { hasVisibleText(text) }
+        try {
+            compose.waitUntil("visible TV text '$text'", timeoutMillis = 10_000) { hasVisibleText(text) }
+        } catch (failure: AssertionError) {
+            throw AssertionError("$text\n${compose.onRoot(useUnmergedTree = true).printToString()}", failure)
+        }
     }
 
     private fun hasVisibleText(text: String): Boolean {

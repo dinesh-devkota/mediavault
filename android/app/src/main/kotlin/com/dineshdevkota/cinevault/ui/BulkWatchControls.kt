@@ -58,12 +58,14 @@ internal fun BulkWatchControls(
     items: List<MovieEntity>, scopeTitle: String, selection: WatchSelection,
     modifier: Modifier = Modifier, allowWholeScope: Boolean = false,
     wholeScopeItems: List<MovieEntity> = items, wholeScopeTitle: String = scopeTitle,
+    navigationFocus: FocusRequester? = null,
 ) {
     val container = LocalContext.current.container
     val scope = rememberCoroutineScope()
     val available = remember(items) { items.map { it.id }.toSet() }
     val selected = selection.ids.intersect(available)
-    val actionFocus = remember { FocusRequester() }
+    val ownFocus = remember { FocusRequester() }
+    val actionFocus = navigationFocus ?: ownFocus
     var restoreFocus by remember { mutableStateOf(false) }
     var toolbarPlaced by remember { mutableStateOf(false) }
     val windowFocused = LocalWindowInfo.current.isWindowFocused
@@ -77,6 +79,7 @@ internal fun BulkWatchControls(
         if (restoreFocus && toolbarPlaced && windowFocused && actionFocus.requestFocus()) restoreFocus = false
     }
     fun closeDialog() {
+        actionFocus.requestFocus()
         selection.dialogIds = null
         error = null
         restoreFocus = true
@@ -143,6 +146,9 @@ internal fun BulkWatchControls(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 for (watched in listOf(true, false)) {
                     Button(enabled = !saving && targets.isNotEmpty(), onClick = {
+                        // Preserve the parent window's focus before a watched filter removes
+                        // cards or a quick action's show disappears behind the dialog.
+                        actionFocus.requestFocus()
                         saving = true
                         error = null
                         scope.launch {

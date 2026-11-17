@@ -104,9 +104,13 @@ internal fun TVShowBrowser(
     var lastSeason by rememberSaveable(initialShowId) { mutableStateOf<Int?>(null) }
     var lastEpisode by rememberSaveable(initialShowId) { mutableStateOf<String?>(null) }
     val transitionFocus = remember { FocusRequester() }
+    val navigationFocus = remember { FocusRequester() }
     var holdingFocus by remember { mutableStateOf(false) }
     var focusRequest by remember { mutableIntStateOf(0) }
-    fun holdFocus() { if (restoreNavigationFocus) { focusRequest++; holdingFocus = true; transitionFocus.requestFocus() } }
+    fun holdFocus() {
+        navigationFocus.requestFocus()
+        if (restoreNavigationFocus) { focusRequest++; holdingFocus = true; transitionFocus.requestFocus() }
+    }
     val show = shows.firstOrNull { it.id == showId }
         ?: shows.firstOrNull { candidate -> anchorId != null && candidate.episodes.any { it.id == anchorId } }
     val selection = remember { WatchSelection() }
@@ -194,7 +198,8 @@ internal fun TVShowBrowser(
         }
         BulkWatchControls(selectable, "$scopeTitle · Current results", selection,
             Modifier.padding(horizontal = ScreenPadding), allowWholeScope = show != null,
-            wholeScopeItems = wholeScopeItems, wholeScopeTitle = "$scopeTitle · All available episodes")
+            wholeScopeItems = wholeScopeItems, wholeScopeTitle = "$scopeTitle · All available episodes",
+            navigationFocus = navigationFocus)
         LazyVerticalGrid(
             modifier = Modifier.weight(1f), state = grid,
             columns = GridCells.Adaptive(if (season == null) 148.dp else 260.dp),
