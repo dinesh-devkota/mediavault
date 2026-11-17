@@ -101,6 +101,21 @@ jobs:
               print(f"::error title=tvOS simulator test::{message}")
           PY
           fi
+      - name: Export remote test screenshots
+        if: always()
+        run: |
+          if [[ -d "$RUNNER_TEMP/nas-results.xcresult" ]]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/nas-results.xcresult" \
+              --output-path "$RUNNER_TEMP/remote-test-screenshots"
+          fi
+      - name: Upload remote test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinevault-remote-test-screenshots
+          path: ${{ runner.temp }}/remote-test-screenshots
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

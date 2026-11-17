@@ -681,3 +681,26 @@ scan-summary failures are resolved.
   `ec288e6d9e9d5b2e1b6f5855dd62df9ea905bea67ee0ff4b4db80952e179cddc`.
   The emulator was closed after verification. Physical Apple TV playback is
   still unverified.
+
+## Bulk watched controls (2026-11-17)
+
+- Work starts from public development revision `55c694e` in the isolated
+  `codex/bulk-watched` checkout. The original workspace has the separate
+  `codex/mediavault-web-video` branch, whose changes are independent.
+- Both TV apps offer Library **Select**, **Select all results**, selection
+  counts and watched/unwatched actions. Whole-show and season shortcuts resolve
+  all available episodes, including those outside a filtered Watchlist.
+  Library selection applies to its current filtered results.
+- Bulk changes clear resume positions and preserve last-played timestamps.
+  Android serializes an atomic, chunked transaction behind queued player saves.
+  Apple uses the existing commercial resume-reset pathway, restores local
+  progress on save failure and reports any per-file secure-reset failures.
+- Android's persistent Select control keeps focus during show/season changes
+  and when watched filters remove every selected card. Its two new remote
+  tests and all three existing Search navigation tests passed locally, along
+  with the bulk database regressions, 151 unit tests, lint and APK packaging.
+  Sample selection and season-dialog screenshots are in `docs/screenshots/`.
+- [Android runtime validation](https://github.com/dinesh-devkota/mediavault/actions/runs/44182944633)
+  passed all 57 tests with zero skips. The saved `CineVault_TV` emulator
+  received the tested Android APK, verified installed SHA-256
+  `221eeb852684e8a76fc37f7d83a41db4c99f3da1ae58c6c71e847695bf7db37b`.

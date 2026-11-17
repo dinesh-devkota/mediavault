@@ -184,6 +184,10 @@ Both actions clear saved resume positions for the selected files. Marking a
 video unwatched lets you start it again from the beginning. Alternate copies
 are separate files and are included in the count when selected.
 
+![Android TV sample library with two selected movie cards and a watched-status action](screenshots/android-bulk-selection.png)
+
+![Android TV confirmation for all available episodes in Season 1 of the sample show 24](screenshots/android-season-watched.png)
+
 ## Check the scan and playback
 
 Keep the NAS reachable while scanning. Progress and partial results can appear

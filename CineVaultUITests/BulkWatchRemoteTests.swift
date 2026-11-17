@@ -32,27 +32,33 @@ final class BulkWatchRemoteTests: XCTestCase {
         app.launchArguments = ["--ui-preview-bulk"]
         app.launch()
         choose(app.buttons["bulk-watch-open"], in: app)
-        XCTAssertTrue(app.staticTexts["0 of 5 files selected"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["0 of 6 files selected"].waitForExistence(timeout: 8))
         choose(app.buttons["bulk-watch-all"], in: app)
-        XCTAssertTrue(app.staticTexts["5 of 5 files selected"].exists)
+        XCTAssertTrue(app.staticTexts["6 of 6 files selected"].exists)
         XCUIRemote.shared.press(.menu)
         choose(app.buttons["bulk-watch-open"], in: app)
-        XCTAssertTrue(app.staticTexts["0 of 5 files selected"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["0 of 6 files selected"].waitForExistence(timeout: 8))
         let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "bulk-watch-row-"))
-        XCTAssertEqual(rows.count, 5)
+        // The selection list creates offscreen rows lazily. Verify the rows being changed.
+        XCTAssertGreaterThanOrEqual(rows.count, 2)
         XCTAssertFalse(rows.allElementsBoundByIndex.contains { $0.label.contains("Watched ·") })
-        choose(rows.element(boundBy: 0), in: app)
-        choose(rows.element(boundBy: 1), in: app)
-        XCTAssertTrue(app.staticTexts["2 of 5 files selected"].exists)
+        let firstID = rows.element(boundBy: 0).identifier
+        let secondID = rows.element(boundBy: 1).identifier
+        choose(app.buttons[firstID], in: app)
+        choose(app.buttons[secondID], in: app)
+        XCTAssertTrue(app.staticTexts["2 of 6 files selected"].exists)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "Apple TV selected library files"
         screenshot.lifetime = .keepAlways
         add(screenshot)
         choose(app.buttons["bulk-watch-watched"], in: app)
-        XCTAssertTrue(app.staticTexts["Marked 2 files watched."].waitForExistence(timeout: 8))
+        let result = app.descendants(matching: .any).matching(identifier: "bulk-watch-result").firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertEqual(result.label, "Marked 2 files watched.")
         choose(app.buttons["bulk-watch-open"], in: app)
-        XCTAssertTrue(app.staticTexts["0 of 5 files selected"].waitForExistence(timeout: 8))
-        XCTAssertEqual(rows.allElementsBoundByIndex.filter { $0.label.contains("Watched ·") }.count, 2)
+        XCTAssertTrue(app.staticTexts["0 of 6 files selected"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons[firstID].label.contains("Watched ·"))
+        XCTAssertTrue(app.buttons[secondID].label.contains("Watched ·"))
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(app.buttons["bulk-watch-open"].waitForExistence(timeout: 8))
     }
@@ -74,8 +80,14 @@ final class BulkWatchRemoteTests: XCTestCase {
         screenshot.lifetime = .keepAlways
         add(screenshot)
         choose(app.buttons["bulk-watch-watched"], in: app)
-        XCTAssertTrue(app.staticTexts["Marked 2 files watched."].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "E1 · Day 1", "Watched")).firstMatch.exists)
+        let result = app.descendants(matching: .any).matching(identifier: "bulk-watch-result").firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertEqual(result.label, "Marked 2 files watched.")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "E1 · Day 1", "Watched")).firstMatch.waitForExistence(timeout: 8), app.debugDescription)
+        let updated = XCTAttachment(screenshot: app.screenshot())
+        updated.name = "Apple TV watched season after saving"
+        updated.lifetime = .keepAlways
+        add(updated)
         XCUIRemote.shared.press(.menu)
         choose(seasonTwo, in: app)
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "E1 · Day 2", "Episode")).firstMatch.waitForExistence(timeout: 8))

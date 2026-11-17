@@ -42,6 +42,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /** Uses local rows and a refused loopback port; no NAS or metadata account is needed. */
 @RunWith(AndroidJUnit4::class)
@@ -280,6 +281,7 @@ class WatchlistNavigationTest {
             device.pressBack()
             visible("Watched status (2)")
             activate("Watched status (2)")
+            assertTrue(device.takeScreenshot(File(application.cacheDir, "bulk-watch-library.png")))
             activate("Mark watched")
             visible("2 files marked watched.")
             visible("No matching movies")
@@ -333,6 +335,7 @@ class WatchlistNavigationTest {
             activate("Watched status")
             visible("24 · Season 1 · All available episodes")
             visible("2 selected files. Saved resume positions will be cleared.")
+            assertTrue(device.takeScreenshot(File(application.cacheDir, "bulk-watch-season.png")))
             activate("Mark unwatched")
             visible("2 files marked unwatched.")
             for (item in listOf(first, second)) {
