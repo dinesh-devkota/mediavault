@@ -47,6 +47,8 @@ jobs:
           set -euo pipefail
           DEVICE='${{ steps.simulator.outputs.device }}'
           APP="$RUNNER_TEMP/cinevault-derived/Build/Products/Debug-appletvsimulator/CineVault.app"
+          # Verify the exact spelling independently of OCR's all-caps word spacing.
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' "$APP/Info.plist")" == "MediaVault" ]]
           swiftc scripts/verify_preview.swift -o "$RUNNER_TEMP/verify-preview"
           capture_when_ready() {
             local path="$1"
@@ -84,7 +86,7 @@ jobs:
           LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-detail)
           echo "$LAUNCH"
           PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-detail.png" "Start Over" "MEDIAVAULT"
+          capture_when_ready "$RUNNER_TEMP/cinevault-detail.png" "Start Over" "Midnight Horizon"
           xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
           LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-filters)
           PID="${LAUNCH##*: }"
