@@ -363,6 +363,7 @@ struct SettingsView: View {
             Section("About") {
                 Text("Media Vault").font(.headline)
                 Text(appVersion).font(.caption).foregroundStyle(.secondary)
+                    .focusable()
                     .accessibilityIdentifier("app-version")
                 Text("Media Vault plays MP4/M4V/MOV directly from your NAS over SMB. Other video containers require conversion to a supported container and compatible codecs.")
                     .font(.caption)

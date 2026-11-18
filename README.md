@@ -7,7 +7,7 @@ shows and music and displays photo albums directly from a NAS over SMB.
 Built with SwiftUI on tvOS and Compose for TV on Android.
 
 The Library remembers your last section when you return or reopen the app.
-Find the installed version and build under **Settings → About**.
+Find the installed version and build in **Settings**.
 
 On either TV, **Continue Watching** shows one card per active series. Resume
 the file you paused or see the season and episode number before playing the

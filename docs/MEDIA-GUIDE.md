@@ -10,7 +10,7 @@ Documentaries, TV Shows, or Music, when you return or reopen the app.
 Use **Section** to switch categories. **Clear filters** resets the filters
 within that section. Photos have their own tab.
 
-Open **Settings → About** to check your installed version and build.
+Open **Settings** to check your installed version and build (under **About** on Apple TV).
 The Media Vault naming update is version **1.1.0**, build **2**.
 
 ## Connect one shared parent folder

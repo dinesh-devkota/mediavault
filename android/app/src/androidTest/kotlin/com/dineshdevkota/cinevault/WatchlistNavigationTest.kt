@@ -268,6 +268,10 @@ class WatchlistNavigationTest {
         launchHomeAfterScan().use {
             device.pressDPadRight()
             visible("Section: TV Shows")
+            assertTrue(device.takeScreenshot(File(application.cacheDir, "media-vault-library.png")))
+            activate("Settings")
+            visible("Version ${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}")
+            assertTrue(device.takeScreenshot(File(application.cacheDir, "media-vault-settings.png")))
         }
     }
 
