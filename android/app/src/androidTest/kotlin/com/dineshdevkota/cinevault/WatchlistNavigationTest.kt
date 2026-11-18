@@ -259,7 +259,7 @@ class WatchlistNavigationTest {
             visible("Section: TV Shows")
             assertEquals(MediaKind.TV_SHOW, Settings(application, SecretBox()).librarySection)
             activate("Home")
-            visible("Welcome to Media Vault")
+            visible("Welcome to MediaVault")
             activate("Library")
             visible("Section: TV Shows")
             main.recreate()
@@ -427,7 +427,7 @@ class WatchlistNavigationTest {
                     !scanning && status?.startsWith("Scan failed for ${lastSource.name}:") == true
                 }.first { it }
             }
-            visible("Welcome to Media Vault")
+            visible("Welcome to MediaVault")
             return scenario
         } catch (error: Throwable) {
             scenario.close()

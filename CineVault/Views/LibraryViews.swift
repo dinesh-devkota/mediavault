@@ -290,7 +290,7 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 48) {
                 HStack(alignment: .bottom) {
-                    Text("Welcome to Media Vault")
+                    Text("Welcome to MediaVault")
                         .font(.system(size: 54, weight: .bold))
                     Spacer()
                     if let status = scanner.status {

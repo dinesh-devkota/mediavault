@@ -53,10 +53,10 @@ struct MediaGuideView: View {
                     .focusable()
             }
             Section("Scan and play") {
-                Text("Enter NAS credentials only in the app; a read-only account is recommended. Partial results can appear before scanning finishes, so check the status and last successful scan time. For video, Apple TV supports MP4, M4V, and MOV with compatible codecs; Android supports more containers. Media Vault does not transcode. Find the installed version and build in Settings → About.")
+                Text("Enter NAS credentials only in the app; a read-only account is recommended. Partial results can appear before scanning finishes, so check the status and last successful scan time. For video, Apple TV supports MP4, M4V, and MOV with compatible codecs; Android supports more containers. MediaVault does not transcode. Find the installed version and build in Settings → About.")
                     .focusable()
             }
         }
-        .navigationTitle("Media Vault Guide")
+        .navigationTitle("MediaVault Guide")
     }
 }

@@ -1,6 +1,6 @@
 # Android TV
 
-Media Vault reads media directly from SMB shares without a media server or
+MediaVault reads media directly from SMB shares without a media server or
 transcoding. The development build includes library browsing, search, sources,
 movie details, TMDB metadata, playback, photo albums, and library editing.
 
@@ -29,7 +29,7 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 For a downloaded artifact, replace the APK path with its extracted location.
-Open Media Vault from the TV launcher. The device or emulator must be able to reach
+Open MediaVault from the TV launcher. The device or emulator must be able to reach
 the NAS; enter its hostname or LAN address, not `localhost`.
 
 ## Connect a NAS

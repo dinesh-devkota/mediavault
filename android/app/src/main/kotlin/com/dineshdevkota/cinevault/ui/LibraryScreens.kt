@@ -190,7 +190,7 @@ private fun HomeTab(
     LazyColumn(contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
             ScreenHeader(
-                "Welcome to Media Vault",
+                "Welcome to MediaVault",
                 Modifier.padding(horizontal = ScreenPadding),
                 trailing = status,
             )

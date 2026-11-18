@@ -145,7 +145,7 @@ fun SettingsTab() {
         contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { ScreenHeader("Settings", kicker = "MEDIA VAULT",
+        item { ScreenHeader("Settings", kicker = "MEDIAVAULT",
             trailing = "Version ${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}") }
         item {
             OutlinedButton(onClick = { MediaGuideActivity.start(context) }) {
@@ -212,7 +212,7 @@ fun SettingsTab() {
         item { Text("About", style = MaterialTheme.typography.titleLarge) }
         item {
             Text(
-                "Media Vault streams MP4, MKV, WebM, AVI, TS and more directly from your NAS over SMB. " +
+                "MediaVault streams MP4, MKV, WebM, AVI, TS and more directly from your NAS over SMB. " +
                     "Which video and audio codecs play depends on your TV device.",
                 color = SecondaryText,
             )
