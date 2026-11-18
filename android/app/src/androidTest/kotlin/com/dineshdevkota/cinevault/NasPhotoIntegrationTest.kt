@@ -87,7 +87,7 @@ class NasPhotoIntegrationTest {
             val third = photos.single { it.fileName == "03.webp" }
             val broken = photos.single { it.fileName == "broken.jpg" }
             ActivityScenario.launch(MainActivity::class.java).use {
-                visible(hasText("Welcome to CoveShelf"))
+                visible(hasText("Welcome to Media Vault"))
                 device.pressDPadRight()
                 visible(hasText("No movies yet"))
                 device.pressDPadRight()

@@ -8,6 +8,7 @@ import androidx.core.content.edit
 import com.dineshdevkota.cinevault.core.LibraryFilter
 import com.dineshdevkota.cinevault.core.LibraryFacets
 import com.dineshdevkota.cinevault.core.LibrarySort
+import com.dineshdevkota.cinevault.core.MediaKind
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -81,6 +82,11 @@ class Settings(context: Context, private val secrets: SecretBox) {
 
     val hasTmdbKey: Boolean get() = tmdbApiKey.isNotEmpty()
 
+    /** Photos have their own tab; stale or unknown sections open Movies. */
+    var librarySection: MediaKind
+        get() = enumValue(SECTION_KEY, MediaKind.MOVIE).takeUnless { it == MediaKind.PHOTO } ?: MediaKind.MOVIE
+        set(value) = prefs.edit { putString(SECTION_KEY, (value.takeUnless { it == MediaKind.PHOTO } ?: MediaKind.MOVIE).name) }
+
     var librarySort: LibrarySort
         get() = enumValue(SORT_KEY, LibrarySort.TITLE)
         set(value) = prefs.edit { putString(SORT_KEY, value.name) }
@@ -110,6 +116,7 @@ class Settings(context: Context, private val secrets: SecretBox) {
 
     private companion object {
         const val TMDB_KEY = "tmdb_api_key"
+        const val SECTION_KEY = "library_section"
         const val SORT_KEY = "library_sort"
         const val FILTER_KEY = "library_filter"
         const val GENRE_KEY = "library_genre"

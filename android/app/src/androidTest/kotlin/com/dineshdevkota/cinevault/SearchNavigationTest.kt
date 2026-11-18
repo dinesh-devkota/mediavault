@@ -167,7 +167,7 @@ class SearchNavigationTest {
             withTimeout(15_000) { combine(container.scanner.status, container.scanner.isScanning) { status, scanning ->
                 !scanning && status?.startsWith("Scan failed for ${source.name}:") == true
             }.first { it } }
-            visible(hasText("Welcome to CoveShelf"))
+            visible(hasText("Welcome to Media Vault"))
             repeat(3) { device.pressDPadRight() }
             visible(hasTestTag("library-search-field"))
             return main

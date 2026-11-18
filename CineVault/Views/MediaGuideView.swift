@@ -40,7 +40,7 @@ struct MediaGuideView: View {
                     .focusable()
             }
             Section("Library filters") {
-                Text("Open Genre, Source or Decade, select several choices, then choose Apply. Comedy and Drama shows titles in either genre. Add a decade to narrow the results. Back cancels your edits. Clear filters shows the whole section again.")
+                Text("Open Genre, Source or Decade, select several choices, then choose Apply. Comedy and Drama shows titles in either genre. Add a decade to narrow the results. Back cancels your edits. Clear filters shows the whole section again. Library remembers your last section, including after restarting the app.")
             }
 
             Section("Change watched status in bulk") {
@@ -53,10 +53,10 @@ struct MediaGuideView: View {
                     .focusable()
             }
             Section("Scan and play") {
-                Text("Enter NAS credentials only in the app; a read-only account is recommended. Partial results can appear before scanning finishes, so check the status and last successful scan time. For video, Apple TV supports MP4, M4V, and MOV with compatible codecs; Android supports more containers. CoveShelf does not transcode.")
+                Text("Enter NAS credentials only in the app; a read-only account is recommended. Partial results can appear before scanning finishes, so check the status and last successful scan time. For video, Apple TV supports MP4, M4V, and MOV with compatible codecs; Android supports more containers. Media Vault does not transcode. Find the installed version and build in Settings → About.")
                     .focusable()
             }
         }
-        .navigationTitle("CoveShelf Guide")
+        .navigationTitle("Media Vault Guide")
     }
 }

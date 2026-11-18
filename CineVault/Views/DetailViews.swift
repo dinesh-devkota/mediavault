@@ -48,7 +48,7 @@ struct MovieDetailView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
                         .buttonStyle(.bordered)
-                    Text("COVESHELF  /  \(movie.mediaKind.label.uppercased())")
+                    Text("MEDIA VAULT  /  \(movie.mediaKind.label.uppercased())")
                         .font(.system(size: 18, weight: .semibold))
                         .tracking(3)
                         .foregroundStyle(CinemaTheme.accent)

@@ -41,7 +41,7 @@ class PhotoNavigationTest {
         }
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
-                visible(hasText("Welcome to CoveShelf"))
+                visible(hasText("Welcome to Media Vault"))
                 device.pressDPadRight()
                 visible(hasText("No movies yet"))
                 device.pressDPadRight()

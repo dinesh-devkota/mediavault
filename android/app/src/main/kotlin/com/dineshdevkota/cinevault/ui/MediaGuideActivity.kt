@@ -52,7 +52,7 @@ private fun MediaGuideScreen() {
         contentPadding = PaddingValues(horizontal = ScreenPadding, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { ScreenHeader("Media Guide", kicker = "COVESHELF") }
+        item { ScreenHeader("Media Guide", kicker = "MEDIA VAULT") }
         item {
             GuideSection(
                 "One source for your whole library",
@@ -139,7 +139,7 @@ private fun MediaGuideScreen() {
                 "Scan and play",
                 "Enter NAS credentials only in the app; a read-only account is recommended. Partial results " +
                     "can appear before scanning finishes, so check the status and last successful scan time. " +
-                    "Playback depends on the device's codecs; CoveShelf does not transcode. Use the remote's " +
+                    "Playback depends on the device's codecs; Media Vault does not transcode. Use the remote's " +
                     "Back button or the Back control above to return to Settings.",
             )
         }

@@ -1,13 +1,23 @@
-# CoveShelf user guide
+# Media Vault user guide
 
-CoveShelf organizes media stored on your NAS and opens it directly over your
+Media Vault organizes media stored on your NAS and opens it directly over your
 network. Your files stay on the NAS; no media server or transcoding box is needed.
+
+## Find your way around
+
+**Library** remembers the last section you chose, including Movies,
+Documentaries, TV Shows, or Music, when you return or reopen the app.
+Use **Section** to switch categories. **Clear filters** resets the filters
+within that section. Photos have their own tab.
+
+Open **Settings → About** to check your installed version and build.
+The Media Vault naming update is version **1.1.0**, build **2**.
 
 ## Connect one shared parent folder
 
 On first launch, choose **Find my NAS** on Home. To connect another folder, open
 **Sources** and choose **Add NAS** (**Add NAS Source** on Android). Select a
-discovered NAS or enter its address. CoveShelf tries guest access first. If your NAS requires an account,
+discovered NAS or enter its address. Media Vault tries guest access first. If your NAS requires an account,
 choose **Sign in** and enter its username and password in the app. A read-only NAS
 account is recommended; keep its password out of chat, screenshots, and issue reports.
 
@@ -24,7 +34,7 @@ when your NAS needs one. If it restricts share browsing, enter the share name ma
 
 If the share itself is named `Media`, select it and use its top-level folder.
 If `Media` is inside another share, select that share and choose its `Media`
-folder. CoveShelf scans the selected folder and all its subfolders recursively.
+folder. Media Vault scans the selected folder and all its subfolders recursively.
 You do not need to add each movie, show, or category separately.
 
 A source pointing to `Media/Movies` finds only that folder and its descendants.
@@ -111,7 +121,7 @@ from the NAS and are not sent to TMDB.
 ## Add metadata and artwork
 
 For personal use, obtain a free TMDB API key or read access token from
-themoviedb.org under **Settings → API**. Enter it in CoveShelf's **Settings** and
+themoviedb.org under **Settings → API**. Enter it in Media Vault's **Settings** and
 choose **Save Key & Fetch Missing Metadata**. Do not paste the key into chat.
 Matching sends the parsed title and year to TMDB; your media files stay on the NAS.
 See [TMDB's API FAQ](https://developer.themoviedb.org/docs/faq) for personal-use terms.
@@ -197,7 +207,7 @@ before completion; they do not mean every folder has finished. Check the status
 and the last successful scan time. If a scan fails, correct the connection or
 credentials and retry.
 
-CoveShelf does not transcode. A filename extension identifies a candidate
+Media Vault does not transcode. A filename extension identifies a candidate
 format; the file must contain real media, and the device must support the
 audio/video codecs inside it. Unsupported formats show an explanation instead
 of Play controls. Apple TV also checks the actual asset before starting playback.

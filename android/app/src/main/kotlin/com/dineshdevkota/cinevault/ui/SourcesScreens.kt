@@ -31,6 +31,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.container
+import com.dineshdevkota.cinevault.BuildConfig
 import com.dineshdevkota.cinevault.core.NasAddress
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
@@ -209,8 +210,11 @@ fun SettingsTab() {
         }
         item { Text("About", style = MaterialTheme.typography.titleLarge) }
         item {
+            Text("Media Vault ${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}", color = SecondaryText)
+        }
+        item {
             Text(
-                "CoveShelf streams MP4, MKV, WebM, AVI, TS and more directly from your NAS over SMB. " +
+                "Media Vault streams MP4, MKV, WebM, AVI, TS and more directly from your NAS over SMB. " +
                     "Which video and audio codecs play depends on your TV device.",
                 color = SecondaryText,
             )

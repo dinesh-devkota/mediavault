@@ -190,7 +190,7 @@ private fun HomeTab(
     LazyColumn(contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
             ScreenHeader(
-                "Welcome to CoveShelf",
+                "Welcome to Media Vault",
                 Modifier.padding(horizontal = ScreenPadding),
                 trailing = status,
             )
@@ -336,7 +336,7 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
         facets = value
         settings.libraryFacets = value
     }
-    var kind by rememberSaveable { mutableStateOf(MediaKind.MOVIE) }
+    var kind by remember { mutableStateOf(settings.librarySection) }
     val collection = remember(movies, kind) { movies.filter { it.mediaKind == kind } }
     val genres = remember(collection, filter, facets.genres) { (LibraryQuery.genres(collection, filter) + facets.genres).distinct().sorted() }
     val decades = remember(collection, filter, facets.decades) { (LibraryQuery.decades(collection, filter) + facets.decades).distinct().sortedDescending() }
@@ -360,7 +360,9 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ScreenHeader(
             kind.label, Modifier.padding(horizontal = ScreenPadding),
-            kicker = "YOUR COLLECTION", trailing = if (kind == MediaKind.TV_SHOW) "${tvShows.size} shows" else "${visible.size} titles",
+            kicker = "YOUR COLLECTION", trailing = if (kind == MediaKind.TV_SHOW)
+                "${tvShows.size} ${if (tvShows.size == 1) "show" else "shows"}"
+            else "${visible.size} ${if (visible.size == 1) "title" else "titles"}",
         )
         // Keep focused filters outside the recycled result items. Replacing all
         // posters with an empty state must not dispose the control being used.
@@ -392,6 +394,7 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
                     val selectedKind = it.single()
                     if (selectedKind != kind) {
                         kind = selectedKind
+                        settings.librarySection = selectedKind
                         saveFacets(facets.copy(genres = emptySet(), decades = emptySet()))
                         filter = LibraryFilter.ALL
                         settings.libraryFilter = filter

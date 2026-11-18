@@ -312,6 +312,7 @@ final class LibraryUpgradeTests: XCTestCase {
         defaults.set(LibrarySort.rating.rawValue, forKey: "librarySort")
         defaults.set(LibraryFilter.unwatched.rawValue, forKey: "libraryFilter")
         let initial = LibraryPreferences(defaults: defaults)
+        XCTAssertEqual(initial.section, .movie)
         XCTAssertEqual(initial.sort, .rating)
         XCTAssertEqual(initial.filter, .unwatched)
         XCTAssertTrue(initial.genres.isEmpty)
@@ -320,12 +321,14 @@ final class LibraryUpgradeTests: XCTestCase {
         let source = MediaSource(name: "Saved NAS", host: "test.invalid", share: "Movies", rootPath: "", username: "")
         let second = MediaSource(name: "Second NAS", host: "second.invalid", share: "Films", rootPath: "", username: "")
         initial.sort = .year
+        initial.section = .tvShow
         initial.filter = .watchlist
         initial.genres = ["Science Fiction", "Drama"]
         initial.sourceIDs = [source.id, second.id]
         initial.decades = [1980, 1990]
 
         let restored = LibraryPreferences(defaults: defaults)
+        XCTAssertEqual(restored.section, .tvShow)
         XCTAssertEqual(restored.sort, .year)
         XCTAssertEqual(restored.filter, .watchlist)
         XCTAssertEqual(restored.genres, ["Science Fiction", "Drama"])
@@ -336,6 +339,7 @@ final class LibraryUpgradeTests: XCTestCase {
         restored.sourcesChanged(from: [source.id, second.id], to: [second])
         XCTAssertEqual(restored.sourceIDs, [second.id])
         let afterDeletion = LibraryPreferences(defaults: defaults)
+        XCTAssertEqual(afterDeletion.section, .tvShow)
         XCTAssertEqual(afterDeletion.sourceIDs, [second.id])
         XCTAssertEqual(afterDeletion.genres, ["Science Fiction", "Drama"])
         XCTAssertEqual(afterDeletion.decades, [1980, 1990])
@@ -347,6 +351,11 @@ final class LibraryUpgradeTests: XCTestCase {
         XCTAssertEqual(invalid.sort, .title)
         XCTAssertEqual(invalid.filter, .all)
         XCTAssertTrue(invalid.decades.isEmpty)
+        for unsupportedSection in ["Unsupported section", "photo"] {
+            defaults.set(unsupportedSection, forKey: "librarySection")
+            XCTAssertEqual(LibraryPreferences(defaults: defaults).section, .movie,
+                           "Invalid sections and the separate Photos tab must restore a usable Library section.")
+        }
     }
 
     func testLegacySingleSelectionsLoadAndStayClearedAfterRelaunch() throws {
@@ -360,6 +369,7 @@ final class LibraryUpgradeTests: XCTestCase {
         defaults.set(LibraryFilter.watchlist.rawValue, forKey: "libraryFilter")
         defaults.set(LibrarySort.rating.rawValue, forKey: "librarySort")
         let preferences = LibraryPreferences(defaults: defaults)
+        preferences.section = .documentary
         XCTAssertEqual(preferences.genres, ["Drama"])
         XCTAssertEqual(preferences.sourceIDs, [sourceID])
         XCTAssertEqual(preferences.decades, [1990])
@@ -370,5 +380,6 @@ final class LibraryUpgradeTests: XCTestCase {
         XCTAssertTrue(restored.decades.isEmpty)
         XCTAssertEqual(restored.filter, .all)
         XCTAssertEqual(restored.sort, .rating)
+        XCTAssertEqual(restored.section, .documentary, "Clearing filters must keep the selected section.")
     }
 }

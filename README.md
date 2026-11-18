@@ -1,10 +1,13 @@
-# CoveShelf
+# Media Vault
 
-Add one parent NAS folder to build your Movies, Documentaries, TV Shows, Music, and Photos library. See the [media setup and naming guide](docs/MEDIA-GUIDE.md) for folder examples, photo albums, free personal TMDB setup, and playback help. CoveShelf was previously named Cine-Media; the existing CineVault project and app identifiers are retained so updates keep your saved library and credentials.
+Add one parent NAS folder to build your Movies, Documentaries, TV Shows, Music, and Photos library. See the [media setup and naming guide](docs/MEDIA-GUIDE.md) for folder examples, photo albums, free personal TMDB setup, and playback help. Updates preserve your saved library, NAS credentials, and playback history.
 
 A personal media library for **Apple TV and Android TV** that plays movies,
 shows and music and displays photo albums directly from a NAS over SMB.
 Built with SwiftUI on tvOS and Compose for TV on Android.
+
+The Library remembers your last section when you return or reopen the app.
+Find the installed version and build under **Settings → About**.
 
 On either TV, **Continue Watching** shows one card per active series. Resume
 the file you paused or see the season and episode number before playing the
@@ -37,7 +40,7 @@ device and NAS validation has not yet been completed.
 
 ### Format support
 
-For video on Apple TV, CoveShelf checks MP4, M4V, and MOV files with the native player before playback. The codecs inside the file must also work on the device. The [Media Guide](docs/MEDIA-GUIDE.md#check-the-scan-and-playback) lists the supported video and audio formats on each platform and explains how the scanner distinguishes MPEG-TS recordings from TypeScript files. Photos are grouped into albums by NAS source and folder; JPEG, PNG, WebP, HEIC, and HEIF viewing depends on the device's image decoder.
+For video on Apple TV, Media Vault checks MP4, M4V, and MOV files with the native player before playback. The codecs inside the file must also work on the device. The [Media Guide](docs/MEDIA-GUIDE.md#check-the-scan-and-playback) lists the supported video and audio formats on each platform and explains how the scanner distinguishes MPEG-TS recordings from TypeScript files. Photos are grouped into albums by NAS source and folder; JPEG, PNG, WebP, HEIC, and HEIF viewing depends on the device's image decoder.
 
 ## Screenshots
 
@@ -45,11 +48,11 @@ Apple TV simulator previews with a sample library and placeholder artwork:
 
 **Home**
 
-![CoveShelf Home on Apple TV with a Continue Watching card for 24 showing Next available, Season 1 Episode 3](docs/screenshots/home.png)
+![Media Vault Home on Apple TV with a Continue Watching card for 24 showing Next available, Season 1 Episode 3](docs/screenshots/home.png)
 
 **Movie details**
 
-![CoveShelf movie detail screen](docs/screenshots/movie-detail.png)
+![Media Vault movie detail screen](docs/screenshots/movie-detail.png)
 
 ## Project layout
 
@@ -127,7 +130,7 @@ You can run the community app on your Apple TV using a Mac with Xcode and a free
 2. Sign in to your Apple Account in Xcode. In the **CineVault** app target, open **Signing & Capabilities**, enable automatic signing and choose your **Personal Team**. If Xcode asks for a unique bundle identifier, set one for your local test build.
 3. Pair the Apple TV with the Mac in Xcode, select the **CineVault** scheme and your Apple TV as the destination, then click **Run**. [Apple’s device pairing guide](https://developer.apple.com/documentation/xcode/managing-your-simulated-and-physical-devices-in-device-hub)
 
-Once CoveShelf is installed, open **Sources → Add NAS** and select a folder containing a known-good H.264/AAC MP4. After the scan, open the title, play it, seek forward, and return to its detail screen to check the saved resume point. See the [Media Guide](docs/MEDIA-GUIDE.md) for folder exclusions and photo albums.
+Once Media Vault is installed, open **Sources → Add NAS** and select a folder containing a known-good H.264/AAC MP4. After the scan, open the title, play it, seek forward, and return to its detail screen to check the saved resume point. See the [Media Guide](docs/MEDIA-GUIDE.md) for folder exclusions and photo albums.
 
 ### Configure a commercial build
 
@@ -170,7 +173,7 @@ and private key **outside the repository**, and keep the key private:
 ```bash
 openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 3650 \
   -keyout commercial-diagnostics.key -out commercial-diagnostics.crt \
-  -subj "/CN=CoveShelf build diagnostics"
+  -subj "/CN=Media Vault build diagnostics"
 ```
 
 Set the `commercial` environment variable `COMMERCIAL_DIAGNOSTICS_CERT_BASE64` to the base64
@@ -205,7 +208,7 @@ TestFlight and App Store distribution require Apple Developer Program membership
 5. **Distribution certificate** — run these OpenSSL commands (e.g. in Git Bash) from a private folder **outside the repository**. Keep the `.key`, `.p12`, `.p8`, and password private:
    ```bash
    openssl genrsa -out dist.key 2048
-   openssl req -new -key dist.key -out dist.csr -subj "/emailAddress=you@example.com/CN=CoveShelf/C=US"
+   openssl req -new -key dist.key -out dist.csr -subj "/emailAddress=you@example.com/CN=Media Vault/C=US"
    ```
    developer.apple.com → Certificates → **+** → *Apple Distribution* → upload `dist.csr`, download `distribution.cer`, then:
    ```bash
@@ -234,7 +237,7 @@ Fastlane builds, the same bundle and product IDs can be provided as environment 
 
 1. After **Commercial build** succeeds with TestFlight upload enabled, wait for processing in App Store Connect (≈10–30 min).
 2. App Store Connect → your app → **TestFlight** → add yourself as an internal tester.
-3. Install **TestFlight** from the App Store on your Apple TV. Open your invitation email on Windows and choose **View in TestFlight**. Enter the displayed code under **Redeem** in TestFlight on the TV, then install **CoveShelf**. [Apple’s tvOS installation instructions](https://testflight.apple.com/)
+3. Install **TestFlight** from the App Store on your Apple TV. Open your invitation email on Windows and choose **View in TestFlight**. Enter the displayed code under **Redeem** in TestFlight on the TV, then install **Media Vault**. [Apple’s tvOS installation instructions](https://testflight.apple.com/)
 
 ## Publishing to the App Store
 

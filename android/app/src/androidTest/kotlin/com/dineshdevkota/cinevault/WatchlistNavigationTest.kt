@@ -24,7 +24,10 @@ import androidx.test.uiautomator.UiDevice
 import com.dineshdevkota.cinevault.core.LibraryFacets
 import com.dineshdevkota.cinevault.core.LibraryFilter
 import com.dineshdevkota.cinevault.core.LibrarySort
+import com.dineshdevkota.cinevault.core.MediaKind
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.data.SecretBox
+import com.dineshdevkota.cinevault.data.Settings
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.ui.MovieDetailActivity
 import kotlinx.coroutines.Dispatchers
@@ -207,7 +210,7 @@ class WatchlistNavigationTest {
             container.database.sources().delete(first.id)
             visible("Source: Watchlist B")
             visible("Beta Nineties")
-            visible("1 titles")
+            visible("1 title")
             assertFalse(hasVisibleText("Alpha Nineties"))
             withTimeout(10_000) {
                 while (container.settings.libraryFacets.sourceIds != setOf(second.id)) delay(50)
@@ -235,6 +238,36 @@ class WatchlistNavigationTest {
             visible("Source: All sources")
             visible("Beta Nineties")
             assertEquals(LibraryFacets(), container.settings.libraryFacets)
+        }
+    }
+
+    @Test
+    fun librarySectionSurvivesTabChangesRecreationAndRelaunch() = runBlocking {
+        val source = source("Section fixture")
+        movie(source, "24.S01E01", 2001)
+        val prefs = application.getSharedPreferences("settings", 0)
+        // Preferences from unsupported or future sections cannot hide the Library.
+        for (invalid in listOf("UNKNOWN_SECTION", "PHOTO")) {
+            prefs.edit().putString("library_section", invalid).commit()
+            assertEquals(MediaKind.MOVIE, Settings(application, SecretBox()).librarySection)
+        }
+        launchHomeAfterScan().use { main ->
+            device.pressDPadRight()
+            visible("Section: Movies")
+            activate("Section: Movies")
+            activate("TV Shows")
+            visible("Section: TV Shows")
+            assertEquals(MediaKind.TV_SHOW, Settings(application, SecretBox()).librarySection)
+            activate("Home")
+            visible("Welcome to Media Vault")
+            activate("Library")
+            visible("Section: TV Shows")
+            main.recreate()
+            visible("Section: TV Shows")
+        }
+        launchHomeAfterScan().use {
+            device.pressDPadRight()
+            visible("Section: TV Shows")
         }
     }
 
@@ -390,7 +423,7 @@ class WatchlistNavigationTest {
                     !scanning && status?.startsWith("Scan failed for ${lastSource.name}:") == true
                 }.first { it }
             }
-            visible("Welcome to CoveShelf")
+            visible("Welcome to Media Vault")
             return scenario
         } catch (error: Throwable) {
             scenario.close()
@@ -416,6 +449,7 @@ class WatchlistNavigationTest {
     ).also { container.database.movies().insert(it) }
 
     private fun resetPreferences() {
+        container.settings.librarySection = MediaKind.MOVIE
         container.settings.librarySort = LibrarySort.TITLE
         container.settings.libraryFilter = LibraryFilter.ALL
         container.settings.libraryFacets = LibraryFacets()

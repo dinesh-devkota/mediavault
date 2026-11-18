@@ -124,7 +124,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                 OutlinedButton(onClick = onClose,
                     modifier = if (playbackRejection != null) Modifier.focusRequester(actions) else Modifier) { Text("Back") }
                 Text(
-                    "COVESHELF  /  ${current.mediaKind.label.uppercase(Locale.ROOT)}",
+                    "MEDIA VAULT  /  ${current.mediaKind.label.uppercase(Locale.ROOT)}",
                     style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp),
                     color = Accent,
                 )

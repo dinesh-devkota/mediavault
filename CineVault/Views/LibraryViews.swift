@@ -53,6 +53,7 @@ enum LibraryQuery {
 @MainActor
 final class LibraryPreferences: ObservableObject {
     private let defaults: UserDefaults
+    @Published var section: MediaKind { didSet { defaults.set(section.rawValue, forKey: "librarySection") } }
     @Published var sort: LibrarySort { didSet { defaults.set(sort.rawValue, forKey: "librarySort") } }
     @Published var filter: LibraryFilter { didSet { defaults.set(filter.rawValue, forKey: "libraryFilter") } }
     @Published var genres: Set<String> { didSet { defaults.set(genres.sorted(), forKey: "libraryGenres") } }
@@ -61,6 +62,8 @@ final class LibraryPreferences: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        let savedSection = defaults.string(forKey: "librarySection").flatMap(MediaKind.init(rawValue:)) ?? .movie
+        section = savedSection == .photo ? .movie : savedSection
         sort = defaults.string(forKey: "librarySort").flatMap(LibrarySort.init(rawValue:)) ?? .title
         filter = defaults.string(forKey: "libraryFilter").flatMap(LibraryFilter.init(rawValue:)) ?? .all
         // An explicitly saved empty collection means All, even if an older single value exists.
@@ -89,13 +92,14 @@ final class LibraryPreferences: ObservableObject {
 
 struct LibraryView: View {
     private enum Control: String, Hashable { case sort = "Sort", show = "Show", genre = "Genre", source = "Source", decade = "Decade", section = "Section" }
-    @State private var kind: MediaKind = .movie
     @State private var control = Control.sort
     @State private var presentingChoices = false
     @FocusState private var focusedControl: Control?
     @Query private var movies: [Movie]
     @Query(sort: \MediaSource.name) private var sources: [MediaSource]
     @StateObject private var preferences = LibraryPreferences()
+
+    private var kind: MediaKind { preferences.section }
 
     private var filterCandidates: [Movie] {
         movies.filter { !$0.isMissing && preferences.filter.matches($0) && $0.mediaKind == kind }
@@ -125,6 +129,7 @@ struct LibraryView: View {
 
     var body: some View {
         let results = visible
+        let resultKind = kind == .tvShow ? "episode" : "title"
         ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
@@ -139,7 +144,7 @@ struct LibraryView: View {
                     Spacer()
                     Button("Clear filters") { preferences.clearFilters() }
                         .disabled(preferences.filter == .all && preferences.genres.isEmpty && selectedSourceIDs.isEmpty && preferences.decades.isEmpty)
-                    Text(kind == .tvShow ? "\(results.count) episodes" : "\(results.count) titles")
+                    Text("\(results.count) \(resultKind)\(results.count == 1 ? "" : "s")")
                         .font(.callout)
                         .foregroundStyle(CinemaTheme.secondaryText)
                 }
@@ -224,7 +229,7 @@ struct LibraryView: View {
             }
         case .section:
             LibraryChoiceSheet(title: "Section", options: MediaKind.allCases.filter { $0 != .photo }, selection: [kind], label: { $0.label }) {
-                if let value = $0.first { kind = value }
+                if let value = $0.first { preferences.section = value }
             }
         case .genre:
             LibraryChoiceSheet(title: "Genre", options: genres, selection: preferences.genres, all: "All Genres", label: { $0 }) {
@@ -285,7 +290,7 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 48) {
                 HStack(alignment: .bottom) {
-                    Text("Welcome to CoveShelf")
+                    Text("Welcome to Media Vault")
                         .font(.system(size: 54, weight: .bold))
                     Spacer()
                     if let status = scanner.status {

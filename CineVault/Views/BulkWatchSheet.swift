@@ -115,7 +115,7 @@ struct BulkWatchSheet: View {
                     Text(scope).font(.title3).foregroundStyle(CinemaTheme.secondaryText)
                 }
                 Spacer()
-                Button("Done") { dismiss() }.focused($focus, equals: "done")
+                Button("Cancel") { dismiss() }.focused($focus, equals: "done")
                     .accessibilityIdentifier("bulk-watch-done")
             }
             Text("\(selectedMovies.count) of \(available.count) files selected")
