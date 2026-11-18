@@ -717,3 +717,39 @@ scan-summary failures are resolved.
   with zero skips. The unsigned Apple release build, 66 core tests, five
   helper tests and eight visual previews had also passed on the feature.
   Physical Apple TV playback remains unverified.
+
+## Media Vault naming and browsing polish (2026-11-17)
+
+- The public app is **Media Vault**, version **1.1.0**, build **2**. Launcher,
+  welcome/detail screens, help, privacy text and build display names use it.
+  App identifiers, stored credentials and library database names stay stable
+  so this is an in-place update. The public repository remains `mediavault`.
+- Both platforms remember the last Library section. Unknown saved sections
+  and the separate Photos section fall back to Movies. Clearing filters keeps
+  the selected section. Existing preference tests cover restoration and fallback;
+  Android also exercises tab changes, activity recreation and app relaunch.
+- Android Settings shows version/build in its header. Apple Settings includes
+  a remote-focusable version/build under About. Bulk selection says Cancel on
+  Apple TV, and single-item library counts use singular wording.
+- Licensed builds can use private revision
+  `a42199e22ba41761831b4aa614a01560a6df0f54` for the new visible name, including
+  license errors and StoreKit test display text. Product IDs and Keychain keys
+  are unchanged. This revision retains the existing catalog-refresh branch.
+- Private main has the independent branding-only revision
+  `cc9d2dc772693446eeb7531ba5b3a265aa96a843`; it adds no catalog-refresh changes.
+- Local Android validation passed 151 unit tests, lint and packaging. The new
+  remote test passed section restoration across tabs, recreation and relaunch,
+  preference fallback, and visible version/build. The saved emulator received
+  the verified in-place update, installed SHA-256
+  `ff52b48cb62158e182d6fbeeef89b7c1fdf69dc586680aa1bf9e0bedc4c32b8f`.
+- [Android runtime validation](https://github.com/dinesh-devkota/mediavault/actions/runs/44221498464)
+  passed all 58 tests with zero skips. The Apple release build, core tests and
+  all eight visual previews passed on `f22b089`. Home and detail screenshots
+  were refreshed from that build and checked for the Media Vault name.
+- All five [development checks](https://github.com/dinesh-devkota/mediavault/actions/runs/44221499877)
+  passed on `f22b089`, including all 116 Apple TV simulator tests with zero
+  failures or skips. Refreshed screenshots also show the Cancel label and
+  corrected singular count. Physical Apple TV validation remains outstanding.
+- The separate `codex/mediavault-web-video` feature branch predates this rename.
+  When integrating it, retain these UI changes and update its companion-browser
+  instruction to the current app name.
