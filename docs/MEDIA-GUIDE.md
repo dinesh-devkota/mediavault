@@ -29,6 +29,12 @@ When resuming a title with a known duration, its detail screen shows approximate
 how much time is left. MediaVault uses the duration recorded by playback first,
 then metadata when needed. Unknown durations do not show an estimate.
 
+Android TV examples from a separate sample library:
+
+![A complete Movies collection with 26 titles and a Back button](screenshots/android-home-collection.png)
+
+![Episode details with Resume, Start Over, and about 43 minutes left](screenshots/android-remaining-time.png)
+
 ## Connect one shared parent folder
 
 On first launch, choose **Find my NAS** on Home. To connect another folder, open

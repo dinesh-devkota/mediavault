@@ -779,3 +779,55 @@ scan-summary failures are resolved.
 - OAuth was discussed as a possible future feature. No account service or
   authentication flow has been implemented; the intended OAuth use case is
   still to be selected. Current NAS access continues through SMB credentials.
+
+## Infuse comparison and everyday browsing (2026-11-23)
+
+- The owner deferred OAuth and requested easy usability wins from an Infuse
+  comparison. `docs/INFUSE-COMPARISON.md` records existing coverage, official
+  references, small improvements, and larger remaining gaps. No OAuth work was added.
+- Version **1.2.0**, build **4**, adds **See all** to Home shelves on both TVs.
+  Complete collections retain show/season/episode grouping, observe current
+  source exclusions, and do not overwrite saved Library filters or sections.
+  Back restores the launching shelf/card, with a usable fallback if it vanished.
+- Empty Library states offer **Clear filters** or **Open Sources** and explain
+  how to add a title to Watchlist. Resume details show an approximate remaining
+  time, preferring measured file duration over metadata and omitting unknowns.
+- Work was isolated in `.worktrees/mediavault-easy-wins` on
+  `codex/mediavault-easy-wins`, based on development `3aa0f4b`. Root's separate
+  `codex/mediavault-web-video` checkout and the private repository were untouched.
+- Local Android validation passed 157 unit tests, lint, packaging, and all
+  related remote journeys. The new restoration test initially measured scroll
+  position before focus scrolled the button into view; its corrected baseline
+  passed. [Hosted Android validation](https://github.com/dinesh-devkota/mediavault/actions/runs/45222164883)
+  passed all 62 runtime tests with no failures or skips, plus debug/release builds.
+- The owner's `CineVault_TV` emulator received the update with `install -r`,
+  preserving app data. The installed version/build and SHA-256 were verified:
+  `5e314a96e753930b22df828dbd53932fc2fda5e41d4a5d534c9483b92968087b`.
+  Both the owner emulator and separate disposable test emulator were closed.
+- [Initial Apple validation](https://github.com/dinesh-devkota/mediavault/actions/runs/45221452741)
+  passed release compilation, core/helper tests, all eight visual previews, and
+  124 of 126 simulator tests. The two new Home journeys exposed a first-visit
+  bug: Watchlist/Unwatched rows tried to populate state from an empty view.
+  Revision `5b33ace` derives their grouped contents directly before rendering.
+- The [second full simulator run](https://github.com/dinesh-devkota/mediavault/actions/runs/45224649692)
+  again passed 124/126 tests. The shelf was present; recordings then exposed
+  skipped header focus and a title immediately returning from its detail screen.
+  Revision `63de3ca` uses full-width focus sections and one persistent Home
+  NavigationPath. Collection origins are consumed once, so ordinary Home movie
+  returns retain native focus. A new model regression covers that distinction.
+- [Focused Apple navigation validation](https://github.com/dinesh-devkota/mediavault/actions/runs/45228660043)
+  passed 11/12 tests without skips, including last-Watchlist removal. The remaining
+  failure came after three consecutive Menu presses in the show journey. Revision
+  `67fa97a` now waits for, and asserts, episode and season focus after each press,
+  matching the existing Search remote test. No production code changed.
+- [Final Apple navigation validation](https://github.com/dinesh-devkota/mediavault/actions/runs/45231530641)
+  passed all **12 tests**, with zero failures or skips, on `67fa97a`: all seven
+  remote UI journeys and five Home collection model regressions. The show journey
+  now verifies restored episode, season, show, and Home focus at each transition.
+  The manual `ui_only` option runs all remote UI tests and Home collection tests;
+  default push/PR validation continues running the full simulator suite.
+  The final change after `63de3ca` was test-only; the earlier full suites covered
+  the unrelated simulator tests. Do not report the focused run as a full-suite
+  pass. Physical Apple TV playback remains unverified.
+- Sample Android full-collection and remaining-time images were inspected and
+  added to the guide. Apple Home/detail images came from the passing preview run.
