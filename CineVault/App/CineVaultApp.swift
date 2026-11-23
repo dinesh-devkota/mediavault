@@ -42,6 +42,7 @@ struct CineVaultApp: App {
 struct RootView: View {
     private enum Tab: Hashable { case home, library, photos, search, sources, settings }
     @State private var tab: Tab = .home
+    @StateObject private var homeNavigation = HomeCollectionNavigation()
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var scanner: LibraryScanner
@@ -49,9 +50,9 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            NavigationStack {
+            NavigationStack(path: $homeNavigation.path) {
                 HomeView(openPhotos: { tab = .photos }, openSources: { tab = .sources }).movieDestination()
-            }.tabItem { Text("Home") }.tag(Tab.home)
+            }.environmentObject(homeNavigation).tabItem { Text("Home") }.tag(Tab.home)
             NavigationStack { LibraryView(openSources: { tab = .sources }).movieDestination() }.tabItem { Text("Library") }.tag(Tab.library)
             NavigationStack { PhotosView().movieDestination() }.tabItem { Text("Photos") }.tag(Tab.photos)
             NavigationStack { SearchView().movieDestination() }.tabItem { Image(systemName: "magnifyingglass") }.tag(Tab.search)

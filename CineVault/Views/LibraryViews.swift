@@ -288,7 +288,7 @@ struct HomeView: View {
     @Query(sort: \Movie.dateAdded, order: .reverse) private var movies: [Movie]
     @Query private var sources: [MediaSource]
     @State private var addingSource = false
-    @StateObject private var collectionNavigation = HomeCollectionNavigation()
+    @EnvironmentObject private var collectionNavigation: HomeCollectionNavigation
     @EnvironmentObject private var scanner: LibraryScanner
 
     init(openPhotos: @escaping () -> Void, openSources: @escaping () -> Void) {
@@ -353,18 +353,17 @@ struct HomeView: View {
         }
         .background(CinemaBackground())
         .sheet(isPresented: $addingSource) { NASSetupView() }
-        .environmentObject(collectionNavigation)
-        .navigationDestination(item: $collectionNavigation.collection) { collection in
+        .navigationDestination(for: HomeCollection.self) { collection in
             HomeCollectionView(collection: collection)
         }
-        .onChange(of: collectionNavigation.collection) { _, collection in
-            guard collection == nil else { return }
+        .onChange(of: collectionNavigation.path.count) { _, count in
+            guard count == 0, let origin = collectionNavigation.consumeReturnOrigin() else { return }
             var collections: [HomeCollection] = []
             if !ContinueWatching.home(movies, limit: 1).isEmpty { collections.append(.continueWatching) }
             if !HomeCollection.watchlist.movies(in: movies).isEmpty { collections.append(.watchlist) }
             collections += MediaKind.allCases.filter { kind in available.contains { $0.mediaKind == kind } }.map(HomeCollection.section)
             if available.contains(where: { !$0.isWatched }) { collections.append(.unwatched) }
-            collectionNavigation.focusRequest = collectionNavigation.lastCollection.flatMap { collections.contains($0) ? $0 : nil } ?? collections.first
+            collectionNavigation.focusRequest = collections.contains(origin) ? origin : collections.first
         }
     }
 

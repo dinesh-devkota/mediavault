@@ -12,6 +12,22 @@ final class HomeCollectionTests: XCTestCase {
         return movie
     }
 
+    func testCollectionReturnOriginIsConsumedOnlyAfterReturningHome() {
+        let navigation = HomeCollectionNavigation()
+        let movie = file("Movies/Film.mp4")
+        navigation.open(.watchlist)
+        navigation.path.append(movie)
+        XCTAssertNil(navigation.consumeReturnOrigin(), "A detail must not consume the collection's return focus.")
+        navigation.path.removeLast()
+        XCTAssertNil(navigation.consumeReturnOrigin(), "Returning to the collection is not returning Home.")
+        navigation.path.removeLast()
+        XCTAssertEqual(navigation.consumeReturnOrigin(), .watchlist)
+        XCTAssertNil(navigation.consumeReturnOrigin(), "The origin applies to just one return.")
+        navigation.path.append(movie)
+        navigation.path.removeLast()
+        XCTAssertNil(navigation.consumeReturnOrigin(), "An ordinary Home poster must retain native return focus.")
+    }
+
     func testSeeAllIncludesTitlesBeyondHomeLimitAndGroupsCompleteSeasons() throws {
         let films = (1...25).map { number -> Movie in
             let movie = file("Movies/Film \(number).mp4")

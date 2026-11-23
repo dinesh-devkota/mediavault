@@ -52,14 +52,20 @@ enum HomeCollection: Hashable, Identifiable {
 
 @MainActor
 final class HomeCollectionNavigation: ObservableObject {
-    @Published var collection: HomeCollection?
+    @Published var path = NavigationPath()
     @Published var focusRequest: HomeCollection?
     var lastCollection: HomeCollection?
 
     func open(_ collection: HomeCollection) {
         focusRequest = nil
         lastCollection = collection
-        self.collection = collection
+        path.append(collection)
+    }
+
+    func consumeReturnOrigin() -> HomeCollection? {
+        guard path.isEmpty else { return nil }
+        defer { lastCollection = nil }
+        return lastCollection
     }
 }
 
@@ -73,6 +79,8 @@ struct HomeShelfHeader: View {
             Spacer()
             if let collection { HomeSeeAllButton(collection: collection) }
         }
+        .frame(maxWidth: .infinity)
+        .focusSection()
     }
 }
 
@@ -101,7 +109,7 @@ private struct HomeSeeAllButton: View {
         guard navigation.focusRequest == collection else { return }
         Task { @MainActor in
             await Task.yield()
-            guard navigation.collection == nil && navigation.focusRequest == collection else { return }
+            guard navigation.path.isEmpty && navigation.focusRequest == collection else { return }
             focused = true
         }
     }
@@ -135,6 +143,8 @@ struct HomeCollectionView: View {
                             .foregroundStyle(CinemaTheme.secondaryText)
                             .accessibilityIdentifier("home-collection-count")
                     }
+                    .frame(maxWidth: .infinity)
+                    .focusSection()
                     if count == 0 {
                         ContentUnavailableView {
                             Label("Nothing here yet", systemImage: "rectangle.stack")

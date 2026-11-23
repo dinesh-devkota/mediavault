@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      ui_only:
+        description: Run remote UI and Home collection regressions for a navigation change
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,7 +20,7 @@ concurrency:
 
 jobs:
   nas-integration:
-    name: Test SMB on Apple TV simulator
+    name: ${{ inputs.ui_only && 'Test Apple TV remote navigation' || 'Test SMB on Apple TV simulator' }}
     runs-on: macos-15-intel
     timeout-minutes: 30
     steps:
@@ -55,6 +60,8 @@ jobs:
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
       - name: Test against local SMB fixture
+        env:
+          UI_ONLY: ${{ inputs.ui_only || false }}
         run: |
           set -euo pipefail
           DEVICE='${{ steps.simulator.outputs.device }}'
@@ -76,11 +83,16 @@ jobs:
           fi
           xcrun simctl boot "$DEVICE"
           xcrun simctl bootstatus "$DEVICE" -b
+          TEST_SELECTION=()
+          if [[ "$UI_ONLY" == "true" ]]; then
+            TEST_SELECTION=(-only-testing:CineVaultUITests -only-testing:CineVaultTests/HomeCollectionTests)
+          fi
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
             -destination "id=$DEVICE" -configuration Debug \
             -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             -resultBundlePath "$RUNNER_TEMP/nas-results.xcresult" \
-            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES test-without-building | tail -n 200
+            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES \
+            "${TEST_SELECTION[@]}" test-without-building | tail -n 200
       - name: Report simulator test results
         if: always()
         run: |

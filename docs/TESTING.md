@@ -57,13 +57,21 @@ schema tests opening an existing library with the new Watchlist field, preservin
 source identity, metadata, visibility, and playback state. Additional tests cover
 combined browse filters and saved preferences.
 
+Remote tests exercise search, grouped shows, bulk watched changes, Continue
+Watching, and complete Home collections, including Back/focus restoration and
+removing the last saved item. For a focused navigation regression run, manually
+dispatch **NAS integration** with **ui_only** enabled. It runs the remote UI
+suite and Home collection logic tests; the default push/PR run still executes
+the full simulator suite. This option does not substitute for NAS validation
+when scanning, connections, or playback code changes.
+
 ## Further device testing
 
 Automated checks do not establish compatibility with every NAS or codec. Before
 a release, test real Synology/QNAP/Windows shares, disconnect/reconnect during
 playback, seeking in large files, subtitle/audio selection, and remote focus
-behavior on real Apple TV and Android TV hardware. tvOS remote-navigation UI
-tests would further extend the current playback and screenshot checks. The private commercial package and
+behavior on real Apple TV and Android TV hardware. Simulator remote tests do not
+replace these device checks. The private commercial package and
 store purchases/signing have their own protected validation workflow.
 
 ## Online sources consulted
