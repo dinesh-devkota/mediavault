@@ -753,3 +753,29 @@ scan-summary failures are resolved.
 - The separate `codex/mediavault-web-video` feature branch predates this rename.
   When integrating it, retain these UI changes and update its companion-browser
   instruction to the current app name.
+
+## Exact MediaVault name (2026-11-17)
+
+- The owner clarified the exact display name is **MediaVault**, without a
+  space. Version **1.1.1**, build **3**, applies that spelling to public UI,
+  launcher labels, current documentation and preview checks. Identifiers,
+  credentials and behavior are unchanged from the verified browsing update.
+- Private main revision `a5ef1d78b22426b5dfbe2f8cc65f83730560fc39` applies the
+  same literal name correction to license UI, messages and test-store labels.
+- Local Android build and lint passed; the packaged launcher label was verified
+  as MediaVault. The saved emulator received version 1.1.1/build 3 in place,
+  with installed SHA-256
+  `445d2a27afbd550a97acae232163a65e0a4508a4886060c2bcd027a727e911c4`.
+- [Android validation](https://github.com/dinesh-devkota/mediavault/actions/runs/44224505144)
+  passed all 58 runtime tests without failures or skips. The Apple build and
+  exact-name Home check passed; all-caps detail OCR was inconsistent despite
+  correct screenshots. The preview now asserts CFBundleDisplayName exactly,
+  retains the Home name check, and checks the detail title and playback action.
+- Final [Apple preview verification](https://github.com/dinesh-devkota/mediavault/actions/runs/44226562020)
+  passed on `864c5cf`, including the exact packaged name and all eight previews.
+  Standalone previews now use the same validated Intel runner as development
+  checks. The Home and detail guide images were refreshed from that successful
+  run when the work resumed on 2026-11-23.
+- OAuth was discussed as a possible future feature. No account service or
+  authentication flow has been implemented; the intended OAuth use case is
+  still to be selected. Current NAS access continues through SMB credentials.
