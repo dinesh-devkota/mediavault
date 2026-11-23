@@ -9,6 +9,14 @@ Built with SwiftUI on tvOS and Compose for TV on Android.
 The Library remembers your last section when you return or reopen the app.
 Find the installed version and build in **Settings**.
 
+Choose **See all** on a Home shelf to browse its complete collection, keeping
+shows grouped and your saved Library filters intact. Back returns to the same
+shelf. Empty screens offer the next useful action, and resumed titles show
+remaining time when their duration is known. [Browsing guide](docs/MEDIA-GUIDE.md#browse-a-complete-home-collection)
+
+See the [Infuse feature comparison](docs/INFUSE-COMPARISON.md) for current coverage,
+the usability priorities behind these changes, and larger features still to add.
+
 On either TV, **Continue Watching** shows one card per active series. Resume
 the file you paused or see the season and episode number before playing the
 next available file on your NAS. [Continue a series from Home](docs/MEDIA-GUIDE.md#continue-a-series-from-home)

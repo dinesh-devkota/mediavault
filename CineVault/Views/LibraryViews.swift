@@ -91,6 +91,7 @@ final class LibraryPreferences: ObservableObject {
 }
 
 struct LibraryView: View {
+    var openSources: () -> Void = {}
     private enum Control: String, Hashable { case sort = "Sort", show = "Show", genre = "Genre", source = "Source", decade = "Decade", section = "Section" }
     @State private var control = Control.sort
     @State private var presentingChoices = false
@@ -127,6 +128,10 @@ struct LibraryView: View {
                              genres: preferences.genres, sourceIDs: selectedSourceIDs, decades: preferences.decades)
     }
 
+    private var hasFilters: Bool {
+        preferences.filter != .all || !preferences.genres.isEmpty || !selectedSourceIDs.isEmpty || !preferences.decades.isEmpty
+    }
+
     var body: some View {
         let results = visible
         let resultKind = kind == .tvShow ? "episode" : "title"
@@ -143,7 +148,7 @@ struct LibraryView: View {
                     }
                     Spacer()
                     Button("Clear filters") { preferences.clearFilters() }
-                        .disabled(preferences.filter == .all && preferences.genres.isEmpty && selectedSourceIDs.isEmpty && preferences.decades.isEmpty)
+                        .disabled(!hasFilters)
                     Text("\(results.count) \(resultKind)\(results.count == 1 ? "" : "s")")
                         .font(.callout)
                         .foregroundStyle(CinemaTheme.secondaryText)
@@ -164,13 +169,23 @@ struct LibraryView: View {
                 BulkWatchControl(title: "Select", scope: "\(kind.label) · current results", movies: results,
                                  startsSelected: false, groupShows: true, includeHidden: preferences.filter == .hidden)
 
-                if !movies.contains(where: { $0.mediaKind == kind }) {
-                    ContentUnavailableView("No \(kind.label.lowercased()) yet", systemImage: kind == .music ? "music.note" : "film",
-                                           description: Text("Add the parent media folder in Sources. Its subfolders are scanned automatically."))
-                        .padding(.top, 100)
-                } else if results.isEmpty {
-                    ContentUnavailableView("No matching titles", systemImage: "line.3.horizontal.decrease.circle",
-                                           description: Text("Try another filter, source, decade or genre."))
+                if results.isEmpty {
+                    ContentUnavailableView {
+                        Label(hasFilters ? (preferences.filter == .watchlist ? "No Watchlist titles here" : "No matching titles") : "No \(kind.label.lowercased()) yet",
+                              systemImage: hasFilters ? "line.3.horizontal.decrease.circle" : "folder")
+                    } description: {
+                        Text(hasFilters ? (preferences.filter == .watchlist ? "Open a title and choose Add to Watchlist. Clear filters to browse your collection." : "Clear filters to see all titles in this section.") : "Add the parent media folder in Sources. Its subfolders are scanned automatically.")
+                    } actions: {
+                        if hasFilters {
+                            Button("Clear filters") {
+                                preferences.clearFilters()
+                                focusedControl = .show
+                            }.accessibilityIdentifier("library-empty-clear")
+                        } else {
+                            Button("Open Sources", action: openSources)
+                                .accessibilityIdentifier("library-empty-sources")
+                        }
+                    }
                         .padding(.top, 100)
                 } else if kind == .tvShow {
                     TVShowBrowserView(episodes: results, scrollToFocus: { proxy.scrollTo($0, anchor: .center) })
@@ -273,6 +288,7 @@ struct HomeView: View {
     @Query(sort: \Movie.dateAdded, order: .reverse) private var movies: [Movie]
     @Query private var sources: [MediaSource]
     @State private var addingSource = false
+    @StateObject private var collectionNavigation = HomeCollectionNavigation()
     @EnvironmentObject private var scanner: LibraryScanner
 
     init(openPhotos: @escaping () -> Void, openSources: @escaping () -> Void) {
@@ -280,7 +296,7 @@ struct HomeView: View {
         self.openSources = openSources
     }
 
-    private var available: [Movie] { movies.filter { !$0.isHidden && !$0.isMissing && $0.mediaKind != .photo } }
+    private var available: [Movie] { HomeCollection.available(movies) }
     private var featured: Movie? {
         let unwatched = available.filter { !$0.isInProgress && !$0.isWatched && $0.mediaKind != .music }
         return unwatched.first { $0.backdropPath != nil } ?? unwatched.first ?? available.first
@@ -318,18 +334,18 @@ struct HomeView: View {
                     }
                 } else {
                     ContinueWatchingRow()
-                    CollectionPosterRow(title: "Watchlist", movies: LibraryQuery.watchlist(movies))
+                    CollectionPosterRow(title: "Watchlist", movies: HomeCollection.watchlist.movies(in: movies), collection: .watchlist)
                     if let featured {
                         FeaturedMovieCard(movie: featured)
                     }
                     ForEach(MediaKind.allCases, id: \.self) { kind in
                         let collection = available.filter { $0.mediaKind == kind }
                         if !collection.isEmpty {
-                            if kind == .tvShow { TVShowRow(episodes: collection) }
-                            else { PosterRow(title: kind.label, movies: Array(collection.prefix(20))) }
+                            if kind == .tvShow { TVShowRow(episodes: collection, collection: .section(kind)) }
+                            else { PosterRow(title: kind.label, movies: Array(collection.prefix(20)), collection: .section(kind)) }
                         }
                     }
-                    CollectionPosterRow(title: "Unwatched", movies: available.filter { !$0.isWatched })
+                    CollectionPosterRow(title: "Unwatched", movies: available.filter { !$0.isWatched }, collection: .unwatched)
                 }
             }
             .padding(.horizontal, 70)
@@ -337,6 +353,19 @@ struct HomeView: View {
         }
         .background(CinemaBackground())
         .sheet(isPresented: $addingSource) { NASSetupView() }
+        .environmentObject(collectionNavigation)
+        .navigationDestination(item: $collectionNavigation.collection) { collection in
+            HomeCollectionView(collection: collection)
+        }
+        .onChange(of: collectionNavigation.collection) { _, collection in
+            guard collection == nil else { return }
+            var collections: [HomeCollection] = []
+            if !ContinueWatching.home(movies, limit: 1).isEmpty { collections.append(.continueWatching) }
+            if !HomeCollection.watchlist.movies(in: movies).isEmpty { collections.append(.watchlist) }
+            collections += MediaKind.allCases.filter { kind in available.contains { $0.mediaKind == kind } }.map(HomeCollection.section)
+            if available.contains(where: { !$0.isWatched }) { collections.append(.unwatched) }
+            collectionNavigation.focusRequest = collectionNavigation.lastCollection.flatMap { collections.contains($0) ? $0 : nil } ?? collections.first
+        }
     }
 
     private func homePrompt(_ title: String, symbol: String, detail: String, button: String,
@@ -528,12 +557,13 @@ struct PosterGrid: View {
 struct PosterRow: View {
     let title: String
     let movies: [Movie]
+    var collection: HomeCollection? = nil
     @FocusState private var focusedMovie: UUID?
 
     var body: some View {
         if !movies.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 32, weight: .semibold))
+                HomeShelfHeader(title: title, collection: collection)
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 42) {
                         ForEach(movies) { movie in
@@ -626,7 +656,7 @@ private struct ContinueWatchingCards: View {
     var body: some View {
         if !suggestions.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Continue Watching").font(.system(size: 32, weight: .semibold))
+                HomeShelfHeader(title: "Continue Watching", collection: .continueWatching)
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 36) {
                         ForEach(suggestions) { item in

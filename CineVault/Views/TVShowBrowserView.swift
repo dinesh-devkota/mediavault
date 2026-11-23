@@ -294,6 +294,7 @@ struct TVShowDestination: View {
 struct CollectionPosterRow: View {
     let title: String
     let movies: [Movie]
+    var collection: HomeCollection? = nil
     @State private var items: [CollectionRowItem] = []
     @FocusState private var focusedItem: String?
 
@@ -301,7 +302,7 @@ struct CollectionPosterRow: View {
         Group {
             if !items.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.system(size: 32, weight: .semibold))
+                    HomeShelfHeader(title: title, collection: collection)
                     ScrollView(.horizontal, showsIndicators: false) {
                         LazyHStack(alignment: .top, spacing: 42) {
                             ForEach(items) { item in
@@ -336,11 +337,12 @@ struct CollectionPosterRow: View {
 
 struct TVShowRow: View {
     let episodes: [Movie]
+    var collection: HomeCollection? = nil
     @State private var shows: [TVShowGroup] = []
     @FocusState private var focusedShow: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("TV Shows").font(.system(size: 32, weight: .semibold))
+            HomeShelfHeader(title: "TV Shows", collection: collection)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 42) {
                     ForEach(shows) { show in

@@ -107,11 +107,12 @@ private fun WatchedBadge(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean? = null) {
+fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean? = null,
+    cardModifier: Modifier = Modifier) {
     Column(modifier) {
         Card(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth().aspectRatio(2f / 3f).pointerClick(onClick = onClick)
+            modifier = cardModifier.fillMaxWidth().aspectRatio(2f / 3f).pointerClick(onClick = onClick)
                 .then(if (selected == null) Modifier else Modifier.testTag("bulk-item:${movie.id}").semantics { this.selected = selected }),
             shape = CardDefaults.shape(CardShape),
         ) {
@@ -176,8 +177,8 @@ private fun ContinueCard(item: ContinueWatchingItem, onClick: () -> Unit) {
 }
 
 @Composable
-fun MovieRow(title: String, movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) {
-    MediaRow(title) {
+fun MovieRow(title: String, movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, onSeeAll: (() -> Unit)? = null) {
+    MediaRow(title, onSeeAll) {
         items(movies, key = { it.id }) { movie ->
             PosterCard(movie, onClick = { onOpen(movie) }, modifier = Modifier.width(PosterWidth))
         }
@@ -185,21 +186,32 @@ fun MovieRow(title: String, movies: List<MovieEntity>, onOpen: (MovieEntity) -> 
 }
 
 @Composable
-internal fun ContinueWatchingRow(choices: List<ContinueWatchingItem>, onOpen: (MovieEntity) -> Unit) {
-    MediaRow("Continue Watching") {
+internal fun ContinueWatchingRow(choices: List<ContinueWatchingItem>, onOpen: (MovieEntity) -> Unit, onSeeAll: (() -> Unit)? = null) {
+    MediaRow("Continue Watching", onSeeAll) {
         items(choices, key = { it.id }) { choice -> ContinueCard(choice, onClick = { onOpen(choice.movie) }) }
     }
 }
 
 @Composable
-private fun MediaRow(title: String, content: LazyListScope.() -> Unit) {
+private fun MediaRow(title: String, onSeeAll: (() -> Unit)? = null, content: LazyListScope.() -> Unit) {
     Column {
-        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = ScreenPadding))
+        HomeShelfHeader(title, onSeeAll)
         LazyRow(
             contentPadding = PaddingValues(horizontal = ScreenPadding, vertical = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
             content = content,
         )
+    }
+}
+
+@Composable
+internal fun HomeShelfHeader(title: String, onSeeAll: (() -> Unit)?) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = ScreenPadding), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+        if (onSeeAll != null) OutlinedButton(onClick = onSeeAll,
+            modifier = Modifier.testTag("see-all:$title").semantics { contentDescription = "See all $title" }) {
+            Text("See all")
+        }
     }
 }
 
@@ -231,8 +243,9 @@ fun ScreenHeader(title: String, modifier: Modifier = Modifier, kicker: String? =
 }
 
 @Composable
-fun EmptyState(title: String, message: String, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().padding(vertical = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+fun EmptyState(title: String, message: String, modifier: Modifier = Modifier,
+    actionLabel: String? = null, onAction: (() -> Unit)? = null, actionModifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().padding(vertical = if (onAction != null) 24.dp else 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(title, style = MaterialTheme.typography.headlineSmall)
         Text(
             message,
@@ -241,6 +254,9 @@ fun EmptyState(title: String, message: String, modifier: Modifier = Modifier) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
+        if (actionLabel != null && onAction != null) {
+            Button(onClick = onAction, modifier = actionModifier.padding(top = 16.dp)) { Text(actionLabel) }
+        }
     }
 }
 

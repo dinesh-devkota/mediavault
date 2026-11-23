@@ -82,6 +82,15 @@ struct MovieDetailView: View {
                     #endif
                     playbackControls
                         .padding(.top, 16)
+                    if !movie.isMissing, movie.source?.isIgnored(filePath: movie.filePath) != true,
+                       PlaybackController.isNativeCandidate(movie), playbackServices.canResume(movie),
+                       let remaining = PlaybackTimeSummary.remaining(duration: movie.duration,
+                           runtimeMinutes: movie.runtimeMinutes, position: playbackServices.resumePosition(movie)) {
+                        Text(remaining)
+                            .font(.callout)
+                            .foregroundStyle(CinemaTheme.secondaryText)
+                            .accessibilityIdentifier("playback-remaining-time")
+                    }
                     if movie.episodeInfo != nil {
                         NextEpisodeLink(episode: movie)
                     }

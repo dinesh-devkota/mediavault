@@ -11,7 +11,23 @@ Use **Section** to switch categories. **Clear filters** resets the filters
 within that section. Photos have their own tab.
 
 Open **Settings** to check your installed version and build (under **About** on Apple TV).
-The MediaVault naming update is version **1.1.1**, build **3**.
+This browsing update is version **1.2.0**, build **4**.
+
+### Browse a complete Home collection
+
+Choose **See all** beside a Home shelf to open its full collection. Movies,
+Documentaries, TV Shows, Music, Watchlist, Unwatched, and Continue Watching are
+no longer limited to the first 20 cards when you open the full view. Shows stay
+grouped into seasons and episodes. **Back** returns to the same Home shelf.
+
+Home collections use their own scope, so opening one does not change your saved
+Library section, sort, or filters. If Library filters produce no results, choose
+**Clear filters** in the empty screen. An empty section offers **Open Sources**;
+an empty Watchlist explains how to save a title.
+
+When resuming a title with a known duration, its detail screen shows approximately
+how much time is left. MediaVault uses the duration recorded by playback first,
+then metadata when needed. Unknown durations do not show an estimate.
 
 ## Connect one shared parent folder
 

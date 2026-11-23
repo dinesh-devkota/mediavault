@@ -24,8 +24,8 @@ android {
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 3
-        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.1.1"
+        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 4
+        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.2.0"
     }
 
     if (releaseSigningEnabled) {

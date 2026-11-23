@@ -146,6 +146,8 @@ class WatchlistNavigationTest {
             compose.onNode(card).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
             visible("24 · Season 1 · Episode 4")
             visible("Resume 2:05")
+            visible("About 43 min left")
+            assertTrue(device.takeScreenshot(File(application.cacheDir, "detail-remaining-time.png")))
             device.pressBack()
             visible("Continue Watching")
         }

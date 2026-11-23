@@ -12,7 +12,9 @@ struct DesignPreview: View {
     static let isSearchInput = ProcessInfo.processInfo.arguments.contains("--ui-preview-search-input")
     static let isBulk = ProcessInfo.processInfo.arguments.contains("--ui-preview-bulk")
     static let isBulkShow = ProcessInfo.processInfo.arguments.contains("--ui-preview-bulk-show")
-    static let isEnabled = isDetail || isFilters || isSearch || isSearchInput || isBulk || isBulkShow || ProcessInfo.processInfo.arguments.contains("--ui-preview")
+    static let isHomeSingleWatchlist = ProcessInfo.processInfo.arguments.contains("--ui-preview-home-single-watchlist")
+    static let isHomeCollections = isHomeSingleWatchlist || ProcessInfo.processInfo.arguments.contains("--ui-preview-home-collections")
+    static let isEnabled = isDetail || isFilters || isSearch || isSearchInput || isBulk || isBulkShow || isHomeCollections || ProcessInfo.processInfo.arguments.contains("--ui-preview")
 
     private static let filterPreferences: LibraryPreferences = {
         let suite = "com.dineshdevkota.cinevault.preview.filters"
@@ -61,13 +63,33 @@ struct DesignPreview: View {
                     movie.runtimeMinutes = 105 + index * 3
                     movie.rating = 7.8
                     movie.dateAdded = Date().addingTimeInterval(-Double(index) * 86_400)
-                    if index < 4 {
+                    movie.isWatchlisted = DesignPreview.isHomeCollections && (!DesignPreview.isHomeSingleWatchlist || index == 0)
+                    if index < 4 && !DesignPreview.isHomeCollections {
                         movie.playbackPosition = Double(1_800 + index * 480)
                         movie.duration = 6_300
                         movie.lastPlayedAt = Date().addingTimeInterval(-Double(index) * 3_600)
                     }
                     if index == 0 { featuredMovie = movie }
                     context.insert(movie)
+                }
+                if DesignPreview.isHomeCollections && !DesignPreview.isHomeSingleWatchlist {
+                    for number in 1...20 {
+                        let title = String(format: "Collection Film %02d", number)
+                        let movie = Movie(filePath: "Movies/\(title).mp4", fileSize: 100, source: source)
+                        movie.setTitle(title)
+                        movie.dateAdded = Date(timeIntervalSince1970: Double(100 - number))
+                        movie.isWatchlisted = true
+                        context.insert(movie)
+                    }
+                    for season in 1...2 {
+                        for number in 1...2 {
+                            let path = String(format: "TV Shows/24/Season %d/24.S%02dE%02d.mp4", season, season, number)
+                            let episode = Movie(filePath: path, fileSize: 100, source: source)
+                            episode.resetToFileName()
+                            episode.isWatchlisted = true
+                            context.insert(episode)
+                        }
+                    }
                 }
                 if DesignPreview.isSearch || DesignPreview.isSearchInput {
                     for season in 1...8 {

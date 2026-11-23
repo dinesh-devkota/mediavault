@@ -31,7 +31,8 @@ private fun MovieEntity.hasWatchActivity() = isInProgress || (isWatched && lastP
 private fun playableEntries(items: List<MovieEntity>, sources: List<SourceEntity>): List<MovieEntity> =
     searchableItems(items, sources).filter { MediaFile.isPlayable(it.filePath) }
 
-internal fun continueWatchingItems(items: List<MovieEntity>, sources: List<SourceEntity>): List<ContinueWatchingItem> {
+internal fun continueWatchingItems(items: List<MovieEntity>, sources: List<SourceEntity>, limit: Int = 20): List<ContinueWatchingItem> {
+    if (limit <= 0) return emptyList()
     if (items.none { it.hasWatchActivity() }) return emptyList()
     val (episodes, otherMedia) = playableEntries(items, sources).partition { it.mediaKind == MediaKind.TV_SHOW }
     val choices = otherMedia.filter { it.isInProgress && it.mediaKind != MediaKind.MUSIC }.mapTo(mutableListOf()) {
@@ -47,7 +48,7 @@ internal fun continueWatchingItems(items: List<MovieEntity>, sources: List<Sourc
             }
         }
     }
-    return choices.sortedWith(compareByDescending<ContinueWatchingItem> { it.activityAt }.thenBy { it.id }).take(20)
+    return choices.sortedWith(compareByDescending<ContinueWatchingItem> { it.activityAt }.thenBy { it.id }).take(limit)
 }
 
 internal fun nextEpisodeFor(current: MovieEntity, items: List<MovieEntity>, sources: List<SourceEntity>): ContinueWatchingItem? {

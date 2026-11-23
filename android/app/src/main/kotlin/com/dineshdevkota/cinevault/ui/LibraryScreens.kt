@@ -43,6 +43,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -139,7 +140,7 @@ fun RootScreen() {
                 0 -> loadedMovies?.let {
                     HomeTab(it, openMovie, openPhotos = { openTab(2) }, openSources = { openTab(4) })
                 }
-                1 -> MoviesTab(movies, openMovie)
+                1 -> MoviesTab(movies, openMovie, openSources = { openTab(4) })
                 2 -> PhotosTab(movies)
                 3 -> SearchTab(loadedMovies, openMovie)
                 4 -> SourcesTab(movies)
@@ -160,16 +161,17 @@ private fun HomeTab(
 ) {
     var selectedShowId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedShowCollection by rememberSaveable { mutableStateOf(HomeShowCollection.ALL) }
-    val container = LocalContext.current.container
+    val context = LocalContext.current
+    val container = context.container
     val status by container.scanner.status.collectAsStateWithLifecycle()
     val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
-    val available = remember(movies) { movies.filter { !it.isPhoto && !it.isHidden && !it.isMissing }.sortedByDescending { it.addedAt } }
+    val available = remember(movies, sources) { homeAvailableItems(movies, sources.orEmpty()) }
     val collections = remember(available) { available.groupBy { it.mediaKind } }
     val loadedSources = sources
     val continuing by produceState<List<ContinueWatchingItem>>(emptyList(), movies, loadedSources) {
         value = withContext(Dispatchers.Default) { continueWatchingItems(movies, loadedSources.orEmpty()) }
     }
-    val watchlist = remember(movies) { LibraryQuery.watchlist(movies).filterNot { it.isPhoto } }
+    val watchlist = remember(available) { LibraryQuery.watchlist(available) }
     val unwatched = remember(available) { available.filter { !it.isWatched } }
     val featured = remember(available) {
         val fresh = available.filter { !it.isWatched && !it.isInProgress && it.mediaKind != MediaKind.MUSIC }
@@ -187,7 +189,7 @@ private fun HomeTab(
         return
     }
 
-    LazyColumn(contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+    LazyColumn(Modifier.testTag("home-shelves"), contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
             ScreenHeader(
                 "Welcome to MediaVault",
@@ -198,9 +200,11 @@ private fun HomeTab(
         if (available.isEmpty()) {
             item { loadedSources?.let { EmptyHome(movies, it, openPhotos, openSources) } }
         } else {
-            if (continuing.isNotEmpty()) item(key = "continue-watching") { ContinueWatchingRow(continuing, onOpen) }
+            if (continuing.isNotEmpty()) item(key = "continue-watching") {
+                ContinueWatchingRow(continuing, onOpen) { HomeCollectionActivity.start(context, HomeCollection.CONTINUE) }
+            }
             if (watchlist.isNotEmpty()) item {
-                CollectionRow("Watchlist", watchlist, onOpen) {
+                CollectionRow("Watchlist", watchlist, onOpen, onSeeAll = { HomeCollectionActivity.start(context, HomeCollection.WATCHLIST) }) {
                     selectedShowCollection = HomeShowCollection.WATCHLIST
                     selectedShowId = it
                 }
@@ -209,15 +213,16 @@ private fun HomeTab(
             for (kind in MediaKind.entries) {
                 val collection = collections[kind].orEmpty()
                 if (collection.isNotEmpty()) item {
-                    if (kind == MediaKind.TV_SHOW) TVShowRow(collection) {
+                    if (kind == MediaKind.TV_SHOW) TVShowRow(collection, onSeeAll = { HomeCollectionActivity.start(context, HomeCollection.TV_SHOWS) }) {
                         selectedShowCollection = HomeShowCollection.ALL
                         selectedShowId = it
                     }
-                    else MovieRow(kind.label, collection.take(20), onOpen)
+                    else MovieRow(kind.label, collection.take(20), onOpen,
+                        onSeeAll = { HomeCollection.forKind(kind)?.let { HomeCollectionActivity.start(context, it) } })
                 }
             }
             if (unwatched.isNotEmpty()) item {
-                CollectionRow("Unwatched", unwatched, onOpen) {
+                CollectionRow("Unwatched", unwatched, onOpen, onSeeAll = { HomeCollectionActivity.start(context, HomeCollection.UNWATCHED) }) {
                     selectedShowCollection = HomeShowCollection.UNWATCHED
                     selectedShowId = it
                 }
@@ -325,7 +330,7 @@ private fun LazyGridScope.posters(movies: List<MovieEntity>, onOpen: (MovieEntit
 }
 
 @Composable
-private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) {
+private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, openSources: () -> Unit) {
     val container = LocalContext.current.container
     val settings = container.settings
     val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
@@ -337,6 +342,14 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
         settings.libraryFacets = value
     }
     var kind by remember { mutableStateOf(settings.librarySection) }
+    val filterFocus = remember { FocusRequester() }
+    fun clearFilters() {
+        // Keep the remote on a persistent control when the empty-state button disappears.
+        filterFocus.requestFocus()
+        saveFacets(LibraryFacets())
+        filter = LibraryFilter.ALL
+        settings.libraryFilter = filter
+    }
     val collection = remember(movies, kind) { movies.filter { it.mediaKind == kind } }
     val genres = remember(collection, filter, facets.genres) { (LibraryQuery.genres(collection, filter) + facets.genres).distinct().sorted() }
     val decades = remember(collection, filter, facets.decades) { (LibraryQuery.decades(collection, filter) + facets.decades).distinct().sortedDescending() }
@@ -356,6 +369,23 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
     val selection = remember(kind) { WatchSelection() }
     val selectable = remember(visible, sources) { watchStatusItems(visible, sources.orEmpty()) }
     val selectableIds = remember(selectable) { selectable.map { it.id }.toSet() }
+    val hasFilters = facets != LibraryFacets() || filter != LibraryFilter.ALL
+    val emptyTitle = when {
+        filter == LibraryFilter.WATCHLIST && facets == LibraryFacets() -> "No Watchlist titles here"
+        hasFilters -> if (kind == MediaKind.MOVIE) "No matching movies" else "No matching ${kind.label.lowercase()}"
+        else -> "No ${kind.label.lowercase()} yet"
+    }
+    val emptyMessage = when {
+        filter == LibraryFilter.WATCHLIST && facets == LibraryFacets() -> "Open a title and choose Add to Watchlist to save it for later."
+        hasFilters -> "Clear your filters to browse all ${kind.label.lowercase()}."
+        else -> "Add the parent media folder in Sources. Its subfolders are scanned automatically."
+    }
+    val emptyContent: @Composable () -> Unit = {
+        EmptyState(emptyTitle, emptyMessage,
+            actionLabel = if (hasFilters) "Clear filters" else "Open Sources",
+            onAction = if (hasFilters) ::clearFilters else openSources,
+            actionModifier = Modifier.testTag("library-empty-action"))
+    }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ScreenHeader(
@@ -374,7 +404,7 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
                 LibraryFilterMenu("Sort", setOf(sort), LibrarySort.entries, { it.label }, {
                     sort = it.single()
                     settings.librarySort = sort
-                }, Modifier.weight(1f))
+                }, Modifier.weight(1f).focusRequester(filterFocus))
                 LibraryFilterMenu("Show", setOf(filter), LibraryFilter.entries, { it.label }, {
                     filter = it.single()
                     settings.libraryFilter = filter
@@ -401,12 +431,9 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
                     }
                 }, Modifier.weight(1.2f))
                 OutlinedButton(
-                    enabled = facets != LibraryFacets() || filter != LibraryFilter.ALL,
-                    onClick = {
-                        saveFacets(LibraryFacets())
-                        filter = LibraryFilter.ALL
-                        settings.libraryFilter = filter
-                    },
+                    enabled = hasFilters,
+                    onClick = ::clearFilters,
+                    modifier = Modifier.testTag("library-clear-filters"),
                 ) { Text("Clear filters") }
             }
         }
@@ -414,16 +441,13 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit) 
             Modifier.padding(horizontal = ScreenPadding))
         Box(Modifier.weight(1f)) {
             if (kind == MediaKind.TV_SHOW) {
-                TVShowBrowser(visible, onOpen, preparedShows = tvShows)
+                TVShowBrowser(visible, onOpen, preparedShows = tvShows, emptyContent = emptyContent)
             } else {
             // Five columns on a 960dp-wide TV leave room for a complete poster
             // and its labels beneath the persistent filter controls.
             MovieGrid(minimumPosterWidth = 148.dp) {
                 when {
-                    collection.isEmpty() -> fullWidth { EmptyState("No ${kind.label.lowercase()} yet", "Add the parent media folder in Sources. Its subfolders are scanned automatically.") }
-                    visible.isEmpty() -> fullWidth {
-                        EmptyState(if (kind == MediaKind.MOVIE) "No matching movies" else "No matching items", "Try another filter, source, decade or genre.")
-                    }
+                    visible.isEmpty() -> fullWidth { emptyContent() }
                     else -> posters(visible, onOpen, selection, selectableIds)
                 }
             }

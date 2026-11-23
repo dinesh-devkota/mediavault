@@ -52,7 +52,7 @@ struct RootView: View {
             NavigationStack {
                 HomeView(openPhotos: { tab = .photos }, openSources: { tab = .sources }).movieDestination()
             }.tabItem { Text("Home") }.tag(Tab.home)
-            NavigationStack { LibraryView().movieDestination() }.tabItem { Text("Library") }.tag(Tab.library)
+            NavigationStack { LibraryView(openSources: { tab = .sources }).movieDestination() }.tabItem { Text("Library") }.tag(Tab.library)
             NavigationStack { PhotosView().movieDestination() }.tabItem { Text("Photos") }.tag(Tab.photos)
             NavigationStack { SearchView().movieDestination() }.tabItem { Image(systemName: "magnifyingglass") }.tag(Tab.search)
             NavigationStack { SourcesView() }.tabItem { Text("Sources") }.tag(Tab.sources)

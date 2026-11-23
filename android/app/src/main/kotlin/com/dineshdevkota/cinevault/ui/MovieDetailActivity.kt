@@ -176,9 +176,13 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                         }
                     }
                 }
+                if (playbackRejection == null && current.isInProgress) {
+                    remainingPlaybackTime(current.durationMs, current.runtimeMinutes, current.playbackPositionMs)?.let {
+                        Text(it, style = MaterialTheme.typography.bodyMedium, color = SecondaryText,
+                            modifier = Modifier.testTag("playback-remaining-time"))
+                    }
+                }
                 if (current.episodeInfo != null) NextEpisodeButton(current)
-                Text("Supported containers still depend on the audio and video codecs this TV can decode.",
-                    style = MaterialTheme.typography.bodySmall, color = SecondaryText)
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     OutlinedButton(
                         enabled = !updatingWatchlist,

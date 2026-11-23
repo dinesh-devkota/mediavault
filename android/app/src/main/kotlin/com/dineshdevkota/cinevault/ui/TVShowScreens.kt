@@ -58,11 +58,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
 internal fun CollectionRow(
-    title: String, movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, onShow: (String) -> Unit,
+    title: String, movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, onSeeAll: (() -> Unit)? = null, onShow: (String) -> Unit,
 ) {
     val collection = remember(movies) { collectionItems(movies, limit = 20) }
     Column {
-        Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = ScreenPadding))
+        HomeShelfHeader(title, onSeeAll)
         LazyRow(contentPadding = PaddingValues(horizontal = ScreenPadding, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             items(collection, key = { it.id }) { item ->
                 when (item) {
@@ -76,10 +76,10 @@ internal fun CollectionRow(
 }
 
 @Composable
-internal fun TVShowRow(episodes: List<MovieEntity>, onShow: (String) -> Unit) {
+internal fun TVShowRow(episodes: List<MovieEntity>, onSeeAll: (() -> Unit)? = null, onShow: (String) -> Unit) {
     val shows = remember(episodes) { groupTVShows(episodes).take(20) }
     Column {
-        Text("TV Shows", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = ScreenPadding))
+        HomeShelfHeader("TV Shows", onSeeAll)
         LazyRow(contentPadding = PaddingValues(horizontal = ScreenPadding, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             items(shows, key = { it.id }) { show ->
                 TVArtworkCard(show.title, "${show.seasons.size} seasons", show.posterPath,
@@ -96,6 +96,7 @@ internal fun TVShowBrowser(
     preparedShows: List<TVShowGroup>? = null,
     restoreNavigationFocus: Boolean = false,
     onNavigationFocusReady: () -> Unit = {},
+    emptyContent: (@Composable () -> Unit)? = null,
 ) {
     val shows = preparedShows ?: remember(episodes) { groupTVShows(episodes) }
     var showId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
@@ -208,7 +209,8 @@ internal fun TVShowBrowser(
         ) {
             if (show == null) {
                 if (shows.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                    EmptyState("No matching TV shows", "Try another filter or check your sources.")
+                    if (emptyContent != null) emptyContent()
+                    else EmptyState("No matching TV shows", "Try another filter or check your sources.")
                 }
                 items(shows, key = { it.id }) { item ->
                     TVArtworkCard(item.title, "${item.seasons.size} seasons", item.posterPath,
