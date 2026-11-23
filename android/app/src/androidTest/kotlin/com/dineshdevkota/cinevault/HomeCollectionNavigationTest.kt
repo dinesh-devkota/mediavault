@@ -67,8 +67,10 @@ class HomeCollectionNavigationTest {
         launchHome().use {
             val shelf = hasTestTag("see-all:Movies")
             compose.onNode(hasTestTag("home-shelves")).performScrollToNode(shelf)
+            visible(shelf).performSemanticsAction(SemanticsActions.RequestFocus)
+            compose.waitForIdle()
             val homeTop = visible(shelf).fetchSemanticsNode().boundsInRoot.top
-            activate(shelf)
+            visible(shelf).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
             visible(hasText("26 titles"))
             assertTrue(device.takeScreenshot(File(application.cacheDir, "home-see-all-movies.png")))
             val oldest = hasTestTag("collection-item:movie:${films.first().id}")
