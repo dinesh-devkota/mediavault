@@ -295,10 +295,12 @@ struct CollectionPosterRow: View {
     let title: String
     let movies: [Movie]
     var collection: HomeCollection? = nil
-    @State private var items: [CollectionRowItem] = []
     @FocusState private var focusedItem: String?
 
     var body: some View {
+        // Derive the shelf before deciding whether to display it. An onChange
+        // attached to an initially empty Group cannot initialize its contents.
+        let items = CollectionRowItem.grouped(movies)
         Group {
             if !items.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
@@ -328,9 +330,6 @@ struct CollectionPosterRow: View {
                     .scrollClipDisabled()
                 }
             }
-        }
-        .onChange(of: movies.map(TVShowGroup.revision), initial: true) { _, _ in
-            items = CollectionRowItem.grouped(movies)
         }
     }
 }
