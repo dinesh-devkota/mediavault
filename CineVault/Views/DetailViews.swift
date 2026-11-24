@@ -110,7 +110,6 @@ struct MovieDetailView: View {
             PlaybackScreen(controller: controller, services: playbackServices,
                            library: { (try? modelContext.fetch(FetchDescriptor<Movie>())) ?? [] })
                 .ignoresSafeArea()
-                .onDisappear { controller.stop() }
         }
         .onDisappear { cancelPreparation() }
         .alert("Format not supported", isPresented: $unsupported) {

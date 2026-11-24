@@ -17,6 +17,7 @@ struct PlaybackDesignPreview: View {
         let defaults: UserDefaults
         let source: MediaSource
         let episodes: [Movie]
+        private let credentialKey = "source-ED584ED6-C701-4F6C-A9FA-EA7D73EE1B8B"
         init() {
             defaults = UserDefaults(suiteName: PlaybackDesignPreview.suite)!
             defaults.removePersistentDomain(forName: PlaybackDesignPreview.suite)
@@ -31,6 +32,7 @@ struct PlaybackDesignPreview: View {
                 return movie
             }
         }
+        deinit { try? Keychain.delete(credentialKey) }
     }
 
     var body: some View {
@@ -51,7 +53,6 @@ struct PlaybackDesignPreview: View {
                 controller = try await PlaybackController.prepare(movie: fixture.episodes[0], resume: false, services: services, defaults: fixture.defaults)
             } catch { self.error = error.localizedDescription }
         }
-        .onDisappear { controller?.stop(); try? Keychain.delete("source-\(fixture.source.id.uuidString)") }
     }
 }
 #endif

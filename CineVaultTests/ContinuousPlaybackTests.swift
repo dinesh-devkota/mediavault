@@ -87,6 +87,19 @@ final class ContinuousPlaybackTests: XCTestCase {
         XCTAssertNil(flow.next)
     }
 
+    func testSubtitleSheetDisappearanceKeepsPlaybackAliveButExitStopsIt() throws {
+        for reason in ["subtitle sheet", "actual disappearance", "explicit close"] {
+            let items = episodes(), controller = try controller(items[0])
+            let flow = ContinuousPlayback(controller: controller, services: PlaybackServices(), defaults: defaults, library: { items })
+            controller.subtitles.presented = reason != "actual disappearance"
+            if reason == "explicit close" { flow.stop() }
+            else { flow.viewDisappeared() }
+            end(controller)
+            XCTAssertEqual(controller.didEndNaturally, reason == "subtitle sheet", reason)
+            flow.stop()
+        }
+    }
+
     func testLaunchRevalidatesMissingAndIgnoredNextEpisode() throws {
         defaults.set(true, forKey: ContinuousPlayback.enabledKey)
         let items = episodes(), controller = try controller(items[0])

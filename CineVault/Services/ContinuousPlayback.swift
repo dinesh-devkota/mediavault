@@ -125,6 +125,18 @@ final class ContinuousPlayback: ObservableObject {
         stopped = true; cancel(); observation = nil; errorObservation = nil; commercialObservation = nil; controller.stop()
     }
 
+    func viewDisappeared() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback") {
+            print("Playback fixture disappeared; subtitle sheet=\(controller.subtitles.presented)")
+        }
+        #endif
+        // tvOS presents sheets fullscreen. Covering the player with its subtitle
+        // choices must not end the playback session that those choices control.
+        guard !controller.subtitles.presented else { return }
+        stop()
+    }
+
     func setActive(_ value: Bool) {
         active = value
         if !value { cancel() }

@@ -175,6 +175,11 @@ final class PlaybackSubtitles: ObservableObject {
     }
 
     func select(_ id: String, remember: Bool = true) {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback") {
+            print("Playback fixture subtitle action: \(id); stopped=\(stopped)")
+        }
+        #endif
         guard !stopped else { return }
         generation = UUID(); loadTask?.cancel(); loadTask = nil
         if remember { searchTask?.cancel(); searchTask = nil; searching = false }

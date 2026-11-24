@@ -70,6 +70,7 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
         let play = app.buttons["autoplay-play-now"]
         XCTAssertTrue(play.waitForExistence(timeout: 15), app.debugDescription)
         focus(play, in: app)
+        capture("Natural end countdown with Play now focused", app: app)
         XCUIRemote.shared.press(.select)
         let second = app.staticTexts.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "fixture-playing-episode", "S01E02")).firstMatch
         XCTAssertTrue(second.waitForExistence(timeout: 40), app.debugDescription)
@@ -87,15 +88,22 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
         let subtitles = app.cells["Subtitles"].firstMatch
         // This fixture uses the real native transport, without test-only focusable buttons.
         XCTAssertTrue(subtitles.waitForExistence(timeout: 40), app.debugDescription)
-        // AVKit keeps hidden transport items in its accessibility tree. Up reveals
-        // playback controls; existence alone does not mean the action is visible.
-        for _ in 0..<6 {
-            remote.press(.up)
-            let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == YES"), object: subtitles)
-            if XCTWaiter.wait(for: [visible], timeout: 2) == .completed { break }
+        // AVKit keeps hidden transport items in its accessibility tree. Its
+        // fullscreen surface uses Up to reveal/focus controls regardless of their
+        // on-screen coordinates; a geometric Down move can hide them again.
+        for attempt in 0..<8 {
+            if subtitles.hasFocus { break }
+            let focusedCell = app.cells.matching(NSPredicate(format: "hasFocus == YES")).firstMatch
+            if focusedCell.exists {
+                remote.press(focusedCell.frame.midX > subtitles.frame.midX ? .left : .right)
+            } else {
+                remote.press(.up)
+            }
+            if attempt == 1 { capture("Native transport after revealing controls", app: app) }
         }
+        capture("Native transport focus result", app: app)
+        XCTAssertTrue(subtitles.hasFocus, app.debugDescription)
         XCTAssertTrue(subtitles.isHittable, app.debugDescription)
-        focus(subtitles, in: app)
         capture("Production transport subtitle action", app: app)
         remote.press(.select)
         XCTAssertTrue(app.buttons["subtitles-off"].waitForExistence(timeout: 10), app.debugDescription)

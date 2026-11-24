@@ -396,7 +396,7 @@ struct PlaybackScreen: View {
             if session.next != nil { session.cancel() }
             else { close() }
         }
-        .onDisappear { session.stop() }
+        .onDisappear { session.viewDisappeared() }
         .onChange(of: scenePhase) { _, phase in session.setActive(phase == .active) }
         .alert("Next episode unavailable", isPresented: Binding(get: { session.message != nil }, set: { _ in })) {
             Button("Back to library") { close() }
