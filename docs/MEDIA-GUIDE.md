@@ -226,6 +226,8 @@ beside the video, or **Off**. MediaVault remembers your subtitle choice where a
 matching language is available in the next episode.
 On Apple TV, press **Up** to reveal the playback controls first.
 
+![Apple TV subtitle choices with Off, Automatic, local languages, and online search](screenshots/apple-subtitle-picker.png)
+
 For local subtitles, place an extracted `.srt` or `.vtt` file in the video's
 folder. Match the full video filename before its extension, optionally adding a
 language code:

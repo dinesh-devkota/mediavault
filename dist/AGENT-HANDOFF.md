@@ -901,11 +901,21 @@ scan-summary failures are resolved.
   Off, Automatic, Back cancelling the countdown, and Play now into episode two
   all passed, along with Search/Back focus and the new modal-lifecycle regression.
   Revision `f4fb621` prevents subtitle-sheet presentation from prematurely
-  stopping the Apple player. The sole remaining failure is reaching the native
-  transport's subtitle action with the remote; it occurs before action activation
-  and remains under test. Do not mark Apple playback validation complete.
-- The clean Apple next-episode countdown screenshot from that run was inspected
-  and added to the user guide. The caption fixture screenshot includes a debug
-  header and is not published.
+  stopping the Apple player. That run's sole failure was reaching the native
+  transport's subtitle action with the remote, before action activation.
+- [Focused Apple validation on `8f566ac`](https://github.com/dinesh-devkota/mediavault/actions/runs/45488013883)
+  passed **15/15 tests**, with zero failures or skips. It verifies the actual
+  native controls → Subtitles → English → Done → visible caption journey,
+  along with the previous navigation and continuous-playback journeys. Community
+  production playback is unchanged from `f4fb621`; the focused iteration changed
+  only tests and the DEBUG fixture. The separate commercial lifecycle integration
+  in `eb9fd28` still requires protected validation. Together these runs cover
+  community Apple validation; the focused run is not a full
+  160-test suite pass. Public merge and protected commercial validation remain
+  pending.
+- The clean countdown from full run `45484118998` and subtitle picker from the
+  final focused run were inspected and added to the user guide. Final native
+  controls and rendered-caption screenshots were also inspected; caption test
+  images remain validation artifacts.
 - Public main/development and private main have not yet been advanced for this
   update. Protected commercial validation has not been requested yet.
