@@ -200,7 +200,9 @@ the current episode’s details. Specials are followed separately.
 
 ## Play the next episode automatically
 
-In **Settings**, enable **Play next TV episode automatically**. It starts off.
+On Apple TV, open **Settings** and enable **Play next TV episode automatically**.
+On Android TV, open **Settings → Playback & Subtitles** and turn **Play next episode** on.
+This option starts off on both platforms.
 When an episode finishes normally, MediaVault shows the next available unwatched
 episode and a ten-second countdown. Choose **Play now** to continue immediately,
 or **Cancel** (or press **Back**) to stop automatic advance.
@@ -211,11 +213,14 @@ seasons. Movies, playback errors, leaving the player, and commercial trial cutof
 do not start another episode. Switching away from the app cancels a pending
 countdown. The next file is checked again before playback begins.
 
+![Android TV playback preferences with continuous viewing and subtitle language controls](screenshots/android-subtitles-settings.png)
+
 ## Use subtitles
 
 Open **Subtitles** in the player to choose an embedded track, a subtitle stored
 beside the video, or **Off**. MediaVault remembers your subtitle choice where a
 matching language is available in the next episode.
+On Apple TV, press **Up** to reveal the playback controls first.
 
 For local subtitles, place an extracted `.srt` or `.vtt` file in the video's
 folder. Match the full video filename before its extension, optionally adding a
@@ -239,11 +244,14 @@ Files must be readable SRT or WebVTT and no larger than 2 MB.
 
 1. On a phone or computer, sign in to [SubDL's API panel](https://subdl.com/panel/api)
    and create a free API key.
-2. Open MediaVault's **Settings → Subtitles** setup and enter that key in the app.
+2. In MediaVault, open **Settings → Playback & Subtitles** on Android TV, or
+   **Settings → Subtitle language & SubDL setup** on Apple TV, and enter the key.
    Keep it out of chat and screenshots. Apple TV displays a QR code for the setup page.
 3. Choose your preferred language, then **Connect & enable automatic subtitles**.
    Wait for the connection confirmation. An invalid key or unavailable service shows
    an error so you can correct it and retry.
+
+![Android TV one-time SubDL connection form before an API key is entered](screenshots/android-subdl-connect.png)
 
 MediaVault prefers matching local or embedded subtitles. When automatic online
 subtitles are enabled, it searches SubDL for the matched title and language. An

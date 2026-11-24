@@ -869,3 +869,31 @@ scan-summary failures are resolved.
   key entered in the app. Do not request a key in chat. Physical Apple TV testing
   remains unavailable: the owner has Windows and Apple TV, no Mac or active
   Apple Developer membership. Do not re-ask those setup questions.
+
+### Android validation and installation
+
+- [Android validation on `7b82612`](https://github.com/dinesh-devkota/mediavault/actions/runs/45480792759)
+  passed **73 runtime tests**, zero failures or skips, plus unit tests, lint,
+  debug/release packaging and the unsigned bundle. Local unit checks passed
+  **172 tests** (90 core, 82 app).
+- Runtime coverage includes real NAS SRT/WebVTT discovery, visible English cues
+  before and after a seek, explicit Off surviving player recreation, all six
+  subtitle/continuous-playback journeys and all Watchlist navigation regressions.
+- Tests exposed two production issues now fixed: `singleTop` prevented creation
+  of the next player, and Media3's default sidecar source inferred its duration
+  from the final cue's start. `SubtitleMediaSourceFactory` retains the parsed
+  final cue end and preserves the primary video's timeline and native parsers.
+  Sidecar memory is bounded to eight local tracks plus one selected download.
+- The saved `CineVault_TV` emulator received **1.3.0/build 5** with `install -r`.
+  The installed APK hash matched the local package:
+  `8848f0094f9d295c7970286cf9b93a4584558d672ff39201662f43be74e03efc`.
+  Startup and both subtitle settings screens were inspected; saved library cards
+  remained present. The saved NAS at `192.168.1.101:445` was unreachable from the
+  PC during this check, so no claim of current owner-NAS playback is made.
+- Apple release/core/previews passed. Full simulator run `45473127108` passed
+  **156/159** tests; three new remote tests failed before behavior assertions.
+  The latest focused run `45480791681` passed **13/15**: Search/Back focus and
+  Play now into episode two passed; native subtitle access and local subtitle
+  selection still need diagnosis. Do not mark Apple playback validation complete.
+- Public main/development and private main have not yet been advanced for this
+  update. Protected commercial validation has not been requested yet.
