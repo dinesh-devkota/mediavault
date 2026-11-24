@@ -857,7 +857,7 @@ scan-summary failures are resolved.
 - Private work is isolated in
   `D:\CineVaultCommercial\.worktrees\mediavault-continuation` on
   `codex/mediavault-continuation`, pinned revision
-  `8f45afffdc8fe1d1c71a844defbb0cc3a9d76a40`. It exposes verified successful
+  `f92d3539054e9177abe0d28477abf598cf6f4a2d`. It exposes verified successful
   completion after the final saved checkpoint and allows the public playback
   owner to preserve a licensed session while showing subtitles. The public commercial build
   requires this API and still requires protected commercial validation before
@@ -924,8 +924,20 @@ scan-summary failures are resolved.
 - Public main/development were advanced to `7f9a8fe`. Both post-merge Android
   runs (`45490618424`, `45490618056`) passed all 73 runtime tests plus build,
   lint and unit checks. Private main remains unchanged. Protected commercial
-  run `45490617866` is testing public `7f9a8fe` with private `8f45aff`; the owner
+  run `45490617866` tested public `7f9a8fe` with private `8f45aff`; the owner
   approved the build-only run, and TestFlight upload is disabled.
+  Its package tests and unsigned app/simulator builds passed, but licensed
+  simulator tests failed; the exact assertion could not be recovered from the
+  old encrypted diagnostics.
+  The original temporary diagnostics key was not recoverable. A new public
+  certificate is configured; its private key is Windows-account encrypted in
+  the ignored `.local-diagnostics` directory of the private workspace, with
+  recovery instructions there. An encryption round trip passed.
+- The current private baseline omitted previously approved catalog fix
+  `976a454`, which passed protected run `41764500086`. Its exact patch was
+  restored alone as `f92d353`, preserving current branding and playback changes.
+  The failed run's precise assertion remains unconfirmed; the combined private
+  revision requires fresh protected validation before advancing private main.
 - Post-merge development run `45490618030` passed 159/160 Apple tests. The
   remaining native-entry test waited for a private remaining-time element even
   though the transport was visibly open. The revised test keeps actual remote
@@ -942,6 +954,19 @@ scan-summary failures are resolved.
   query-authenticated download succeeded; anonymous and header-authenticated
   requests were challenged by the provider. Movie queries also omit the TV
   season-pack filter, which otherwise hid valid releases. These compatibility
-  fixes and the final Apple validation are in progress; the installed Android
-  build still needs the download fix. Actual online captions during owner-NAS
-  playback remain unverified because the saved NAS is currently unreachable.
+  fixes are committed on `codex/mediavault-subtitles` at `3261ea3`; full Apple
+  run `45494772477`, core/release run `45494775738`, and Android run `45494780043`
+  were requested. Core/release run `45494775738` passed (71 core tests), and
+  Android run `45494780043` passed all 73 runtime tests without failures or skips,
+  plus lint, unit and packaging checks. Full Apple run `45494772477` passed
+  **163/163 tests**, with no failures or skips, including all three subtitle and
+  continuous-playback remote journeys. The hosted reporting regressions passed
+  **6/6**. Public main/development include `3261ea3` and the final documentation;
+  final licensed validation must use private pin `f92d353`. Local Android
+  validation passed 176 unit tests (90 core, 86 app),
+  lint, debug packaging, and instrumentation compilation.
+- The download fix is now installed in the saved Android emulator. Its APK hash
+  was verified as `a12b87928e12fcac604f65b8f3ae55c427dc89293aaedcee7e715d467d39b543`.
+  The update preserved the saved SubDL connection and automatic-download flags.
+  Actual online captions during owner-NAS playback remain unverified because the
+  saved NAS is currently unreachable. The emulator is open for the owner.
