@@ -2,6 +2,32 @@ import AVFoundation
 import CineVaultCore
 import SwiftUI
 
+/// AVFoundation may publish a selection after select(_:in:) returns. Keep the expected
+/// target until observed, without swallowing a different choice made in the native UI.
+struct NativeSubtitleSelectionTracker {
+    private struct Expected { let index: Int? }
+    private var observed: Int?
+    private var expected: Expected?
+
+    init(current: Int?) { observed = current }
+
+    mutating func request(_ target: Int?, current: Int?) {
+        observed = current
+        expected = Expected(index: target)
+    }
+
+    /// True only when the actual selection changed independently of our pending request.
+    mutating func changed(to current: Int?) -> Bool {
+        if let expected, expected.index == current {
+            self.expected = nil; observed = current
+            return false
+        }
+        guard current != observed else { return false }
+        observed = current; expected = nil
+        return true
+    }
+}
+
 /// Only sibling sidecars are considered. No search, upload, or write is made to the NAS.
 enum LocalSubtitleService {
     static func discover(config: SourceConfig, videoPath: String, preferredLanguage: String = "en",
@@ -76,6 +102,7 @@ final class PlaybackSubtitles: ObservableObject {
     private var generation = UUID()
     private var localPreference: String?
     private var nativeLoaded = false
+    private var nativeSelection = NativeSubtitleSelectionTracker(current: nil)
 
     init(player: AVPlayer, movie: Movie, config: SourceConfig, defaults: UserDefaults = .standard) {
         self.player = player; self.movie = movie; self.config = config; path = movie.filePath; self.defaults = defaults
@@ -102,6 +129,7 @@ final class PlaybackSubtitles: ObservableObject {
                 guard self.sourceUnchanged else { throw SMBError.sourceChanged }
                 self.embedded = (self.group?.options ?? []).enumerated().map { Embedded(id: $0.offset, option: $0.element) }
                 self.nativeLoaded = true
+                self.nativeSelection = NativeSubtitleSelectionTracker(current: self.currentNativeSelection)
                 self.local = try await LocalSubtitleService.discover(config: self.config, videoPath: self.path, preferredLanguage: self.preferredLanguage)
                 try Task.checkCancellation()
                 guard self.sourceUnchanged else { throw SMBError.sourceChanged }
@@ -153,9 +181,15 @@ final class PlaybackSubtitles: ObservableObject {
         document = nil; caption = ""; localPreference = nil; delay = 0
         loading = false
         if remember { message = nil }
+        if id == "system", remember {
+            SubtitleSettings.selectAutomatic(defaults: defaults)
+            restorePreference()
+            return
+        }
         if id == "system" {
             selection = id
-            if let group { player.currentItem?.selectMediaOptionAutomatically(in: group) }
+            // Preserve AVPlayer's initial system choice. An explicit Automatic action above
+            // resolves the full preferred-language chain, with a known native target.
             if remember { defaults.set(id, forKey: Self.preferenceKey) }
         } else if id == "off" {
             guard disableNative() else { return }
@@ -163,7 +197,7 @@ final class PlaybackSubtitles: ObservableObject {
             if remember { defaults.set(id, forKey: Self.preferenceKey) }
         } else if let native = embedded.first(where: { "embedded:\($0.id)" == id }), let group {
             selection = id
-            player.currentItem?.select(native.option, in: group)
+            selectNative(native.option)
             if remember { defaults.set(native.preference, forKey: Self.preferenceKey) }
         } else if let file = local.first(where: { $0.path == id }) {
             guard disableNative() else { return }
@@ -201,23 +235,38 @@ final class PlaybackSubtitles: ObservableObject {
                 message = "This video requires its embedded caption track. Local subtitles cannot be combined with it."
                 return false
             }
-            player.currentItem?.select(nil, in: group)
+            selectNative(nil)
         }
         return true
     }
 
+    private var currentNativeSelection: Int? {
+        guard let group, let selected = player.currentItem?.currentMediaSelection.selectedMediaOption(in: group) else { return nil }
+        return embedded.first { $0.option === selected }?.id
+    }
+
+    private func selectNative(_ option: AVMediaSelectionOption?) {
+        guard let group else { return }
+        let target = option.flatMap { option in embedded.first { $0.option === option }?.id }
+        nativeSelection.request(target, current: currentNativeSelection)
+        player.currentItem?.select(option, in: group)
+        // Handles both immediate updates and no-op requests. A deferred update remains pending.
+        _ = nativeSelection.changed(to: currentNativeSelection)
+    }
+
     private func nativeSelectionChanged() {
-        guard !stopped, let group else { return }
-        guard let selected = player.currentItem?.currentMediaSelection.selectedMediaOption(in: group) else {
-            if selection.hasPrefix("embedded:") { selection = "off"; defaults.set("off", forKey: Self.preferenceKey) }
-            return
-        }
-        // The native transport's subtitle picker stays available. Its explicit choice replaces sidecar captions.
-        if let native = embedded.first(where: { $0.option === selected }), selection != "system", selection != "embedded:\(native.id)" {
-            generation = UUID(); loadTask?.cancel(); searchTask?.cancel(); searching = false
-            document = nil; caption = ""; localPreference = nil
-            selection = "embedded:\(native.id)"; loading = false
+        guard !stopped, nativeLoaded else { return }
+        let current = currentNativeSelection
+        guard nativeSelection.changed(to: current) else { return }
+        // Native picker changes replace the custom track; expected select() results are suppressed.
+        generation = UUID(); loadTask?.cancel(); searchTask?.cancel(); searching = false
+        document = nil; caption = ""; localPreference = nil; loading = false
+        if let native = embedded.first(where: { $0.id == current }) {
+            selection = "embedded:\(native.id)"
             defaults.set(native.preference, forKey: Self.preferenceKey)
+        } else {
+            selection = "off"
+            defaults.set("off", forKey: Self.preferenceKey)
         }
     }
 
@@ -235,18 +284,13 @@ final class PlaybackSubtitles: ObservableObject {
 
     var hasLocalSelection: Bool { localPreference != nil }
     private var preferredLanguage: String {
-        let stored = (defaults.string(forKey: Self.preferenceKey) ?? "system").components(separatedBy: "|")
-        if stored.count > 1, stored[1] != "und",
-           stored[1].range(of: #"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8}){0,2}$"#, options: .regularExpression) != nil {
-            return Self.normalizedLanguage(stored[1])
-        }
-        return Self.normalizedLanguage(defaults.string(forKey: SubtitleSettings.languageKey) ?? "en")
+        Self.normalizedLanguage(SubtitleSettings.requestedLanguage(defaults: defaults))
     }
 
     nonisolated static func sameLanguage(_ candidate: String?, _ preferred: String) -> Bool {
         guard let candidate else { return false }
-        let candidate = normalizedLanguage(candidate), preferred = normalizedLanguage(preferred)
-        return candidate == preferred || (!preferred.contains("-") && candidate.split(separator: "-").first.map(String.init) == preferred)
+        let normalizedCandidate = normalizedLanguage(candidate), normalizedPreferred = normalizedLanguage(preferred)
+        return normalizedCandidate == normalizedPreferred || (!normalizedPreferred.contains("-") && normalizedCandidate.split(separator: "-").first.map(String.init) == normalizedPreferred)
     }
 
     nonisolated private static func normalizedLanguage(_ code: String) -> String {

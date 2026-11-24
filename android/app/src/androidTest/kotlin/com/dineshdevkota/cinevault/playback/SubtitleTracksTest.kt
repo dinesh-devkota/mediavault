@@ -10,6 +10,10 @@ import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.core.app.ApplicationProvider
+import com.dineshdevkota.cinevault.CineVaultApp
+import com.dineshdevkota.cinevault.data.Settings
+import com.dineshdevkota.cinevault.data.SecretBox
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -55,6 +59,28 @@ class SubtitleTracksTest {
         assertFalse(SubtitleTracks.sameLanguage("pt-PT", "pt-BR"))
         assertFalse(SubtitleTracks.sameLanguage("zh-Hans", "zh-Hant"))
         assertTrue(SubtitleTracks.sameLanguage("eng", "en"))
+    }
+
+    @Test fun explicitTrackLanguageCarriesAcrossSettingsReloadWithoutOffLosingIt() {
+        val context = ApplicationProvider.getApplicationContext<CineVaultApp>()
+        val settings = context.container.settings
+        val previousLanguage = settings.subtitleLanguage
+        val previousPreference = settings.subtitlePreference
+        try {
+            settings.subtitleLanguage = "en"
+            settings.subtitlePreference = "spa"
+            val reloaded = Settings(context, SecretBox())
+            assertEquals("es", reloaded.subtitlePreference)
+            assertEquals("A later online search must follow the selected Spanish track", "es", reloaded.subtitleLanguage)
+            reloaded.subtitlePreference = "off"
+            assertEquals("off", settings.subtitlePreference)
+            assertEquals("es", settings.subtitleLanguage)
+            reloaded.subtitlePreference = "und"
+            assertEquals("es", settings.subtitleLanguage)
+        } finally {
+            settings.subtitlePreference = previousPreference
+            settings.subtitleLanguage = previousLanguage
+        }
     }
 
     @Test fun automaticReleaseMatchingNeverGuessesAlternateCutsOrSimilarEpisodes() {

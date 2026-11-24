@@ -45,7 +45,7 @@ object SubtitleSidecars {
                 "sdh", "cc" -> hearingImpaired = true
                 else -> {
                     if (language != null) return null
-                    language = languageTag(token) ?: return null
+                    language = normalizeLanguage(token) ?: return null
                 }
             }
         }
@@ -60,8 +60,9 @@ object SubtitleSidecars {
             "gre" to "el", "rum" to "ro", "wel" to "cy", "slo" to "sk", "per" to "fa")
     }
 
-    private fun languageTag(token: String): String? {
-        val parts = token.split('-')
+    /** Canonical ISO/BCP-47 form for sidecars, embedded tracks and online searches. */
+    fun normalizeLanguage(token: String): String? {
+        val parts = token.trim().lowercase(Locale.ROOT).replace('_', '-').split('-')
         val base = languages[parts.first()] ?: return null
         if (parts.drop(1).any { !it.matches(Regex("[a-z]{2}|[a-z]{4}|[0-9]{3}")) }) return null
         return Locale.forLanguageTag((listOf(base) + parts.drop(1)).joinToString("-")).toLanguageTag()

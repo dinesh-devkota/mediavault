@@ -7,10 +7,34 @@ enum SubtitleSettings {
     static let languageKey = "subtitles.preferredLanguage"
     static let verifiedKey = "subtitles.subdlVerified"
     static let setupURL = URL(string: "https://subdl.com/panel/api")!
-    static let languages = Array(Set(Locale.isoLanguageCodes + ["pt-br", "zh-cn", "zh-tw"]))
+    static let languages = Array(Set(Locale.isoLanguageCodes + ["pt-br", "zh-hans", "zh-hant"]))
 
     static func languageName(_ code: String) -> String {
         Locale.current.localizedString(forIdentifier: code) ?? code.uppercased()
+    }
+
+    static func selectLanguage(_ code: String, defaults: UserDefaults = .standard) {
+        defaults.set(code, forKey: languageKey)
+        selectAutomatic(defaults: defaults)
+    }
+
+    static func selectAutomatic(defaults: UserDefaults = .standard) {
+        defaults.set("preferred|" + (defaults.string(forKey: languageKey) ?? "en"), forKey: PlaybackSubtitles.preferenceKey)
+    }
+
+    static func connected(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: verifiedKey)
+        defaults.set(true, forKey: enabledKey)
+        selectAutomatic(defaults: defaults)
+    }
+
+    static func requestedLanguage(defaults: UserDefaults) -> String {
+        let stored = (defaults.string(forKey: PlaybackSubtitles.preferenceKey) ?? "system").components(separatedBy: "|")
+        if stored.count > 1, ["local", "embedded", "online", "preferred"].contains(stored[0]), stored[1] != "und",
+           stored[1].range(of: #"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8}){0,2}$"#, options: .regularExpression) != nil {
+            return stored[1]
+        }
+        return defaults.string(forKey: languageKey) ?? "en"
     }
 }
 
@@ -31,7 +55,10 @@ struct SubtitleSettingsView: View {
             Button("Back") { dismiss() }
             Section {
                 NavigationLink {
-                    SubtitleLanguagePicker(selection: $language)
+                    SubtitleLanguagePicker(selection: Binding(get: { language }, set: {
+                        language = $0
+                        SubtitleSettings.selectLanguage($0)
+                    }))
                 } label: { LabeledContent("Preferred language", value: SubtitleSettings.languageName(language)) }
                 Toggle("Find subtitles automatically", isOn: $automatic)
                     .disabled(!hasKey || !verified)
@@ -57,6 +84,7 @@ struct SubtitleSettingsView: View {
                 }
                 SecureField(hasKey ? "New API key (optional replacement)" : "SubDL API key", text: $apiKey)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
+                    .disabled(connecting)
                     .accessibilityIdentifier("subdl-api-key")
                 Button(connecting ? "Checking connection…" : "Connect & enable automatic subtitles") { connect() }
                     .disabled(connecting || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasKey)
@@ -88,6 +116,7 @@ struct SubtitleSettingsView: View {
                 try Task.checkCancellation()
                 guard generation == token else { return }
                 try Keychain.set(key, for: SubtitleSettings.account)
+                SubtitleSettings.connected()
                 hasKey = true; verified = true; automatic = true; apiKey = ""
                 message = "Connected. Subtitles will use \(SubtitleSettings.languageName(language)) when available."
             } catch is CancellationError { }

@@ -145,6 +145,7 @@ public struct SubtitleFile: Identifiable, Equatable, Sendable {
         let subtitleBase = (name as NSString).deletingPathExtension.lowercased()
         guard subtitleBase == base || subtitleBase.hasPrefix(base + ".") else { return nil }
         let suffix = subtitleBase == base ? "" : String(subtitleBase.dropFirst(base.count + 1))
+        guard subtitleBase == base || !suffix.isEmpty else { return nil }
         let tokens = suffix.isEmpty ? [] : suffix.components(separatedBy: ".")
         var language: String?, forced = false, sdh = false
         for token in tokens {

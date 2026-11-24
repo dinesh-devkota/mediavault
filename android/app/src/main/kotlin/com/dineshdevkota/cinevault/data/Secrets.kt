@@ -9,6 +9,7 @@ import com.dineshdevkota.cinevault.core.LibraryFilter
 import com.dineshdevkota.cinevault.core.LibraryFacets
 import com.dineshdevkota.cinevault.core.LibrarySort
 import com.dineshdevkota.cinevault.core.MediaKind
+import com.dineshdevkota.cinevault.core.SubtitleSidecars
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -108,7 +109,14 @@ class Settings(context: Context, private val secrets: SecretBox) {
     /** null follows device/embedded defaults; "off" explicitly disables all text tracks. */
     var subtitlePreference: String?
         get() = prefs.getString("subtitle_preference", null)
-        set(value) = prefs.edit { if (value == null) remove("subtitle_preference") else putString("subtitle_preference", value) }
+        set(value) {
+            val language = value?.let(SubtitleSidecars::normalizeLanguage)
+            prefs.edit {
+                if (value == null) remove("subtitle_preference") else putString("subtitle_preference", language ?: value)
+                // A player track choice is also the preferred language for later episodes and searches.
+                if (language != null) putString("subtitle_language", language)
+            }
+        }
 
     val hasTmdbKey: Boolean get() = tmdbApiKey.isNotEmpty()
 

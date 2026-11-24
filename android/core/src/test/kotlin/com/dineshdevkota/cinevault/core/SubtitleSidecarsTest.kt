@@ -19,6 +19,14 @@ class SubtitleSidecarsTest {
         assertEquals("text/vtt", brazilian.mimeType)
     }
 
+    @Test fun normalizesEmbeddedAndRegionalLanguageTagsForOnlineSearch() {
+        assertEquals("es", SubtitleSidecars.normalizeLanguage("spa"))
+        assertEquals("fr", SubtitleSidecars.normalizeLanguage("fre"))
+        assertEquals("pt-BR", SubtitleSidecars.normalizeLanguage("POR_br"))
+        assertNull(SubtitleSidecars.normalizeLanguage("off"))
+        assertNull(SubtitleSidecars.normalizeLanguage("und"))
+    }
+
     @Test fun unrelatedEpisodeReleaseFolderAndUnsafePathsAreNeverMatched() {
         listOf("Media/TV/Show.S01E010.en.srt", "Media/TV/Show.S01E02.en.srt", "Media/Other/Show.S01E01.en.srt",
             "Media/TV/Show.S01E01.Directors.Cut.srt", "Media/TV/Show.S01E01.en.zip", "../Show.S01E01.srt",

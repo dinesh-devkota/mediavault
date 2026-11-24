@@ -80,7 +80,7 @@ internal object SubtitleTracks {
     /** Media3's native None button clears overrides/sets these flags; selecting a track adds an override. */
     fun explicitPreference(parameters: TrackSelectionParameters): String? {
         val override = parameters.overrides.values.firstOrNull { it.type == C.TRACK_TYPE_TEXT && it.trackIndices.isNotEmpty() }
-        if (override != null) return override.mediaTrackGroup.getFormat(override.trackIndices.first()).language ?: "und"
+        if (override != null) return override.mediaTrackGroup.getFormat(override.trackIndices.first()).language?.takeIf(String::isNotBlank) ?: "und"
         if (C.TRACK_TYPE_TEXT in parameters.disabledTrackTypes ||
             parameters.ignoredTextSelectionFlags == C.SELECTION_FLAG_FORCED.inv()) return "off"
         return null

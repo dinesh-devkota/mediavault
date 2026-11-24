@@ -399,7 +399,7 @@ class PlayerActivity : ComponentActivity() {
         val exo = player ?: return
         val settings = container.settings
         if (onlineAttempted || onlineJob != null || !settings.automaticSubtitles || !settings.subDlConnected ||
-            settings.subtitlePreference == "off" || exo.currentTracks.isEmpty) return
+            settings.subtitlePreference in setOf("off", "und") || exo.currentTracks.isEmpty) return
         onlineAttempted = true
         val desired = settings.subtitleLanguage
         val matching = exo.currentTracks.groups.any { group ->

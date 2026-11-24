@@ -37,7 +37,10 @@ struct PlaybackDesignPreview: View {
         Group {
             if let controller {
                 PlaybackScreen(controller: controller, services: services, defaults: fixture.defaults, library: { fixture.episodes })
-                    .onAppear { controller.player.pause() }
+                    .onAppear {
+                        controller.player.pause()
+                        controller.player.seek(to: CMTime(seconds: 1, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                    }
             } else if let error { Text(error).padding(80) }
             else { ProgressView("Opening playback fixture…") }
         }

@@ -1,10 +1,9 @@
-# CoveShelf — agent handoff
+# MediaVault — agent handoff
 
-**Current repository (2026-11-13):** the owner requested `mediavault` and the
-public GitHub repository was renamed to `dinesh-devkota/mediavault`. Local origin
-is `https://github.com/dinesh-devkota/mediavault.git`. The app display name remains
-CoveShelf; this request changed the repository name. Historical links below
-retain their original repository names. Development work remains on
+**Current name:** the owner requested **MediaVault** for the app and `mediavault`
+for the public repository, now `dinesh-devkota/mediavault`. Local origin
+is `https://github.com/dinesh-devkota/mediavault.git`. Historical links and snapshots
+below retain their original names. Development work remains on
 `dinesh-devkota-sonepar-build-cinevault-tvos-app`; the workspace and private
 `CineVaultCommercial` repository retain their existing names.
 
@@ -831,3 +830,42 @@ scan-summary failures are resolved.
   pass. Physical Apple TV playback remains unverified.
 - Sample Android full-collection and remaining-time images were inspected and
   added to the guide. Apple Home/detail images came from the passing preview run.
+
+## Subtitles and continuous TV viewing (2026-11-24, validation in progress)
+
+- Work is isolated in `.worktrees/mediavault-subtitles` on
+  `codex/mediavault-subtitles`, based on development/main `c78d821`. The root
+  `codex/mediavault-web-video` checkout remains separate. Version **1.3.0**, build **5**.
+- Both players discover sibling SRT/WebVTT files, offer embedded/local/Off
+  choices, and carry subtitle preferences across episodes. Reads are bounded;
+  source roots and ignored files/folders remain enforced. Subtitles are not
+  scanned into the movie library, and the app never writes them to the NAS.
+- The owner approved optional **SubDL** downloads. Setup verifies and securely
+  saves a one-time API key, preferred language and automatic-download setting.
+  Apple TV offers a QR link to the official account panel. SubDL password login
+  and OAuth were not implemented: the verified public API uses API keys.
+- The provider clients use the documented v2 API, exact TMDB/episode identity,
+  anonymous bounded SRT/VTT downloads from the documented host, and no archive
+  extraction. Automatic selection requires an exact release filename match;
+  users choose other results manually. Local/embedded captions take priority.
+- Direct YIFY lookup was not added: no working official API could be verified.
+  User-downloaded YIFY SRT/VTT files can be placed beside the matching video.
+- Continuous TV is opt-in, default off. Natural episode completion offers a
+  10-second next-available-episode countdown with Play now and Cancel/Back.
+  The next file/source is rechecked and receives a new playback session.
+  Movies, errors, manual stops and backgrounding must not trigger advancement.
+- Private work is isolated in
+  `D:\CineVaultCommercial\.worktrees\mediavault-continuation` on
+  `codex/mediavault-continuation`, pinned revision
+  `51f8daf1600a514bacea12e5a570ab86dc6bac19`. It exposes verified successful
+  completion after the final saved checkpoint. The public commercial build
+  requires this API and still requires protected commercial validation before
+  it can be reported ready. No TestFlight upload was requested.
+- Initial public revision `78a544f` passed Android unit tests, lint and builds.
+  Hosted checks exposed an Apple compile error, a sidecar filename edge case,
+  and an Android JUnit method-signature error that prevented the new continuous
+  playback test class from executing. Fixes and full runtime reruns are pending.
+- Live authenticated SubDL search/download remains unverified without a user
+  key entered in the app. Do not request a key in chat. Physical Apple TV testing
+  remains unavailable: the owner has Windows and Apple TV, no Mac or active
+  Apple Developer membership. Do not re-ask those setup questions.

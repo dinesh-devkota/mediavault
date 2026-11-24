@@ -203,7 +203,7 @@ the current episode’s details. Specials are followed separately.
 In **Settings**, enable **Play next TV episode automatically**. It starts off.
 When an episode finishes normally, MediaVault shows the next available unwatched
 episode and a ten-second countdown. Choose **Play now** to continue immediately,
-or **Cancel** (or press **Back**) to stay on the current episode.
+or **Cancel** (or press **Back**) to stop automatic advance.
 
 Check the season and episode label: **Next available** can mean an episode is
 missing from your library or already watched. Specials stay separate from regular

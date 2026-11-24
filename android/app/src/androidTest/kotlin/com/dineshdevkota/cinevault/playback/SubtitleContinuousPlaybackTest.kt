@@ -45,7 +45,7 @@ class SubtitleContinuousPlaybackTest {
     private var oldPreference: String? = null
     private lateinit var episodes: List<MovieEntity>
 
-    @Before fun prepare() = runBlocking {
+    @Before fun prepare() = runBlocking<Unit> {
         val host = InstrumentationRegistry.getArguments().getString("nasHost")
         assumeTrue("Pass nasHost to run synthetic subtitle playback", !host.isNullOrBlank())
         assumeTrue("Use a disposable empty test library", container.database.sources().all().isEmpty())
@@ -70,7 +70,7 @@ class SubtitleContinuousPlaybackTest {
         episodes.forEach { container.database.movies().insert(it) }
     }
 
-    @After fun cleanUp() = runBlocking {
+    @After fun cleanUp() = runBlocking<Unit> {
         val nas = source ?: return@runBlocking
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             Stage.entries.flatMap { ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(it) }
@@ -81,11 +81,11 @@ class SubtitleContinuousPlaybackTest {
         container.smb.reset(nas.id)
         container.settings.continuousPlay = oldContinuous
         container.settings.automaticSubtitles = oldAutomatic
-        container.settings.subtitleLanguage = oldLanguage
         container.settings.subtitlePreference = oldPreference
+        container.settings.subtitleLanguage = oldLanguage
     }
 
-    @Test fun validSidecarsRenderAndOffSurvivesRecreation() = runBlocking {
+    @Test fun validSidecarsRenderAndOffSurvivesRecreation() = runBlocking<Unit> {
         container.settings.continuousPlay = false
         launch().use { scenario ->
             awaitPlayer(scenario) { it.isPlaying && it.currentTracks.groups.count { group -> group.type == C.TRACK_TYPE_TEXT } >= 2 }
@@ -110,7 +110,7 @@ class SubtitleContinuousPlaybackTest {
         }
     }
 
-    @Test fun backCancelsCountdownAndNeverLaunchesNextEpisode() = runBlocking {
+    @Test fun backCancelsCountdownAndNeverLaunchesNextEpisode() = runBlocking<Unit> {
         launch().use { scenario ->
             awaitPlayer(scenario) { it.isPlaying && it.duration > 0 }
             finishVideo(scenario)
@@ -122,7 +122,7 @@ class SubtitleContinuousPlaybackTest {
         }
     }
 
-    @Test fun playNowRevalidatesAndCarriesOffToNextEpisode() = runBlocking {
+    @Test fun playNowRevalidatesAndCarriesOffToNextEpisode() = runBlocking<Unit> {
         container.settings.subtitlePreference = "off"
         launch().use { scenario ->
             awaitPlayer(scenario) { it.isPlaying && it.duration > 0 }
@@ -139,7 +139,7 @@ class SubtitleContinuousPlaybackTest {
         }
     }
 
-    @Test fun countdownAutomaticallyContinuesOnlyWhilePlayerIsVisible() = runBlocking {
+    @Test fun countdownAutomaticallyContinuesOnlyWhilePlayerIsVisible() = runBlocking<Unit> {
         launch().use { scenario ->
             awaitPlayer(scenario) { it.isPlaying && it.duration > 0 }
             finishVideo(scenario)
@@ -149,7 +149,7 @@ class SubtitleContinuousPlaybackTest {
         }
     }
 
-    @Test fun leavingTheAppCancelsThePendingTransition() = runBlocking {
+    @Test fun leavingTheAppCancelsThePendingTransition() = runBlocking<Unit> {
         launch().use { scenario ->
             awaitPlayer(scenario) { it.isPlaying && it.duration > 0 }
             finishVideo(scenario)
@@ -161,7 +161,7 @@ class SubtitleContinuousPlaybackTest {
         }
     }
 
-    @Test fun hidingTheProposedEpisodeCancelsInsteadOfSilentlyAdvancingElsewhere() = runBlocking {
+    @Test fun hidingTheProposedEpisodeCancelsInsteadOfSilentlyAdvancingElsewhere() = runBlocking<Unit> {
         launch().use { scenario ->
             awaitPlayer(scenario) { it.isPlaying && it.duration > 0 }
             finishVideo(scenario)

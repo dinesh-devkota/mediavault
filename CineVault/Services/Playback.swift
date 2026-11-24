@@ -361,10 +361,15 @@ struct PlaybackScreen: View {
                 NextEpisodeCountdown(session: session, suggestion: next)
             }
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback"), session.next == nil {
+            if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback"),
+               !ProcessInfo.processInfo.arguments.contains("--ui-preview-production-controls"), session.next == nil {
                 VStack {
                     HStack {
-                        Button("Fixture subtitles") { session.controller.player.pause(); session.controller.subtitles.presented = true }
+                        Button("Fixture subtitles") {
+                            session.controller.player.pause()
+                            session.controller.player.seek(to: CMTime(seconds: 1, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                            session.controller.subtitles.presented = true
+                        }
                             .accessibilityIdentifier("fixture-subtitles")
                         Button("Finish fixture episode") {
                             session.controller.player.seek(to: CMTime(seconds: 11.7, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { completed in
