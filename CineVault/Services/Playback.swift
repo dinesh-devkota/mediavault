@@ -346,6 +346,9 @@ struct PlaybackScreen: View {
     @StateObject private var session: ContinuousPlayback
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG
+    @FocusState private var fixtureControl: String?
+    #endif
 
     init(controller: PlaybackController, services: PlaybackServices, defaults: UserDefaults = .standard, library: @escaping () -> [Movie]) {
         _session = StateObject(wrappedValue: ContinuousPlayback(controller: controller, services: services, defaults: defaults, library: library,
@@ -370,14 +373,20 @@ struct PlaybackScreen: View {
                             session.controller.player.seek(to: CMTime(seconds: 1, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                             session.controller.subtitles.presented = true
                         }
+                            .focused($fixtureControl, equals: "subtitles")
                             .accessibilityIdentifier("fixture-subtitles")
                         Button("Finish fixture episode") {
                             session.controller.player.seek(to: CMTime(seconds: 11.7, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { completed in
                                 if completed { Task { @MainActor in session.controller.player.play() } }
                             }
-                        }.accessibilityIdentifier("fixture-finish-episode")
+                        }.focused($fixtureControl, equals: "finish").accessibilityIdentifier("fixture-finish-episode")
                         Text(session.controller.movie.fileName).accessibilityIdentifier("fixture-playing-episode")
                     }.padding(48)
+                        .task {
+                            await Task.yield()
+                            await Task.yield()
+                            fixtureControl = "subtitles"
+                        }
                     Spacer()
                 }
             }

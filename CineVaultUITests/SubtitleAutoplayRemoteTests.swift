@@ -7,6 +7,7 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-playback"]
         app.launch()
+        defer { capture("Subtitle and countdown test final state", app: app) }
         let remote = XCUIRemote.shared
         let open = app.buttons["fixture-subtitles"]
         XCTAssertTrue(open.waitForExistence(timeout: 40), app.debugDescription)
@@ -16,7 +17,7 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
         XCTAssertTrue(english.waitForExistence(timeout: 30), app.debugDescription)
         focus(english, in: app)
         remote.press(.select)
-        XCTAssertEqual(english.value as? String, "Selected")
+        assertSelected(english)
         remote.press(.menu)
         let caption = app.staticTexts["local-subtitle-caption"]
         XCTAssertTrue(caption.waitForExistence(timeout: 15), app.debugDescription)
@@ -27,11 +28,11 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
         let off = app.buttons["subtitles-off"]
         focus(off, in: app)
         remote.press(.select)
-        XCTAssertEqual(off.value as? String, "Selected")
+        assertSelected(off)
         let automatic = app.buttons["subtitle-system"]
         focus(automatic, in: app)
         remote.press(.select)
-        XCTAssertEqual(english.value as? String, "Selected", "Automatic must restore the preferred local track in this player")
+        assertSelected(english)
         remote.press(.menu)
         XCTAssertTrue(caption.waitForExistence(timeout: 15), app.debugDescription)
         capture("Automatic restored captions after Off", app: app)
@@ -61,6 +62,7 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-playback"]
         app.launch()
+        defer { capture("Play now test final state", app: app) }
         let finish = app.buttons["fixture-finish-episode"]
         XCTAssertTrue(finish.waitForExistence(timeout: 40), app.debugDescription)
         focus(finish, in: app)
@@ -80,8 +82,9 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-playback", "--ui-preview-production-controls"]
         app.launch()
+        defer { capture("Native transport test final state", app: app) }
         let remote = XCUIRemote.shared
-        let subtitles = app.buttons["Subtitles"]
+        let subtitles = app.cells["Subtitles"].firstMatch
         // This fixture uses the real native transport, without test-only focusable buttons.
         for _ in 0..<6 {
             if subtitles.exists { break }
@@ -105,16 +108,29 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
     }
 
     @MainActor
+    private func assertSelected(_ element: XCUIElement) {
+        // tvOS can append its checkmark's accessibility state to the button's explicit value.
+        let value = (element.value as? String)?.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces)
+        XCTAssertEqual(value, "Selected")
+    }
+
+    @MainActor
     private func focus(_ target: XCUIElement, in app: XCUIApplication) {
         let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == YES")).firstMatch
+        func targetIsFocused() -> Bool {
+            if target.hasFocus { return true }
+            // List rows own focus on tvOS; the actionable Button remains their descendant.
+            return !target.identifier.isEmpty && app.cells.containing(.button, identifier: target.identifier)
+                .matching(NSPredicate(format: "hasFocus == YES")).firstMatch.exists
+        }
         for _ in 0..<20 {
-            if target.hasFocus { return }
+            if targetIsFocused() { return }
             if focused.exists, abs(focused.frame.midY - target.frame.midY) < 30 {
                 XCUIRemote.shared.press(focused.frame.midX < target.frame.midX ? .right : .left)
             } else {
                 XCUIRemote.shared.press(focused.exists && focused.frame.midY > target.frame.midY ? .up : .down)
             }
         }
-        XCTAssertTrue(target.hasFocus, app.debugDescription)
+        XCTAssertTrue(targetIsFocused(), app.debugDescription)
     }
 }
