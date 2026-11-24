@@ -831,7 +831,7 @@ scan-summary failures are resolved.
 - Sample Android full-collection and remaining-time images were inspected and
   added to the guide. Apple Home/detail images came from the passing preview run.
 
-## Subtitles and continuous TV viewing (2026-11-24, validation in progress)
+## Subtitles and continuous TV viewing (2026-11-24, validated and merged)
 
 - Work is isolated in `.worktrees/mediavault-subtitles` on
   `codex/mediavault-subtitles`, based on development/main `c78d821`. The root
@@ -860,8 +860,8 @@ scan-summary failures are resolved.
   `f92d3539054e9177abe0d28477abf598cf6f4a2d`. It exposes verified successful
   completion after the final saved checkpoint and allows the public playback
   owner to preserve a licensed session while showing subtitles. The public commercial build
-  requires this API and still requires protected commercial validation before
-  it can be reported ready. No TestFlight upload was requested.
+  requires this API. Final protected commercial validation passed on
+  `45497639483`; signing and TestFlight upload were disabled.
 - Initial public revision `78a544f` passed Android unit tests, lint and builds.
   Hosted checks exposed an Apple compile error, a sidecar filename edge case,
   and an Android JUnit method-signature error that prevented the new continuous
@@ -923,7 +923,7 @@ scan-summary failures are resolved.
   images remain validation artifacts.
 - Public main/development were advanced to `7f9a8fe`. Both post-merge Android
   runs (`45490618424`, `45490618056`) passed all 73 runtime tests plus build,
-  lint and unit checks. Private main remains unchanged. Protected commercial
+  lint and unit checks. The initial protected commercial
   run `45490617866` tested public `7f9a8fe` with private `8f45aff`; the owner
   approved the build-only run, and TestFlight upload is disabled.
   Its package tests and unsigned app/simulator builds passed, but licensed
@@ -937,7 +937,7 @@ scan-summary failures are resolved.
   `976a454`, which passed protected run `41764500086`. Its exact patch was
   restored alone as `f92d353`, preserving current branding and playback changes.
   The failed run's precise assertion remains unconfirmed; the combined private
-  revision requires fresh protected validation before advancing private main.
+  revision passed fresh protected validation and is now on private main.
 - Post-merge development run `45490618030` passed 159/160 Apple tests. The
   remaining native-entry test waited for a private remaining-time element even
   though the transport was visibly open. The revised test keeps actual remote
@@ -970,3 +970,22 @@ scan-summary failures are resolved.
   The update preserved the saved SubDL connection and automatic-download flags.
   Actual online captions during owner-NAS playback remain unverified because the
   saved NAS is currently unreachable. The emulator is open for the owner.
+
+### Final state
+
+- Public main and development contain the validated code from `3261ea3` plus
+  documentation. Both full post-merge Apple suites on `ab5091f` passed **163/163**
+  without failures or skips: main NAS `45497640277` and development `45497640013`.
+  Main CI `45497640557` and both Android runs (`45497640425`, `45497639967`)
+  also passed. The six XCTest reporting regressions passed in the hosted jobs.
+- [Final protected commercial run](https://github.com/dinesh-devkota/mediavault/actions/runs/45497639483)
+  passed with public `ab5091f548d8129ebb42d50154c33363f3f5ba86` and private
+  `f92d3539054e9177abe0d28477abf598cf6f4a2d`: package tests, unsigned app build,
+  purchase identifiers, simulator-test build, and simulator tests. Signing and
+  TestFlight upload were skipped. Private main was fast-forwarded to that pin.
+- The final follow-up change is documentation only; no application source
+  changed after these validations. The original root workspaces remain on
+  `codex/mediavault-web-video` and `codex/fix-catalog-refresh` respectively.
+- No further account setup is needed for the current Android emulator. Its
+  SubDL connection is saved and automatic downloads are enabled. Owner-NAS
+  playback and physical Apple TV playback remain the device checks still needed.
