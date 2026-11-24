@@ -215,6 +215,10 @@ countdown. The next file is checked again before playback begins.
 
 ![Android TV playback preferences with continuous viewing and subtitle language controls](screenshots/android-subtitles-settings.png)
 
+Apple TV countdown from a separate sample library:
+
+![Apple TV offering the next episode with a ten-second countdown, Play now, and Cancel](screenshots/apple-next-episode.png)
+
 ## Use subtitles
 
 Open **Subtitles** in the player to choose an embedded track, a subtitle stored

@@ -39,7 +39,9 @@ struct PlaybackDesignPreview: View {
         Group {
             if let controller {
                 PlaybackScreen(controller: controller, services: services, defaults: fixture.defaults, library: { fixture.episodes })
+                    .ignoresSafeArea()
                     .onAppear {
+                        guard !ProcessInfo.processInfo.arguments.contains("--ui-preview-production-controls") else { return }
                         controller.player.pause()
                         controller.player.seek(to: CMTime(seconds: 1, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                     }

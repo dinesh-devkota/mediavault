@@ -865,7 +865,8 @@ scan-summary failures are resolved.
 - Initial public revision `78a544f` passed Android unit tests, lint and builds.
   Hosted checks exposed an Apple compile error, a sidecar filename edge case,
   and an Android JUnit method-signature error that prevented the new continuous
-  playback test class from executing. Fixes and full runtime reruns are pending.
+  playback test class from executing. Those issues are fixed; subsequent full
+  runtime results are recorded below.
 - Live authenticated SubDL search/download remains unverified without a user
   key entered in the app. Do not request a key in chat. Physical Apple TV testing
   remains unavailable: the owner has Windows and Apple TV, no Mac or active
@@ -891,13 +892,20 @@ scan-summary failures are resolved.
   Startup and both subtitle settings screens were inspected; saved library cards
   remained present. The saved NAS at `192.168.1.101:445` was unreachable from the
   PC during this check, so no claim of current owner-NAS playback is made.
-- Apple release/core/previews passed. Full simulator run `45473127108` passed
-  **156/159** tests; three new remote tests failed before behavior assertions.
-  The latest focused run `45480791681` passed **13/15**: Search/Back focus and
-  Play now into episode two passed; native subtitle access and local subtitle
-  selection still need diagnosis. Do not mark Apple playback validation complete.
-- Revision `f4fb621` prevents subtitle-sheet presentation from prematurely
-  stopping the Apple player. Full [Apple validation](https://github.com/dinesh-devkota/mediavault/actions/runs/45484118998)
-  is running; it includes a new modal-lifecycle regression (160 expected simulator tests).
+
+### Apple validation
+
+- Apple release/core/previews passed. Full
+  [Apple validation on `f4fb621`](https://github.com/dinesh-devkota/mediavault/actions/runs/45484118998)
+  passed **159/160 simulator tests**. Local caption selection and rendering,
+  Off, Automatic, Back cancelling the countdown, and Play now into episode two
+  all passed, along with Search/Back focus and the new modal-lifecycle regression.
+  Revision `f4fb621` prevents subtitle-sheet presentation from prematurely
+  stopping the Apple player. The sole remaining failure is reaching the native
+  transport's subtitle action with the remote; it occurs before action activation
+  and remains under test. Do not mark Apple playback validation complete.
+- The clean Apple next-episode countdown screenshot from that run was inspected
+  and added to the user guide. The caption fixture screenshot includes a debug
+  header and is not published.
 - Public main/development and private main have not yet been advanced for this
   update. Protected commercial validation has not been requested yet.
