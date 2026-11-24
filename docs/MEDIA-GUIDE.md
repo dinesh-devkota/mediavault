@@ -265,6 +265,9 @@ automatic choice requires a matching release filename; otherwise use the player'
 online search to choose a release yourself. **Off** prevents automatic selection.
 You can disconnect SubDL in Settings and continue using local subtitles.
 
+If connection fails while the service works on another device, check that your
+TV or emulator has the correct date and time. A stale clock can prevent secure connections.
+
 Online lookup uses the title's TMDB match and, for TV, its season and episode.
 If a title is unmatched or wrongly identified, use **Fix Match** first. Different
 cuts can have different subtitle timing even when they share a title; choose a

@@ -69,6 +69,7 @@ jobs:
           python-version: "3.12"
       - name: Install test dependencies
         run: |
+          python -m unittest discover -s scripts/tests -p test_xcresult_report.py
           brew install xcodegen
           python -m pip install -r scripts/nas-test-requirements.txt
       - name: Generate project
@@ -128,23 +129,13 @@ jobs:
       - name: Report simulator test results
         if: always()
         run: |
-          if [[ -d "$RUNNER_TEMP/nas-results.xcresult" ]] && \
-             xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/nas-results.xcresult" > "$RUNNER_TEMP/nas-summary.json"; then
-            python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          summary = json.loads((Path(os.environ["RUNNER_TEMP"]) / "nas-summary.json").read_text())
-          counts = {key: summary[key] for key in ("totalTestCount", "passedTests", "failedTests", "skippedTests") if key in summary}
-          message = "Apple TV simulator tests: " + json.dumps(counts, sort_keys=True)
-          print(message)
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
-              output.write(message + "\n")
-          for failure in summary.get("testFailures", []):
-              message = (failure.get("testName", "") + ": " + failure.get("failureText", ""))[:4000]
-              message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-              print(f"::error title=tvOS simulator test::{message}")
-          PY
+          set -euo pipefail
+          if [[ ! -d "$RUNNER_TEMP/nas-results.xcresult" ]]; then
+            echo "::error::XCTest result bundle is missing; simulator tests did not complete."
+            exit 1
           fi
+          xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/nas-results.xcresult" > "$RUNNER_TEMP/nas-summary.json"
+          python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json"
       - name: Export remote test screenshots
         if: always()
         run: |

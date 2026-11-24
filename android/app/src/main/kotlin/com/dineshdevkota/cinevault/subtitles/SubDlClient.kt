@@ -13,6 +13,7 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -67,7 +68,7 @@ fun interface SubDlTransport {
     suspend fun execute(request: Request, maximumBytes: Int): SubDlHttpResponse
 }
 
-/** v2 search is authenticated; raw per-file downloads are anonymous. Neither keys nor results are retained here. */
+/** Search uses Bearer auth; raw downloads use a short-lived authenticated URL. No keys or results are retained here. */
 class SubDlClient(private val transport: SubDlTransport = NativeSubDlTransport()) {
     suspend fun validateKey(apiKey: String) {
         val body = json(apiRequest("/api/v2/me", apiKey))
@@ -83,10 +84,11 @@ class SubDlClient(private val transport: SubDlTransport = NativeSubDlTransport()
         if (query.tmdbId <= 0) fail(SubDlFailure.INVALID_QUERY)
         val parameters = linkedMapOf(
             "tmdb_id" to query.tmdbId.toString(), "type" to query.type.value, "languages" to language,
-            "unpack" to "1", "full_season" to "0", "releases" to "1", "client" to "custom_integration", "subs_per_page" to "30",
+            "unpack" to "1", "releases" to "1", "client" to "custom_integration", "subs_per_page" to "30",
         )
         if (query.type == SubDlMediaType.TV) {
             if (query.season == null || query.season !in 0..999 || query.episode == null || query.episode !in 0..999) fail(SubDlFailure.INVALID_QUERY)
+            parameters["full_season"] = "0"
             parameters["season"] = query.season.toString()
             parameters["episode"] = query.episode.toString()
         } else if (query.season != null || query.episode != null) fail(SubDlFailure.INVALID_QUERY)
@@ -104,7 +106,7 @@ class SubDlClient(private val transport: SubDlTransport = NativeSubDlTransport()
                 val file = entry as? JsonObject ?: continue
                 val format = file.text("format")?.lowercase(Locale.ROOT)?.takeIf { it == "srt" || it == "vtt" } ?: continue
                 val fileLanguage = file.text("language")?.let(::normalizedLanguage)?.takeIf { it == language } ?: continue
-                val url = file.text("url")?.let(::safeDownloadUrl) ?: continue
+                val url = file.text("url")?.let(::searchDownloadUrl) ?: continue
                 if (file.text("file_n_id") != url.substringAfterLast('/')) continue
                 val size = file.integer("size")
                 if (size != null && size !in 1..MAXIMUM_BYTES) continue
@@ -128,10 +130,15 @@ class SubDlClient(private val transport: SubDlTransport = NativeSubDlTransport()
         return found
     }
 
-    suspend fun download(subtitle: SubDlSubtitle): ByteArray {
+    suspend fun download(subtitle: SubDlSubtitle, apiKey: String? = null): ByteArray {
         if (subtitle.format != "srt" && subtitle.format != "vtt") fail(SubDlFailure.UNSAFE_DOWNLOAD)
         val url = safeDownloadUrl(subtitle.downloadUrl) ?: fail(SubDlFailure.UNSAFE_DOWNLOAD)
-        val request = Request.Builder().url(url).header("Accept", "text/plain, text/vtt, application/octet-stream").build()
+        // SubDL raw links require query authentication. Rebuild it only from the caller's secure key,
+        // never from a search response, and only after validating the exact download host and route.
+        val requestUrl = url.toHttpUrl().newBuilder().apply {
+            apiKey?.let { addQueryParameter("api_key", validatedKey(it)) }
+        }.build()
+        val request = Request.Builder().url(requestUrl).header("Accept", "text/plain, text/vtt, application/octet-stream").build()
         val bytes = fetch(request).data
         if (bytes.isEmpty() || bytes.startsWith(byteArrayOf(0x50, 0x4b)) ||
             bytes.startsWith(byteArrayOf(0x52, 0x61, 0x72, 0x21))) fail(SubDlFailure.INVALID_RESPONSE)
@@ -166,7 +173,8 @@ class SubDlClient(private val transport: SubDlTransport = NativeSubDlTransport()
             if (reply.data.size > MAXIMUM_BYTES) fail(SubDlFailure.TOO_LARGE)
             when (reply.statusCode) {
                 in 200..299 -> return reply
-                401, 403 -> fail(if (request.header("Authorization") == null) SubDlFailure.CONNECTION else SubDlFailure.INVALID_KEY)
+                401, 403 -> fail(if (request.header("Authorization") != null || request.url.queryParameter("api_key") != null)
+                    SubDlFailure.INVALID_KEY else SubDlFailure.CONNECTION)
                 429 -> fail(SubDlFailure.QUOTA)
                 in 300..399 -> fail(SubDlFailure.UNSAFE_DOWNLOAD)
                 else -> fail(SubDlFailure.CONNECTION)
@@ -180,12 +188,27 @@ class SubDlClient(private val transport: SubDlTransport = NativeSubDlTransport()
         const val MAXIMUM_BYTES = 2 * 1_024 * 1_024
 
         private fun apiRequest(path: String, apiKey: String, parameters: Map<String, String> = emptyMap()): Request {
-            val key = apiKey.trim()
-            if (key.isEmpty()) fail(SubDlFailure.MISSING_KEY)
-            if (key.length > 4_096 || key.any { it.code !in 33..126 }) fail(SubDlFailure.INVALID_KEY)
+            val key = validatedKey(apiKey)
             val url = okhttp3.HttpUrl.Builder().scheme("https").host("api.subdl.com").encodedPath(path)
             parameters.toSortedMap().forEach { (name, value) -> url.addQueryParameter(name, value) }
             return Request.Builder().url(url.build()).header("Authorization", "Bearer $key").header("Accept", "application/json").build()
+        }
+
+        private fun validatedKey(apiKey: String): String {
+            val key = apiKey.trim()
+            if (key.isEmpty()) fail(SubDlFailure.MISSING_KEY)
+            if (key.length > 4_096 || key.any { it.code !in 33..126 }) fail(SubDlFailure.INVALID_KEY)
+            return key
+        }
+
+        /** Accept the provider's documented credential query only here, then discard it immediately. */
+        internal fun searchDownloadUrl(value: String): String? {
+            val uri = try { URI(value) } catch (_: Exception) { return null }
+            if (uri.rawFragment != null) return null
+            val query = uri.rawQuery ?: return safeDownloadUrl(value)
+            // Reject duplicate/unknown parameters and ambiguous semicolon separators.
+            if (!query.matches(Regex("api_key=[^&;]+"))) return null
+            return safeDownloadUrl(value.substringBefore('?'))
         }
 
         private fun normalizedLanguage(value: String): String? = value.trim().lowercase(Locale.ROOT).replace('_', '-')

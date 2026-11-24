@@ -34,7 +34,7 @@ enum SubDLError: Error, LocalizedError, Equatable {
         case .missingKey: return "Connect SubDL in Settings to find subtitles."
         case .invalidKey: return "SubDL could not verify this API key. Check it in Settings."
         case .quota: return "SubDL's request limit has been reached. Try again after the limit resets."
-        case .connection: return "Could not reach SubDL. Check your internet connection and try again."
+        case .connection: return "Could not reach SubDL. Check your internet connection and device date and time, then try again."
         case .noResults: return "No matching SRT or VTT subtitles were found for this title and language."
         case .invalidResponse: return "SubDL returned an unsupported response. Try again later or use a subtitle from your NAS."
         case .tooLarge: return "This subtitle exceeds the 2 MB limit. Choose another subtitle."
@@ -51,7 +51,7 @@ struct SubDLHTTPResponse: Sendable {
 }
 
 /// Search uses the documented v2 API. Only individually identified, unpacked files are downloaded.
-/// Credentials are supplied per request, never retained, and never sent to the download host.
+/// Credentials are supplied per request and never retained in subtitle models or cache identifiers.
 struct SubDLClient: Sendable {
     typealias Transport = @Sendable (URLRequest, Int) async throws -> SubDLHTTPResponse
     static let maximumBytes = 2 * 1_024 * 1_024
@@ -74,12 +74,13 @@ struct SubDLClient: Sendable {
         let language = try Self.normalizedLanguage(query.language)
         guard query.tmdbID > 0 else { throw SubDLError.invalidQuery }
         var parameters = ["tmdb_id": String(query.tmdbID), "type": query.type.rawValue,
-                          "languages": language, "unpack": "1", "full_season": "0", "releases": "1",
+                          "languages": language, "unpack": "1", "releases": "1",
                           "client": "custom_integration", "subs_per_page": "30"]
         if query.type == .tv {
             guard let season = query.season, let episode = query.episode,
                   (0...999).contains(season), (0...999).contains(episode) else { throw SubDLError.invalidQuery }
             parameters["season"] = String(season); parameters["episode"] = String(episode)
+            parameters["full_season"] = "0"
         } else if query.season != nil || query.episode != nil { throw SubDLError.invalidQuery }
         let request = try Self.apiRequest(path: "/api/v2/subtitles/search", parameters: parameters, apiKey: apiKey)
         let body = try await json(request)
@@ -97,7 +98,7 @@ struct SubDLClient: Sendable {
                       ["srt", "vtt"].contains(rawFormat.lowercased()),
                       let rawLanguage = file["language"] as? String,
                       let fileLanguage = try? Self.normalizedLanguage(rawLanguage), fileLanguage == language,
-                      let rawURL = file["url"] as? String, let url = Self.safeDownloadURL(rawURL),
+                      let rawURL = file["url"] as? String, let url = Self.normalizedResultDownloadURL(rawURL),
                       let fileID = file["file_n_id"] as? String, fileID == url.lastPathComponent,
                       Self.integer(file["size"]).map({ $0 > 0 && $0 <= Self.maximumBytes }) ?? true else { continue }
                 if query.type == .tv {
@@ -125,10 +126,16 @@ struct SubDLClient: Sendable {
         return found
     }
 
-    func download(_ subtitle: SubDLSubtitle) async throws -> Data {
+    func download(_ subtitle: SubDLSubtitle, apiKey: String) async throws -> Data {
         guard ["srt", "vtt"].contains(subtitle.format),
               let url = Self.safeDownloadURL(subtitle.downloadURL.absoluteString) else { throw SubDLError.unsafeDownload }
-        var request = URLRequest(url: url)
+        let key = try Self.validatedKey(apiKey)
+        // SubDL's raw download route requires query authentication. Use only the caller's current
+        // key, never the credential returned by search; the authenticated URL lives only in this request.
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "api_key", value: key)]
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        var request = URLRequest(url: components.url!)
         request.setValue("text/plain, text/vtt, application/octet-stream", forHTTPHeaderField: "Accept")
         let reply = try await fetch(request)
         // A mislabeled archive is never passed to an extractor or stored as a subtitle.
@@ -163,7 +170,7 @@ struct SubDLClient: Sendable {
             switch reply.statusCode {
             case 200...299: return reply
             case 401, 403:
-                throw request.value(forHTTPHeaderField: "Authorization") == nil ? SubDLError.connection : SubDLError.invalidKey
+                throw SubDLError.invalidKey
             case 429: throw SubDLError.quota
             case 300...399: throw SubDLError.unsafeDownload
             default: throw SubDLError.connection
@@ -175,11 +182,7 @@ struct SubDLClient: Sendable {
     }
 
     private static func apiRequest(path: String, parameters: [String: String] = [:], apiKey: String) throws -> URLRequest {
-        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { throw SubDLError.missingKey }
-        guard key.utf8.count <= 4_096, key.unicodeScalars.allSatisfy({ (33...126).contains($0.value) }) else {
-            throw SubDLError.invalidKey
-        }
+        let key = try validatedKey(apiKey)
         var components = URLComponents(string: "https://api.subdl.com" + path)!
         if !parameters.isEmpty {
             components.queryItems = parameters.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -190,12 +193,34 @@ struct SubDLClient: Sendable {
         return request
     }
 
+    private static func validatedKey(_ apiKey: String) throws -> String {
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw SubDLError.missingKey }
+        guard key.utf8.count <= 4_096, key.unicodeScalars.allSatisfy({ (33...126).contains($0.value) }) else {
+            throw SubDLError.invalidKey
+        }
+        return key
+    }
+
     private static func normalizedLanguage(_ value: String) throws -> String {
         let code = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().replacingOccurrences(of: "_", with: "-")
         guard code.range(of: "^[a-z]{2,3}(-[a-z]{2,4})?$", options: .regularExpression) != nil else {
             throw SubDLError.invalidQuery
         }
         return code
+    }
+
+    static func normalizedResultDownloadURL(_ value: String) -> URL? {
+        let absolute = value.hasPrefix("/subtitle/") ? "https://dl.subdl.com" + value : value
+        guard var parts = URLComponents(string: absolute) else { return nil }
+        if let query = parts.percentEncodedQuery {
+            guard query.hasPrefix("api_key="), !query.contains(";"),
+                  let items = parts.queryItems, items.count == 1,
+                  items[0].name == "api_key", let value = items[0].value, !value.isEmpty else { return nil }
+            parts.percentEncodedQuery = nil
+        }
+        guard let sanitized = parts.url else { return nil }
+        return safeDownloadURL(sanitized.absoluteString)
     }
 
     static func safeDownloadURL(_ value: String) -> URL? {

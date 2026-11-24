@@ -524,7 +524,8 @@ class PlayerActivity : ComponentActivity() {
         if (!subtitleRequestIsCurrent(request)) return
         val cache = SubtitleCache(applicationContext)
         val key = "${request.identity.id}|${subtitle.id}|${subtitle.downloadUrl}"
-        val bytes = cache.read(key) ?: SubDlClient().download(subtitle)
+        val bytes = cache.read(key) ?: SubDlClient().download(subtitle,
+            withContext(Dispatchers.IO) { container.settings.subDlApiKey })
         val preparedSubtitle = withContext(Dispatchers.Default) {
             SubtitleTracks.configuration(bytes, if (subtitle.format == "vtt") "text/vtt" else "application/x-subrip",
                 subtitle.language, "${languageName(subtitle.language)} · SubDL · ${subtitle.releaseName}",

@@ -845,7 +845,7 @@ scan-summary failures are resolved.
   Apple TV offers a QR link to the official account panel. SubDL password login
   and OAuth were not implemented: the verified public API uses API keys.
 - The provider clients use the documented v2 API, exact TMDB/episode identity,
-  anonymous bounded SRT/VTT downloads from the documented host, and no archive
+  bounded authenticated SRT/VTT downloads from the documented host, and no archive
   extraction. Automatic selection requires an exact release filename match;
   users choose other results manually. Local/embedded captions take priority.
 - Direct YIFY lookup was not added: no working official API could be verified.
@@ -867,8 +867,13 @@ scan-summary failures are resolved.
   and an Android JUnit method-signature error that prevented the new continuous
   playback test class from executing. Those issues are fixed; subsequent full
   runtime results are recorded below.
-- Live authenticated SubDL search/download remains unverified without a user
-  key entered in the app. Do not request a key in chat. Physical Apple TV testing
+- Live SubDL account verification succeeded in the installed Android app; the
+  saved connection and automatic-download flags are true. The emulator clock
+  was stuck on November 10; synchronizing it to the host's November 24 time
+  resolved the TLS connection failure. A separate authenticated provider search
+  and raw download succeeded (83,285-byte SRT, 1,292 timed cues). No credentials
+  are included in source, screenshots, or retained provider diagnostics.
+  Physical Apple TV testing
   remains unavailable: the owner has Windows and Apple TV, no Mac or active
   Apple Developer membership. Do not re-ask those setup questions.
 
@@ -911,11 +916,32 @@ scan-summary failures are resolved.
   only tests and the DEBUG fixture. The separate commercial lifecycle integration
   in `eb9fd28` still requires protected validation. Together these runs cover
   community Apple validation; the focused run is not a full
-  160-test suite pass. Public merge and protected commercial validation remain
-  pending.
+  160-test suite pass. Subsequent findings and validation are recorded below.
 - The clean countdown from full run `45484118998` and subtitle picker from the
   final focused run were inspected and added to the user guide. Final native
   controls and rendered-caption screenshots were also inspected; caption test
   images remain validation artifacts.
-- Public main/development and private main have not yet been advanced for this
-  update. Protected commercial validation has not been requested yet.
+- Public main/development were advanced to `7f9a8fe`. Both post-merge Android
+  runs (`45490618424`, `45490618056`) passed all 73 runtime tests plus build,
+  lint and unit checks. Private main remains unchanged. Protected commercial
+  run `45490617866` is testing public `7f9a8fe` with private `8f45aff`; the owner
+  approved the build-only run, and TestFlight upload is disabled.
+- Post-merge development run `45490618030` passed 159/160 Apple tests. The
+  remaining native-entry test waited for a private remaining-time element even
+  though the transport was visibly open. The revised test keeps actual remote
+  focus, action activation, and subtitle-sheet assertions, removing that layout
+  assumption. Captions remain covered by the separate playback journey.
+- Main NAS run `45490618639` reported success but executed **zero tests**:
+  macOS Bash 3.2 rejected an empty selection array under `nounset`. Do not count
+  that run as validation. The workflow now keeps its invocation array nonempty;
+  both Apple reporting steps fail on missing results, inconsistent counts,
+  zero execution, failures, or skipped tests. Six reporting regressions pass.
+- Live SubDL responses append an API-key query to raw download links. Both
+  clients need to strip that query before retaining results and construct the
+  authorized download request from the caller's secure key. The documented
+  query-authenticated download succeeded; anonymous and header-authenticated
+  requests were challenged by the provider. Movie queries also omit the TV
+  season-pack filter, which otherwise hid valid releases. These compatibility
+  fixes and the final Apple validation are in progress; the installed Android
+  build still needs the download fix. Actual online captions during owner-NAS
+  playback remain unverified because the saved NAS is currently unreachable.

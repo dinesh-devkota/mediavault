@@ -19,7 +19,7 @@ final class SubDLClientTests: XCTestCase {
             XCTAssertEqual(query["type"], "movie")
             XCTAssertEqual(query["languages"], "en")
             XCTAssertEqual(query["unpack"], "1")
-            XCTAssertEqual(query["full_season"], "0")
+            XCTAssertNil(query["full_season"])
             XCTAssertEqual(query["releases"], "1")
             XCTAssertEqual(query["client"], "custom_integration")
             XCTAssertEqual(query["subs_per_page"], "30")
@@ -52,6 +52,7 @@ final class SubDLClientTests: XCTestCase {
             let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
             XCTAssertEqual(items.first { $0.name == "season" }?.value, "1")
             XCTAssertEqual(items.first { $0.name == "episode" }?.value, "2")
+            XCTAssertEqual(items.first { $0.name == "full_season" }?.value, "0")
             return SubDLHTTPResponse(statusCode: 200, url: request.url!, data: data)
         }
         let results = try await client.search(SubDLSearchQuery(tmdbID: 42, type: .tv, season: 1, episode: 2), apiKey: "key")
@@ -77,30 +78,87 @@ final class SubDLClientTests: XCTestCase {
         XCTAssertEqual(SubDLClient.safeDownloadURL("/subtitle/parent/file_1")?.host, "dl.subdl.com")
     }
 
-    func testDownloadsAreAnonymousAndBounded() async throws {
+    func testSearchDiscardsReturnedCredentialBeforeDownloadUsesCurrentKey() async throws {
+        var authenticatedFile = file()
+        authenticatedFile["url"] = "/subtitle/parent/file?api_key=response-secret"
+        let body = try fixture(files: [authenticatedFile])
+        let contents = Data("1\n00:00:00,000 --> 00:00:01,000\nHello\n".utf8)
+        let client = SubDLClient { request, _ in
+            if request.url?.host == "api.subdl.com" {
+                return SubDLHTTPResponse(statusCode: 200, url: request.url!, data: body)
+            }
+            let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems
+            XCTAssertEqual(items, [URLQueryItem(name: "api_key", value: "current-key")])
+            XCTAssertFalse(request.url!.absoluteString.contains("response-secret"))
+            return SubDLHTTPResponse(statusCode: 200, url: request.url!, data: contents)
+        }
+        let results = try await client.search(movie, apiKey: "search-key")
+        let result = try XCTUnwrap(results.first)
+        XCTAssertEqual(result.id, "https://dl.subdl.com/subtitle/parent/file")
+        XCTAssertEqual(result.downloadURL.absoluteString, result.id)
+        XCTAssertNil(result.downloadURL.query)
+        XCTAssertFalse(String(describing: result).contains("response-secret"))
+        let actual = try await client.download(result, apiKey: "current-key")
+        XCTAssertEqual(actual, contents)
+    }
+
+    func testSearchRejectsUnknownDuplicateAndUnsafeDownloadParameters() async throws {
+        let unsafe = ["?api_key=one&api_key=two", "?other=value", "?api_key=one&other=value",
+                      "?api_key=one;other=value", "?api_key=", "?api_key", "?api%5Fkey=one",
+                      "?api_key=one#fragment"]
+        var files = [file()]
+        for (index, query) in unsafe.enumerated() {
+            let id = "unsafe\(index)"
+            var candidate = file(id: id)
+            candidate["url"] = "/subtitle/parent/\(id)" + query
+            files.append(candidate)
+        }
+        let results = try await client(fixture(files: files)).search(movie, apiKey: "key")
+        XCTAssertEqual(results.map(\.downloadURL.lastPathComponent), ["file"])
+        XCTAssertNil(SubDLClient.normalizedResultDownloadURL("https://evil.example/subtitle/p/f?api_key=secret"))
+        XCTAssertNil(SubDLClient.normalizedResultDownloadURL("https://user@dl.subdl.com/subtitle/p/f?api_key=secret"))
+        XCTAssertNil(SubDLClient.normalizedResultDownloadURL("https://dl.subdl.com:443/subtitle/p/f?api_key=secret"))
+        XCTAssertNil(SubDLClient.normalizedResultDownloadURL("/subtitle/p/%2e%2e?api_key=secret"))
+    }
+
+    func testDownloadsUseOnlyValidatedCallerKeyAndRemainBounded() async throws {
         let contents = Data("1\n00:00:00,000 --> 00:00:01,000\nHello\n".utf8)
         let client = SubDLClient { request, maximum in
             XCTAssertEqual(request.url?.host, "dl.subdl.com")
             XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
             XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
-            XCTAssertNil(request.url?.query)
+            XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems,
+                           [URLQueryItem(name: "api_key", value: "own+&key=1")])
+            XCTAssertFalse(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.percentEncodedQuery!.contains("+"))
             XCTAssertEqual(maximum, SubDLClient.maximumBytes)
             return SubDLHTTPResponse(statusCode: 200, url: request.url!, data: contents)
         }
-        let actual = try await client.download(subtitle())
+        let actual = try await client.download(subtitle(), apiKey: "own+&key=1")
         XCTAssertEqual(actual, contents)
         await assertFailure(.tooLarge) {
-            _ = try await self.client(Data(repeating: 65, count: SubDLClient.maximumBytes + 1)).download(self.subtitle())
+            _ = try await self.client(Data(repeating: 65, count: SubDLClient.maximumBytes + 1)).download(self.subtitle(), apiKey: "key")
         }
-        await assertFailure(.invalidResponse) { _ = try await self.client(Data([0x50, 0x4b, 3, 4])).download(self.subtitle()) }
+        await assertFailure(.invalidResponse) { _ = try await self.client(Data([0x50, 0x4b, 3, 4])).download(self.subtitle(), apiKey: "key") }
+    }
+
+    func testDownloadRejectsMissingInvalidOrStoredURLCredentialsBeforeTransport() async {
+        let client = SubDLClient { _, _ in
+            XCTFail("Invalid credentials or URLs must not reach the transport")
+            throw SubDLError.connection
+        }
+        await assertFailure(.missingKey) { _ = try await client.download(self.subtitle(), apiKey: " ") }
+        await assertFailure(.invalidKey) { _ = try await client.download(self.subtitle(), apiKey: "key\r\nHeader: injected") }
+        let credentialed = SubDLSubtitle(id: "file", language: "en", releaseName: "Release", format: "srt",
+            hearingImpaired: false, downloadURL: URL(string: "https://dl.subdl.com/subtitle/parent/file?api_key=stored-secret")!, fps: nil)
+        await assertFailure(.unsafeDownload) { _ = try await client.download(credentialed, apiKey: "key") }
     }
 
     func testRejectsRedirectsAndChangedFinalHost() async {
-        await assertFailure(.unsafeDownload) { _ = try await self.client(Data(), status: 302).download(self.subtitle()) }
+        await assertFailure(.unsafeDownload) { _ = try await self.client(Data(), status: 302).download(self.subtitle(), apiKey: "key") }
         let redirected = SubDLClient { _, _ in
             SubDLHTTPResponse(statusCode: 200, url: URL(string: "https://evil.example/file")!, data: Data("secret".utf8))
         }
-        await assertFailure(.unsafeDownload) { _ = try await redirected.download(self.subtitle()) }
+        await assertFailure(.unsafeDownload) { _ = try await redirected.download(self.subtitle(), apiKey: "key") }
     }
 
     func testKeyValidationRequiresAccountShapeAndUsesSafeHeader() async throws {
@@ -124,6 +182,11 @@ final class SubDLClientTests: XCTestCase {
         }
         let data = Data(#"{"error":{"code":"quota_exceeded","message":"secret-key"}}"#.utf8)
         await assertFailure(.quota) { try await self.client(data).validateKey("key") }
+        await assertFailure(.invalidKey) { _ = try await self.client(Data("secret-key".utf8), status: 403).download(self.subtitle(), apiKey: "key") }
+        let transportError = SubDLClient { request, _ in
+            throw URLError(.cannotConnectToHost, userInfo: [NSURLErrorFailingURLErrorKey: request.url!])
+        }
+        await assertFailure(.connection) { _ = try await transportError.download(self.subtitle(), apiKey: "secret-key") }
     }
 
     func testCancellationPropagates() async {

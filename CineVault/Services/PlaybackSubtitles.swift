@@ -324,11 +324,11 @@ final class PlaybackSubtitles: ObservableObject {
         let key: String
         do {
             guard let saved = try Keychain.get(SubtitleSettings.account), !saved.isEmpty else {
-                onlineMessage = "Connect SubDL once in Settings → Subtitles, then return here."
+                onlineMessage = "Connect SubDL in Settings, then return here."
                 return
             }
             key = saved
-        } catch { onlineMessage = "The saved SubDL key could not be read. Try again in Settings → Subtitles."; return }
+        } catch { onlineMessage = "The saved SubDL key could not be read. Try again in Settings."; return }
         searching = true; onlineMessage = nil
         let token = generation
         searchTask = Task { [weak self] in
@@ -364,6 +364,14 @@ final class PlaybackSubtitles: ObservableObject {
 
     func selectOnline(_ subtitle: SubDLSubtitle, remember: Bool = true) {
         guard !stopped, nativeLoaded else { return }
+        let apiKey: String
+        do {
+            guard let saved = try Keychain.get(SubtitleSettings.account), !saved.isEmpty else {
+                onlineMessage = "Connect SubDL in Settings, then return here."
+                return
+            }
+            apiKey = saved
+        } catch { onlineMessage = "The saved SubDL key could not be read. Try again in Settings."; return }
         generation = UUID(); let token = generation
         loadTask?.cancel(); searchTask?.cancel(); searching = false
         document = nil; caption = ""; message = nil; delay = 0
@@ -373,7 +381,7 @@ final class PlaybackSubtitles: ObservableObject {
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let data = try await OnlineSubtitleMemoryCache.shared.data(for: subtitle)
+                let data = try await OnlineSubtitleMemoryCache.shared.data(for: subtitle, apiKey: apiKey)
                 try Task.checkCancellation()
                 guard !self.stopped, self.generation == token, self.sourceUnchanged else { return }
                 self.document = try SubtitleDocument.parse(data)
@@ -401,10 +409,10 @@ private actor OnlineSubtitleMemoryCache {
     static let shared = OnlineSubtitleMemoryCache()
     private var entries: [String: Data] = [:]
     private var order: [String] = []
-    func data(for subtitle: SubDLSubtitle) async throws -> Data {
+    func data(for subtitle: SubDLSubtitle, apiKey: String) async throws -> Data {
         let key = subtitle.downloadURL.absoluteString + "|" + subtitle.id
         if let data = entries[key] { return data }
-        let data = try await SubDLClient().download(subtitle)
+        let data = try await SubDLClient().download(subtitle, apiKey: apiKey)
         try Task.checkCancellation()
         _ = try SubtitleDocument.parse(data)
         while order.count >= 8, let first = order.first { entries.removeValue(forKey: first); order.removeFirst() }

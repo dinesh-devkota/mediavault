@@ -20,7 +20,7 @@ class SubDlClientTest {
             assertEquals("movie", request.url.queryParameter("type"))
             assertEquals("en", request.url.queryParameter("languages"))
             assertEquals("1", request.url.queryParameter("unpack"))
-            assertEquals("0", request.url.queryParameter("full_season"))
+            assertNull("Movie searches must not be filtered as TV season packs", request.url.queryParameter("full_season"))
             assertEquals("1", request.url.queryParameter("releases"))
             assertEquals("custom_integration", request.url.queryParameter("client"))
             assertEquals("30", request.url.queryParameter("subs_per_page"))
@@ -45,6 +45,7 @@ class SubDlClientTest {
             file("ambiguous", 1, 2).replace("\"episode\":2,", "")).joinToString(",")
         val data = fixture(files, """{"tmdb_id":42,"type":"tv"}""").toByteArray()
         val client = SubDlClient { request, _ ->
+            assertEquals("0", request.url.queryParameter("full_season"))
             assertEquals("1", request.url.queryParameter("season"))
             assertEquals("2", request.url.queryParameter("episode"))
             SubDlHttpResponse(200, request.url.toString(), data)
@@ -84,6 +85,98 @@ class SubDlClientTest {
             clientBytes(ByteArray(SubDlClient.MAXIMUM_BYTES + 1)).download(subtitle())
         }
         expect(SubDlFailure.INVALID_RESPONSE) { clientBytes(byteArrayOf(0x50, 0x4b, 3, 4)).download(subtitle()) }
+    }
+
+    @Test fun responseCredentialIsDiscardedAndDownloadUsesOnlyCallerKey() = runTest {
+        val responseSecret = "untrusted-response-secret"
+        val callerKey = "own+key/with=reserved&characters"
+        val canonical = "https://dl.subdl.com/subtitle/parent/file"
+        val data = "1\n00:00:00,000 --> 00:00:01,000\nHello\n".toByteArray()
+        var searches = 0
+        var downloads = 0
+        val client = SubDlClient { request, _ ->
+            if (request.url.host == "api.subdl.com") {
+                searches++
+                assertEquals("Bearer $callerKey", request.header("Authorization"))
+                assertFalse(request.url.toString().contains(callerKey))
+                val files = file(url = "/subtitle/parent/file?api_key=$responseSecret") + "," +
+                    file(url = "$canonical?api_key=different-response-secret")
+                SubDlHttpResponse(200, request.url.toString(), fixture(files).toByteArray())
+            } else {
+                downloads++
+                assertEquals("https", request.url.scheme)
+                assertEquals("dl.subdl.com", request.url.host)
+                assertEquals("/subtitle/parent/file", request.url.encodedPath)
+                assertEquals(setOf("api_key"), request.url.queryParameterNames)
+                assertEquals(listOf(callerKey), request.url.queryParameterValues("api_key"))
+                assertNull(request.header("Authorization"))
+                assertNull(request.header("Cookie"))
+                assertFalse(request.url.toString().contains(responseSecret))
+                SubDlHttpResponse(200, request.url.toString(), data)
+            }
+        }
+        val result = client.search(movie, callerKey).single()
+        assertEquals(canonical, result.id)
+        assertEquals(canonical, result.downloadUrl)
+        assertFalse(result.toString().contains("secret"))
+        assertArrayEquals(data, client.download(result, callerKey))
+        assertEquals(canonical, result.downloadUrl)
+        assertEquals(1, searches)
+        assertEquals(1, downloads)
+    }
+
+    @Test fun resultUrlNormalizerRejectsUnknownDuplicateAndAmbiguousQueries() = runTest {
+        val badLinks = listOf(
+            "/subtitle/parent/file?api_key=one&api_key=two",
+            "/subtitle/parent/file?other=secret",
+            "/subtitle/parent/file?api_key=one&other=two",
+            "/subtitle/parent/file?api_key=one;other=two",
+            "/subtitle/parent/file?api_key=",
+            "/subtitle/parent/file?api_key",
+            "/subtitle/parent/file?%61pi_key=secret",
+            "/subtitle/parent/file?api_key=one#fragment",
+            "https://evil.example/subtitle/parent/file?api_key=one",
+            "https://dl.subdl.com.evil.example/subtitle/parent/file?api_key=one",
+            "https://user@dl.subdl.com/subtitle/parent/file?api_key=one",
+            "https://dl.subdl.com:443/subtitle/parent/file?api_key=one",
+            "http://dl.subdl.com/subtitle/parent/file?api_key=one",
+        )
+        badLinks.forEach { link ->
+            assertNull(link, SubDlClient.searchDownloadUrl(link))
+            expect(SubDlFailure.NO_RESULTS) { client(fixture(file(url = link))).search(movie, "key") }
+        }
+        assertEquals("https://dl.subdl.com/subtitle/parent/file", SubDlClient.searchDownloadUrl(
+            "/subtitle/parent/file?api_key=discard%26this%3Dvalue"))
+        assertEquals("https://dl.subdl.com/subtitle/parent/file", SubDlClient.searchDownloadUrl("/subtitle/parent/file"))
+    }
+
+    @Test fun authenticatedDownloadValidatesExactDestinationAndKeyBeforeNetworking() = runTest {
+        var sent = false
+        val client = SubDlClient { _, _ -> sent = true; error("Unexpected network request") }
+        for (url in listOf("https://evil.example/subtitle/parent/file", "http://dl.subdl.com/subtitle/parent/file",
+            "https://dl.subdl.com/subtitle/parent/file?api_key=response-secret", "https://dl.subdl.com/subtitle/archive.zip")) {
+            expect(SubDlFailure.UNSAFE_DOWNLOAD) { client.download(subtitle().copy(downloadUrl = url), "caller-key") }
+        }
+        expect(SubDlFailure.MISSING_KEY) { client.download(subtitle(), " ") }
+        expect(SubDlFailure.INVALID_KEY) { client.download(subtitle(), "key\r\nInjected: value") }
+        assertFalse(sent)
+    }
+
+    @Test fun authenticatedDownloadErrorsAndRedirectsNeverExposeRequestCredentials() = runTest {
+        val secret = "caller-download-secret"
+        for ((status, failure) in listOf(403 to SubDlFailure.INVALID_KEY, 302 to SubDlFailure.UNSAFE_DOWNLOAD)) {
+            expect(failure) { client("provider body $secret", status).download(subtitle(), secret) }
+        }
+        val leakedNetworkError = SubDlClient { request, _ -> throw java.io.IOException(request.url.toString()) }
+        try { leakedNetworkError.download(subtitle(), secret); fail("Expected safe error") }
+        catch (error: SubDlException) {
+            assertEquals(SubDlFailure.CONNECTION, error.failure)
+            assertFalse(error.message.orEmpty().contains(secret))
+            assertFalse(error.message.orEmpty().contains("dl.subdl.com"))
+            assertNull(error.cause)
+        }
+        val redirected = SubDlClient { _, _ -> SubDlHttpResponse(200, "https://evil.example/file", byteArrayOf(1)) }
+        expect(SubDlFailure.UNSAFE_DOWNLOAD) { redirected.download(subtitle(), secret) }
     }
 
     @Test fun rejectsRedirectsOrChangedFinalHost() = runTest {
