@@ -27,6 +27,20 @@ final class SearchRemoteTests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 8), .completed,
                            "Expected remote focus on \(label).\n\(app.debugDescription)", file: file, line: line)
         }
+        func navigateHorizontally(to label: String) {
+            let target = card(label)
+            // A simulator directional press can move more than one card. Establish
+            // the intended initial selection without weakening the Back assertions.
+            for _ in 0..<4 {
+                if target.hasFocus { break }
+                let focused = app.buttons.matching(NSPredicate(format: "hasFocus == YES")).firstMatch
+                guard focused.exists else { break }
+                remote.press(focused.frame.midX < target.frame.midX ? .right : .left)
+                let arrived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == YES"), object: target)
+                if XCTWaiter.wait(for: [arrived], timeout: 2) == .completed { break }
+            }
+            assertFocus(label)
+        }
 
         let field = app.searchFields["Titles, shows, episodes, genres, files"]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
@@ -42,12 +56,10 @@ final class SearchRemoteTests: XCTestCase {
         assertFocus(show)
         remote.press(.select)
         assertFocus("Season 1")
-        remote.press(.right)
-        assertFocus(season)
+        navigateHorizontally(to: season)
         remote.press(.select)
         assertFocus("E1 · Day 2 · Hour 1")
-        remote.press(.right)
-        assertFocus(episode)
+        navigateHorizontally(to: episode)
         remote.press(.select)
         XCTAssertTrue(app.staticTexts["24 · Season 2 · Episode 2"].waitForExistence(timeout: 8))
 

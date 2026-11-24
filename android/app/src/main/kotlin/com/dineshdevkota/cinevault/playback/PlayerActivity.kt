@@ -93,7 +93,7 @@ class PlayerActivity : ComponentActivity() {
     private var transitionJob: Job? = null
     private var nextCard: LinearLayout? = null
     private var pendingNext: ContinueWatchingItem? = null
-    private var subtitleConfigurations = emptyList<MediaItem.SubtitleConfiguration>()
+    private var preparedSubtitles = emptyList<PreparedSubtitle>()
     private var onlineJob: Job? = null
     private var onlineAttempted = false
     private var subtitleNotice: String? = null
@@ -218,8 +218,8 @@ class PlayerActivity : ComponentActivity() {
                 if (startPositionMs == C.TIME_UNSET) startPositionMs = if (resume) loaded.movie.playbackPositionMs else 0
                 target = loaded
                 showInformation(loaded.movie)
-                val downloaded = subtitleConfigurations.filter { it.id?.startsWith("subdl:") == true }
-                subtitleConfigurations = discoverSubtitles(loaded) + downloaded
+                val downloaded = preparedSubtitles.filter { it.configuration.id?.startsWith("subdl:") == true }
+                preparedSubtitles = discoverSubtitles(loaded) + downloaded
                 onlineAttempted = false
                 if (isFinishing) return@repeatOnLifecycle
                 startPlayer()
@@ -292,9 +292,11 @@ class PlayerActivity : ComponentActivity() {
         if (player != null || isFinishing) return
         val smb = container.smb
         val files = DataSource.Factory { SmbDataSource { smb.open(target.config, target.movie.filePath) } }
-        val mediaSources = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, files),
+        val dataSources = DefaultDataSource.Factory(this, files)
+        val primarySources = DefaultMediaSourceFactory(dataSources,
             DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
             .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
+        val mediaSources = SubtitleMediaSourceFactory(primarySources, dataSources) { preparedSubtitles }
         val exo = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setEnableDecoderFallback(true))
             .setMediaSourceFactory(mediaSources)
             .setAudioAttributes(
@@ -311,7 +313,7 @@ class PlayerActivity : ComponentActivity() {
             MediaItem.Builder()
                 .setUri(smbUri(target.config, target.movie.filePath))
                 .setMediaId(target.movie.id)
-                .setSubtitleConfigurations(subtitleConfigurations)
+                .setSubtitleConfigurations(preparedSubtitles.map { it.configuration })
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(target.movie.title)
                     .setDescription(target.movie.overview)
                     .setArtworkUri(com.dineshdevkota.cinevault.core.Tmdb.imageUrl(target.movie.posterPath)?.let(Uri::parse))
@@ -331,7 +333,7 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    private suspend fun discoverSubtitles(loaded: Target): List<MediaItem.SubtitleConfiguration> {
+    private suspend fun discoverSubtitles(loaded: Target): List<PreparedSubtitle> {
         // Independent worker: a blocking NAS call cannot hold up video startup past this deadline.
         val smb = container.smb
         val language = container.settings.subtitleLanguage
@@ -340,7 +342,7 @@ class PlayerActivity : ComponentActivity() {
                 val found = smb.readSubtitleSidecars(loaded.config, loaded.movie.filePath, language)
                 found.files.mapNotNull(SubtitleTracks::configuration) to found.truncated
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { emptyList<MediaItem.SubtitleConfiguration>() to false }
+            catch (_: Exception) { emptyList<PreparedSubtitle>() to false }
         }
         return try {
             val result = withTimeoutOrNull(2_500) { discovery.await() }
@@ -523,7 +525,7 @@ class PlayerActivity : ComponentActivity() {
         val cache = SubtitleCache(applicationContext)
         val key = "${request.identity.id}|${subtitle.id}|${subtitle.downloadUrl}"
         val bytes = cache.read(key) ?: SubDlClient().download(subtitle)
-        val configuration = withContext(Dispatchers.Default) {
+        val preparedSubtitle = withContext(Dispatchers.Default) {
             SubtitleTracks.configuration(bytes, if (subtitle.format == "vtt") "text/vtt" else "application/x-subrip",
                 subtitle.language, "${languageName(subtitle.language)} · SubDL · ${subtitle.releaseName}",
                 "subdl:${subtitle.id}", hearingImpaired = subtitle.hearingImpaired)
@@ -535,12 +537,15 @@ class PlayerActivity : ComponentActivity() {
         val exo = player ?: return
         val position = exo.currentPosition
         val playing = exo.playWhenReady
-        subtitleConfigurations = subtitleConfigurations.filterNot { it.id == configuration.id } + configuration
+        val configuration = preparedSubtitle.configuration
+        // Keep at most eight local tracks and the active downloaded release in memory.
+        // Previously chosen downloads remain available through the bounded disk cache.
+        preparedSubtitles = preparedSubtitles.filterNot { it.configuration.id?.startsWith("subdl:") == true } + preparedSubtitle
         val mediaItem = exo.currentMediaItem ?: return
         container.settings.subtitlePreference = subtitle.language
         setProgrammaticTrackParameters(SubtitleTracks.applyPreference(exo.trackSelectionParameters, subtitle.language))
         pendingSubtitleId = configuration.id
-        exo.setMediaItem(mediaItem.buildUpon().setSubtitleConfigurations(subtitleConfigurations).build(), position)
+        exo.setMediaItem(mediaItem.buildUpon().setSubtitleConfigurations(preparedSubtitles.map { it.configuration }).build(), position)
         exo.prepare()
         exo.playWhenReady = playing
         if (!automatic) Toast.makeText(this, "Subtitles ready", Toast.LENGTH_SHORT).show()

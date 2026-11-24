@@ -17,15 +17,17 @@ import androidx.media3.extractor.text.SubtitleParser
 import com.dineshdevkota.cinevault.core.SubtitleSidecars
 import com.dineshdevkota.cinevault.smb.SubtitleFile
 
+internal data class PreparedSubtitle(val configuration: MediaItem.SubtitleConfiguration, val durationUs: Long)
+
 /** Optional captions are decoded and validated before joining the video source. */
 internal object SubtitleTracks {
-    fun configuration(file: SubtitleFile): MediaItem.SubtitleConfiguration? = configuration(
+    fun configuration(file: SubtitleFile): PreparedSubtitle? = configuration(
         file.bytes, file.match.mimeType, file.match.language, file.match.label, file.match.path,
         file.match.forced, file.match.hearingImpaired,
     )
 
     fun configuration(bytes: ByteArray, mimeType: String, language: String?, label: String, id: String,
-                      forced: Boolean = false, hearingImpaired: Boolean = false): MediaItem.SubtitleConfiguration? = runCatching {
+                      forced: Boolean = false, hearingImpaired: Boolean = false): PreparedSubtitle? = runCatching {
         if (bytes.isEmpty() || bytes.size > SubtitleSidecars.MAX_BYTES) return null
         val normalized = if (bytes.size >= 2 && ((bytes[0] == 0xff.toByte() && bytes[1] == 0xfe.toByte()) ||
                 (bytes[0] == 0xfe.toByte() && bytes[1] == 0xff.toByte()))) {
@@ -33,13 +35,24 @@ internal object SubtitleTracks {
         } else bytes
         val parser = DefaultSubtitleParserFactory().create(Format.Builder().setSampleMimeType(mimeType).build())
         var hasCues = false
-        parser.parse(normalized, SubtitleParser.OutputOptions.allCues()) { if (it.cues.isNotEmpty()) hasCues = true }
-        if (!hasCues) return null
-        MediaItem.SubtitleConfiguration.Builder(Uri.parse("data:$mimeType;base64," + Base64.encodeToString(normalized, Base64.NO_WRAP)))
+        var durationUs = 0L
+        try {
+            parser.parse(normalized, SubtitleParser.OutputOptions.allCues()) {
+                if (it.cues.isNotEmpty()) {
+                    hasCues = true
+                    if (it.startTimeUs >= 0 && it.durationUs > 0 && it.endTimeUs >= it.startTimeUs) {
+                        durationUs = maxOf(durationUs, it.endTimeUs)
+                    }
+                }
+            }
+        } finally { parser.reset() }
+        if (!hasCues || durationUs <= 0) return null
+        val configuration = MediaItem.SubtitleConfiguration.Builder(Uri.parse("data:$mimeType;base64," + Base64.encodeToString(normalized, Base64.NO_WRAP)))
             .setId(id).setMimeType(mimeType).setLanguage(language).setLabel(label)
             .setSelectionFlags(if (forced) C.SELECTION_FLAG_FORCED else 0)
             .setRoleFlags(if (hearingImpaired) C.ROLE_FLAG_CAPTION or C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND else C.ROLE_FLAG_SUBTITLE)
             .build()
+        PreparedSubtitle(configuration, durationUs)
     }.getOrNull()
 
     fun selectById(parameters: TrackSelectionParameters, tracks: Tracks, id: String): TrackSelectionParameters? {

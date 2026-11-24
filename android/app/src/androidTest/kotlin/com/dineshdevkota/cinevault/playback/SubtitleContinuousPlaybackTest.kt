@@ -29,6 +29,8 @@ import com.dineshdevkota.cinevault.data.SourceEntity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
+import androidx.lifecycle.Lifecycle
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -104,12 +106,13 @@ class SubtitleContinuousPlaybackTest {
                 assertEquals(setOf("en", "es"), tracks.map { it.getTrackFormat(0).language }.toSet())
                 assertTrue("Preferred English caption should be selected", tracks.any { it.getTrackFormat(0).language == "en" && it.isSelected })
             }
-            awaitPlayer(scenario) { player ->
+            awaitPlayer(scenario, "first rendered English caption") { player ->
                 player.isPlaying && player.currentCues.cues.any { it.text?.toString() == "Episode 1: English subtitle." }
             }
             scenario.onActivity { it.player()!!.seekTo(6_500) }
-            awaitPlayer(scenario) { player ->
-                player.isPlaying && player.currentCues.cues.any { it.text?.toString() == "The next caption follows a seek." }
+            awaitPlayer(scenario, "final rendered caption after seeking to 6.5 seconds") { player ->
+                player.isPlaying && player.currentPosition >= 6_500 &&
+                    player.currentCues.cues.any { it.text?.toString() == "The next caption follows a seek." }
             }
             // Exercise the actual TV subtitle controls, then recreate like an app lifecycle restart.
             scenario.onActivity { it.player()!!.pause(); it.playerView()!!.showController() }
@@ -195,19 +198,34 @@ class SubtitleContinuousPlaybackTest {
     private fun launch(): ActivityScenario<PlayerActivity> = ActivityScenario.launch(
         Intent(app, PlayerActivity::class.java).putExtra("movie_id", episodes.first().id).putExtra("resume", false),
     )
-    private suspend fun awaitPlayer(scenario: ActivityScenario<PlayerActivity>, predicate: (Player) -> Boolean) {
-        withTimeout(45_000) {
-            while (true) {
-                var ready = false
-                scenario.onActivity { activity ->
-                    activity.player()?.let { player ->
-                        player.playerError?.let { throw AssertionError("Synthetic playback failed", it) }
-                        ready = predicate(player)
+    private suspend fun awaitPlayer(scenario: ActivityScenario<PlayerActivity>, stage: String = "ready playback", predicate: (Player) -> Boolean) {
+        var lastState = "Player has not been created"
+        try {
+            withTimeout(45_000) {
+                while (true) {
+                    var ready = false
+                    try {
+                        scenario.onActivity { activity ->
+                            activity.player()?.let { player ->
+                                lastState = "position=${player.currentPosition}/${player.duration}, state=${player.playbackState}, " +
+                                    "playing=${player.isPlaying}, cues=${player.currentCues.cues.map { it.text }}, " +
+                                    "textSelected=${player.currentTracks.isTypeSelected(C.TRACK_TYPE_TEXT)}"
+                                player.playerError?.let { throw AssertionError("Synthetic playback failed while waiting for $stage; $lastState", it) }
+                                ready = predicate(player)
+                            }
+                        }
+                    } catch (error: RuntimeException) {
+                        if (scenario.state == Lifecycle.State.DESTROYED) {
+                            throw AssertionError("Player ended before $stage; $lastState", error)
+                        }
+                        throw error
                     }
+                    if (ready) return@withTimeout
+                    delay(100)
                 }
-                if (ready) return@withTimeout
-                delay(100)
             }
+        } catch (error: TimeoutCancellationException) {
+            throw AssertionError("Timed out waiting for $stage; $lastState", error)
         }
     }
     private fun finishVideo(scenario: ActivityScenario<PlayerActivity>) {

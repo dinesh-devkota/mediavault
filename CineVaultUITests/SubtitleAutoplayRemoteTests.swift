@@ -86,15 +86,17 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
         let remote = XCUIRemote.shared
         let subtitles = app.cells["Subtitles"].firstMatch
         // This fixture uses the real native transport, without test-only focusable buttons.
+        XCTAssertTrue(subtitles.waitForExistence(timeout: 40), app.debugDescription)
+        // AVKit keeps hidden transport items in its accessibility tree. Up reveals
+        // playback controls; existence alone does not mean the action is visible.
         for _ in 0..<6 {
-            if subtitles.exists { break }
-            remote.press(.select)
-            if subtitles.waitForExistence(timeout: 5) { break }
-            remote.press(.down)
+            remote.press(.up)
+            let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == YES"), object: subtitles)
+            if XCTWaiter.wait(for: [visible], timeout: 2) == .completed { break }
         }
-        XCTAssertTrue(subtitles.waitForExistence(timeout: 10), app.debugDescription)
-        capture("Production transport subtitle action", app: app)
+        XCTAssertTrue(subtitles.isHittable, app.debugDescription)
         focus(subtitles, in: app)
+        capture("Production transport subtitle action", app: app)
         remote.press(.select)
         XCTAssertTrue(app.buttons["subtitles-off"].waitForExistence(timeout: 10), app.debugDescription)
         capture("Production subtitle selection sheet", app: app)
@@ -110,8 +112,12 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
     @MainActor
     private func assertSelected(_ element: XCUIElement) {
         // tvOS can append its checkmark's accessibility state to the button's explicit value.
-        let value = (element.value as? String)?.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces)
-        XCTAssertEqual(value, "Selected")
+        // Wait for action delivery and the accessibility value to settle. Capture
+        // any NAS load error instead of checking the pre-action snapshot immediately.
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "Selected"), object: element)
+        let result = XCTWaiter.wait(for: [selected], timeout: 15)
+        if result != .completed { capture("Subtitle selection did not complete", app: XCUIApplication()) }
+        XCTAssertEqual(result, .completed, XCUIApplication().debugDescription)
     }
 
     @MainActor
@@ -131,6 +137,7 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
                 XCUIRemote.shared.press(focused.exists && focused.frame.midY > target.frame.midY ? .up : .down)
             }
         }
+        if !targetIsFocused() { capture("Remote focus did not reach \(target.identifier.isEmpty ? target.label : target.identifier)", app: app) }
         XCTAssertTrue(targetIsFocused(), app.debugDescription)
     }
 }

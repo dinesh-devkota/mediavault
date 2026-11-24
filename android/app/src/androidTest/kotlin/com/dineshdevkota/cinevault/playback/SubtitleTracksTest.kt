@@ -9,6 +9,13 @@ import androidx.media3.common.TrackGroup
 import androidx.media3.common.C
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.extractor.DummyTrackOutput
+import androidx.media3.extractor.ExtractorOutput
+import androidx.media3.extractor.SeekMap
+import androidx.media3.extractor.TrackOutput
+import androidx.media3.extractor.text.CuesWithTiming
+import androidx.media3.extractor.text.DefaultSubtitleParserFactory
+import androidx.media3.extractor.text.SubtitleParser
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.core.app.ApplicationProvider
 import com.dineshdevkota.cinevault.CineVaultApp
@@ -30,6 +37,33 @@ class SubtitleTracksTest {
         assertNull(configuration("not a subtitle".toByteArray()))
         assertNull(configuration(ByteArray(2 * 1024 * 1024 + 1)))
         assertNull(configuration("bad header".toByteArray(), "text/vtt"))
+
+        // Seek into the final cue, after its start: duration must include the whole cue.
+        val finalCueFixture = "1\n00:00:00,500 --> 00:00:05,000\nFirst cue\n\n" +
+            "2\n00:00:05,500 --> 00:00:11,500\nFinal cue\n"
+        val prepared = checkNotNull(configuration(finalCueFixture.toByteArray()))
+        val extractor = SubtitleMediaSourceFactory.extractor(prepared)
+        var declaredDurationUs = C.TIME_UNSET
+        extractor.init(object : ExtractorOutput {
+            override fun track(id: Int, type: Int): TrackOutput = DummyTrackOutput()
+            override fun endTracks() = Unit
+            override fun seekMap(seekMap: SeekMap) {
+                assertTrue(seekMap.isSeekable)
+                declaredDurationUs = seekMap.durationUs
+            }
+        })
+        assertEquals("A final cue remains seekable until its end", 11_500_000L, declaredDurationUs)
+        extractor.release()
+        val parser = DefaultSubtitleParserFactory().create(Format.Builder().setSampleMimeType("application/x-subrip").build())
+        val parsed = mutableListOf<CuesWithTiming>()
+        parser.parse(finalCueFixture.toByteArray(), SubtitleParser.OutputOptions.allCues()) { parsed += it }
+        assertEquals(listOf(500_000L, 5_500_000L), parsed.map { it.startTimeUs })
+        assertEquals(listOf(5_000_000L, 11_500_000L), parsed.map { it.endTimeUs })
+        parsed.clear()
+        parser.parse(finalCueFixture.toByteArray(), SubtitleParser.OutputOptions.cuesAfterThenRemainingCuesBefore(6_500_000)) { parsed += it }
+        assertEquals("Final cue", parsed.first().cues.single().text.toString())
+        assertEquals(11_500_000L, parsed.first().endTimeUs)
+        parser.reset()
     }
 
     @Test fun nativeNoneMeansOffAndChoosingALanguageClearsItsSuppressionFlags() {

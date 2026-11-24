@@ -452,6 +452,15 @@ struct PlayerView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let viewController = AVPlayerViewController()
         viewController.player = controller.player
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback"),
+           !ProcessInfo.processInfo.arguments.contains("--ui-preview-production-controls") {
+            // The fixture's own remote buttons control seeking. Native transport focus
+            // is exercised independently by the production-controls launch mode.
+            viewController.showsPlaybackControls = false
+            viewController.view.isUserInteractionEnabled = false
+        }
+        #endif
         viewController.transportBarCustomMenuItems = [
             UIAction(title: "Subtitles", image: UIImage(systemName: "captions.bubble")) { _ in
                 controller.subtitles.presented = true
