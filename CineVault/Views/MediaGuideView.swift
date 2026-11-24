@@ -35,6 +35,16 @@ struct MediaGuideView: View {
                 Text("Use S01E01-style episode names. Search for 24 to browse the show by season, or enter 24 S02E03 to open one episode. Back returns you to your results. Keep songs in artist and album folders. TMDB’s Music category covers movies and shows about music.")
                     .focusable()
             }
+            Section("Subtitles") {
+                Text("Open Subtitles while playing to choose Off, an embedded track, or a local SRT or WebVTT file. Put local subtitles beside the video with the same filename, such as Show.S01E01.en.srt or Movie.es.vtt. Optional .forced and .sdh suffixes are supported. Subtitle timing controls move local and downloaded captions earlier or later; seeking keeps them synchronized. Your Off or language choice carries to the next episode when available.")
+                    .focusable()
+                Text("For online subtitles, open Settings → Subtitle language & SubDL setup. Scan the QR code or visit subdl.com/panel/api on your phone, sign in, and enter your API key once. Connect & enable checks and securely saves the key. Choose your preferred language from the list. The app uses matching local or embedded tracks first, then checks SubDL for matched titles. An exact release match can be selected automatically; other releases appear in the player for you to choose. Downloads never change NAS files.")
+                    .focusable()
+            }
+            Section("Continuous TV viewing") {
+                Text("Enable Play next TV episode automatically in Settings. At the natural end of an episode, the next available unwatched episode appears with a 10-second countdown. Choose Play now, Cancel, or press Back to cancel. Specials stay separate. Movies, playback errors, leaving the app and trial limits do not start another episode. Intro skipping is not available without reliable markers.")
+                    .focusable()
+            }
             Section("Photo albums") {
                 Text("Keep photos in folders such as Media/Photos/Family Trip, include their parent in your NAS source, then scan again. Open Photos, choose an album, and select a thumbnail. Previous and Next move through the album; Back returns to it. Albums follow the NAS source and folder. JPEG, PNG, WebP, HEIC and HEIF files use the device's image decoder; damaged files or unsupported encodings may not open. Photos are read from your NAS and are not sent to TMDB.")
                     .focusable()

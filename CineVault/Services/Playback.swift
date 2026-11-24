@@ -12,7 +12,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     static let scheme = "cinevault-smb"
     private static let chunkSize: Int64 = 2 * 1024 * 1024
 
-    private let config: SourceConfig
+    fileprivate let config: SourceConfig
     private let path: String
     private let queue = DispatchQueue(label: "cinevault.resource-loader")
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
@@ -129,16 +129,19 @@ enum PlaybackPreparationError: LocalizedError {
 final class PlaybackController: ObservableObject {
     let player: AVPlayer
     @Published private(set) var playbackError: String?
+    @Published private(set) var didEndNaturally = false
+    let subtitles: PlaybackSubtitles
     #if CINEVAULT_COMMERCIAL
     let commercialSession: CommercialPlaybackSession
     #endif
     private let loader: SMBResourceLoader
     private let asset: AVURLAsset
-    private let movie: Movie
+    let movie: Movie
     private var finishedPlayback = false
     private var stopped = false
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var failureObserver: NSObjectProtocol?
     private var artworkTask: Task<Void, Never>?
     private var itemObservation: NSKeyValueObservation?
 
@@ -149,12 +152,14 @@ final class PlaybackController: ObservableObject {
     private static func playbackSource(for movie: Movie) throws -> MediaSource? {
         guard isNativeCandidate(movie) else { throw PlaybackPreparationError.unsupportedFormat }
         guard let source = movie.source else { return nil }
-        guard !movie.isMissing, !source.isIgnored(filePath: movie.filePath) else { throw PlaybackPreparationError.fileUnavailable }
+        guard LibrarySearch.isAvailable(movie), !source.isIgnored(filePath: movie.filePath),
+              SubtitleFile.safePath(movie.filePath, within: source.rootPath) != nil else { throw PlaybackPreparationError.fileUnavailable }
         return source
     }
 
     /// Check the actual asset before creating a player or changing playback history.
     static func prepare(movie: Movie, resume: Bool, services: PlaybackServices,
+                        defaults: UserDefaults = .standard,
                         sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() },
                         loadPlayable: (AVURLAsset) async throws -> Bool = { try await $0.load(.isPlayable) }) async throws -> PlaybackController? {
         guard let source = try playbackSource(for: movie) else { return nil }
@@ -171,7 +176,7 @@ final class PlaybackController: ObservableObject {
                       movie.filePath == path, try sourceConfig(currentSource) == config else {
                     throw PlaybackPreparationError.fileUnavailable
                 }
-                return PlaybackController(movie: movie, resume: resume, services: services, loader: loader, asset: asset)
+                return PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset)
             } catch {
                 asset.cancelLoading()
                 throw error
@@ -182,13 +187,14 @@ final class PlaybackController: ObservableObject {
     }
 
     convenience init?(movie: Movie, resume: Bool, services: PlaybackServices,
+          defaults: UserDefaults = .standard,
           sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() }) throws {
         guard let source = try Self.playbackSource(for: movie) else { return nil }
         let loader = SMBResourceLoader(config: try sourceConfig(source), path: movie.filePath)
-        self.init(movie: movie, resume: resume, services: services, loader: loader, asset: loader.makeAsset())
+        self.init(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: loader.makeAsset())
     }
 
-    private init(movie: Movie, resume: Bool, services: PlaybackServices, loader: SMBResourceLoader, asset: AVURLAsset) {
+    private init(movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, loader: SMBResourceLoader, asset: AVURLAsset) {
         self.movie = movie
         self.loader = loader
         self.asset = asset
@@ -196,6 +202,7 @@ final class PlaybackController: ObservableObject {
         item.externalMetadata = Self.metadata(for: movie)
         let player = AVPlayer(playerItem: item)
         self.player = player
+        subtitles = PlaybackSubtitles(player: player, movie: movie, config: loader.config, defaults: defaults)
         #if CINEVAULT_COMMERCIAL
         commercialSession = services.commercial.makePlaybackSession(
             player: player, mediaID: movie.id.uuidString, resume: resume,
@@ -212,6 +219,7 @@ final class PlaybackController: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, !self.stopped else { return }
                 self.playbackError = "Playback could not continue. Check the NAS connection and the file's codecs. \(message)"
+                self.didEndNaturally = false
                 self.player.pause()
             }
         }
@@ -220,12 +228,21 @@ final class PlaybackController: ObservableObject {
         }
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self else { return }
+                guard let self, !self.stopped, self.playbackError == nil else { return }
                 if self.player.currentItem?.forwardPlaybackEndTime.isValid == true {
                     self.record(time: self.player.currentTime().seconds)
                 } else {
                     self.finish()
+                    self.didEndNaturally = true
                 }
+            }
+        }
+        failureObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.stopped else { return }
+                self.didEndNaturally = false
+                self.playbackError = "Playback could not continue. Check the NAS connection and try again."
+                self.player.pause()
             }
         }
         if let url = TMDB.imageURL(movie.posterPath, size: "w342") {
@@ -299,6 +316,7 @@ final class PlaybackController: ObservableObject {
         #endif
         if saveProgress { record(time: player.currentTime().seconds) }
         stopped = true
+        subtitles.stop()
         artworkTask?.cancel()
         artworkTask = nil
         player.pause()
@@ -307,45 +325,125 @@ final class PlaybackController: ObservableObject {
         itemObservation = nil
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         timeObserver = nil
         endObserver = nil
+        failureObserver = nil
         if saveProgress { try? movie.modelContext?.save() }
+    }
+
+    var permitsContinuation: Bool {
+        guard !stopped, didEndNaturally, playbackError == nil,
+              player.currentItem?.forwardPlaybackEndTime.isValid != true else { return false }
+        #if CINEVAULT_COMMERCIAL
+        guard commercialSession.endedSuccessfully else { return false }
+        #endif
+        return true
     }
 }
 
 struct PlaybackScreen: View {
-    @ObservedObject var controller: PlaybackController
+    @StateObject private var session: ContinuousPlayback
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+
+    init(controller: PlaybackController, services: PlaybackServices, defaults: UserDefaults = .standard, library: @escaping () -> [Movie]) {
+        _session = StateObject(wrappedValue: ContinuousPlayback(controller: controller, services: services, defaults: defaults, library: library,
+            prepare: { try await PlaybackController.prepare(movie: $0, resume: $1, services: $2, defaults: defaults) }))
+    }
 
     var body: some View {
-        Group {
-        #if CINEVAULT_COMMERCIAL
-        CommercialPlayerView(session: controller.commercialSession)
-            .overlay(alignment: .topLeading) {
-                Button { controller.stop(); dismiss() } label: { Label("Back", systemImage: "chevron.left") }
-                    .buttonStyle(.bordered).padding(48)
+        ZStack {
+            ActivePlaybackView(controller: session.controller, close: close, interacting: { session.cancel() })
+                .id(session.controller.movie.id)
+                .allowsHitTesting(session.next == nil)
+            if let next = session.next {
+                NextEpisodeCountdown(session: session, suggestion: next)
             }
-        #else
-        PlayerView(controller: controller)
-        #endif
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback"), session.next == nil {
+                VStack {
+                    HStack {
+                        Button("Fixture subtitles") { session.controller.player.pause(); session.controller.subtitles.presented = true }
+                            .accessibilityIdentifier("fixture-subtitles")
+                        Button("Finish fixture episode") {
+                            session.controller.player.seek(to: CMTime(seconds: 11.7, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { completed in
+                                if completed { Task { @MainActor in session.controller.player.play() } }
+                            }
+                        }.accessibilityIdentifier("fixture-finish-episode")
+                        Text(session.controller.movie.fileName).accessibilityIdentifier("fixture-playing-episode")
+                    }.padding(48)
+                    Spacer()
+                }
+            }
+            #endif
         }
+        .onExitCommand {
+            if session.next != nil { session.cancel() }
+            else { close() }
+        }
+        .onDisappear { session.stop() }
+        .onChange(of: scenePhase) { _, phase in session.setActive(phase == .active) }
+        .alert("Next episode unavailable", isPresented: Binding(get: { session.message != nil }, set: { _ in })) {
+            Button("Back to library") { close() }
+        } message: { Text(session.message ?? "") }
+    }
+
+    private func close() { session.stop(); dismiss() }
+}
+
+private struct ActivePlaybackView: View {
+    @ObservedObject var controller: PlaybackController
+    @ObservedObject var subtitles: PlaybackSubtitles
+    let close: () -> Void
+    let interacting: () -> Void
+
+    init(controller: PlaybackController, close: @escaping () -> Void, interacting: @escaping () -> Void) {
+        self.controller = controller; self.subtitles = controller.subtitles; self.close = close; self.interacting = interacting
+    }
+
+    var body: some View {
+        ZStack {
+        #if CINEVAULT_COMMERCIAL
+            CommercialPlayerView(session: controller.commercialSession)
+        #else
+            PlayerView(controller: controller, close: close)
+        #endif
+            LocalCaptionOverlay(subtitles: subtitles)
+            #if CINEVAULT_COMMERCIAL
+            VStack {
+                HStack {
+                    Button(action: close) { Label("Back", systemImage: "chevron.left") }
+                    Spacer()
+                    Button { subtitles.presented = true } label: { Label("Subtitles", systemImage: "captions.bubble") }
+                        .accessibilityIdentifier("playback-subtitles")
+                }.buttonStyle(.bordered).padding(48)
+                Spacer()
+            }
+            #endif
+        }
+        .task { subtitles.start() }
+        .sheet(isPresented: $subtitles.presented) { SubtitleSelectionView(subtitles: subtitles) }
+        .onChange(of: subtitles.presented) { _, shown in if shown { interacting() } }
         .alert("Playback unavailable", isPresented: Binding(get: { controller.playbackError != nil }, set: { _ in })) {
-            Button("Back") { controller.stop(); dismiss() }
+            Button("Back", action: close)
         } message: { Text(controller.playbackError ?? "This file could not be played.") }
     }
 }
 
 struct PlayerView: UIViewControllerRepresentable {
     let controller: PlaybackController
-    @Environment(\.dismiss) private var dismiss
+    let close: () -> Void
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let viewController = AVPlayerViewController()
         viewController.player = controller.player
         viewController.transportBarCustomMenuItems = [
+            UIAction(title: "Subtitles", image: UIImage(systemName: "captions.bubble")) { _ in
+                controller.subtitles.presented = true
+            },
             UIAction(title: "Back", image: UIImage(systemName: "chevron.left")) { _ in
-                controller.stop()
-                dismiss()
+                close()
             }
         ]
         controller.player.play()
@@ -356,5 +454,31 @@ struct PlayerView: UIViewControllerRepresentable {
 
     static func dismantleUIViewController(_ uiViewController: AVPlayerViewController, coordinator: ()) {
         uiViewController.player?.pause()
+    }
+}
+
+private struct NextEpisodeCountdown: View {
+    @ObservedObject var session: ContinuousPlayback
+    let suggestion: WatchSuggestion
+    @FocusState private var playFocused: Bool
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.88).ignoresSafeArea()
+            VStack(spacing: 26) {
+                Text("Up next").font(.headline).foregroundStyle(.secondary)
+                Text(suggestion.title).font(.largeTitle.bold())
+                Text(suggestion.subtitle).font(.title3)
+                if session.preparing { ProgressView("Opening next episode…") }
+                else { Text("Playing in \(session.secondsRemaining) seconds").monospacedDigit().accessibilityIdentifier("next-episode-countdown") }
+                HStack(spacing: 30) {
+                    Button("Play now") { session.playNow() }
+                        .focused($playFocused).disabled(session.preparing).accessibilityIdentifier("autoplay-play-now")
+                    Button("Cancel") { session.cancel() }.accessibilityIdentifier("autoplay-cancel")
+                }
+                Text("Press Back to cancel").font(.caption).foregroundStyle(.secondary)
+            }.padding(70)
+        }
+        .onAppear { playFocused = true }
+        .onExitCommand { session.cancel() }
     }
 }

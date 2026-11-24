@@ -11,7 +11,7 @@ Use **Section** to switch categories. **Clear filters** resets the filters
 within that section. Photos have their own tab.
 
 Open **Settings** to check your installed version and build (under **About** on Apple TV).
-This browsing update is version **1.2.0**, build **4**.
+The subtitles and continuous viewing update is version **1.3.0**, build **5**.
 
 ### Browse a complete Home collection
 
@@ -197,6 +197,71 @@ Check the season and episode number on the card. For example, if you finish
 lets you decide whether to skip ahead. Select the card to see the details,
 then choose **Play** or **Resume**. You can also open the next episode from
 the current episode’s details. Specials are followed separately.
+
+## Play the next episode automatically
+
+In **Settings**, enable **Play next TV episode automatically**. It starts off.
+When an episode finishes normally, MediaVault shows the next available unwatched
+episode and a ten-second countdown. Choose **Play now** to continue immediately,
+or **Cancel** (or press **Back**) to stay on the current episode.
+
+Check the season and episode label: **Next available** can mean an episode is
+missing from your library or already watched. Specials stay separate from regular
+seasons. Movies, playback errors, leaving the player, and commercial trial cutoffs
+do not start another episode. Switching away from the app cancels a pending
+countdown. The next file is checked again before playback begins.
+
+## Use subtitles
+
+Open **Subtitles** in the player to choose an embedded track, a subtitle stored
+beside the video, or **Off**. MediaVault remembers your subtitle choice where a
+matching language is available in the next episode.
+
+For local subtitles, place an extracted `.srt` or `.vtt` file in the video's
+folder. Match the full video filename before its extension, optionally adding a
+language code:
+
+```text
+Movies/Arrival (2016)/Arrival (2016).mp4
+Movies/Arrival (2016)/Arrival (2016).en.srt
+Movies/Arrival (2016)/Arrival (2016).es.vtt
+TV Shows/Example/Season 01/Example.S01E01.mp4
+TV Shows/Example/Season 01/Example.S01E01.en.srt
+```
+
+This also works with subtitles downloaded from YIFY: extract the subtitle from
+its archive and rename it to match the video. MediaVault does not currently search
+or download directly from YIFY. Local subtitles need no online account or new
+library scan. Ignored files stay ignored; subtitle files are not added as movies.
+Files must be readable SRT or WebVTT and no larger than 2 MB.
+
+### Connect SubDL once
+
+1. On a phone or computer, sign in to [SubDL's API panel](https://subdl.com/panel/api)
+   and create a free API key.
+2. Open MediaVault's **Settings → Subtitles** setup and enter that key in the app.
+   Keep it out of chat and screenshots. Apple TV displays a QR code for the setup page.
+3. Choose your preferred language, then **Connect & enable automatic subtitles**.
+   Wait for the connection confirmation. An invalid key or unavailable service shows
+   an error so you can correct it and retry.
+
+MediaVault prefers matching local or embedded subtitles. When automatic online
+subtitles are enabled, it searches SubDL for the matched title and language. An
+automatic choice requires a matching release filename; otherwise use the player's
+online search to choose a release yourself. **Off** prevents automatic selection.
+You can disconnect SubDL in Settings and continue using local subtitles.
+
+Online lookup uses the title's TMDB match and, for TV, its season and episode.
+If a title is unmatched or wrongly identified, use **Fix Match** first. Different
+cuts can have different subtitle timing even when they share a title; choose a
+release matching your file. Only SRT/WebVTT downloads are supported in this update.
+Provider request limits and subtitle availability apply.
+
+SubDL receives the title identifier, media type, episode and language; your video,
+NAS password, and NAS folder path stay on your device/network. Downloads are kept
+in app memory or its local cache and do not change files on the NAS. SubDL uses a
+one-time API-key connection; MediaVault does not collect your SubDL password.
+See [SubDL's API documentation](https://subdl.com/developers).
 
 ## Change watched status in bulk
 

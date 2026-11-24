@@ -80,6 +80,36 @@ class Settings(context: Context, private val secrets: SecretBox) {
         get() = secrets.decrypt(prefs.getString(TMDB_KEY, "").orEmpty())
         set(value) = prefs.edit { putString(TMDB_KEY, secrets.encrypt(value.trim())) }
 
+    var subtitleLanguage: String
+        get() = prefs.getString("subtitle_language", java.util.Locale.getDefault().language.ifBlank { "en" }) ?: "en"
+        set(value) = prefs.edit { putString("subtitle_language", value) }
+
+    var subDlApiKey: String
+        get() = secrets.decrypt(prefs.getString("subdl_api_key", "").orEmpty())
+        set(value) = prefs.edit {
+            putString("subdl_api_key", secrets.encrypt(value.trim()))
+            putBoolean("subdl_connected", false)
+            putBoolean("automatic_subtitles", false)
+        }
+
+    var subDlConnected: Boolean
+        get() = prefs.getBoolean("subdl_connected", false)
+        set(value) = prefs.edit { putBoolean("subdl_connected", value) }
+
+    var automaticSubtitles: Boolean
+        get() = prefs.getBoolean("automatic_subtitles", false)
+        set(value) = prefs.edit { putBoolean("automatic_subtitles", value) }
+
+    /** Continuous viewing is opt-in; this is never inferred from watch history. */
+    var continuousPlay: Boolean
+        get() = prefs.getBoolean("continuous_play", false)
+        set(value) = prefs.edit { putBoolean("continuous_play", value) }
+
+    /** null follows device/embedded defaults; "off" explicitly disables all text tracks. */
+    var subtitlePreference: String?
+        get() = prefs.getString("subtitle_preference", null)
+        set(value) = prefs.edit { if (value == null) remove("subtitle_preference") else putString("subtitle_preference", value) }
+
     val hasTmdbKey: Boolean get() = tmdbApiKey.isNotEmpty()
 
     /** Photos have their own tab; stale or unknown sections open Movies. */

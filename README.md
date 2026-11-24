@@ -21,6 +21,12 @@ On either TV, **Continue Watching** shows one card per active series. Resume
 the file you paused or see the season and episode number before playing the
 next available file on your NAS. [Continue a series from Home](docs/MEDIA-GUIDE.md#continue-a-series-from-home)
 
+Version **1.3.0, build 5** adds SRT/WebVTT subtitles from the video's NAS folder,
+optional SubDL searches and downloads, and continuous TV viewing with a cancellable
+next-episode countdown. Connect SubDL once in Settings and choose your subtitle
+language; local subtitle files work without an account.
+[Subtitles and one-time setup](docs/MEDIA-GUIDE.md#use-subtitles)
+
 ## Android TV
 
 The Android TV app includes direct SMB playback, a personal Watchlist,

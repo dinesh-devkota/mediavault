@@ -12,7 +12,9 @@ struct CineVaultApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if PhotoDesignPreview.isEnabled {
+                if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback") {
+                    PlaybackDesignPreview()
+                } else if PhotoDesignPreview.isEnabled {
                     PhotoDesignPreview()
                 } else if ProcessInfo.processInfo.arguments.contains("--ui-preview-nas-folder") {
                     NASSetupView.folderPreview.environmentObject(scanner)

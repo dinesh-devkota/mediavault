@@ -8,6 +8,7 @@ import CineVaultCommercial
 struct MovieDetailView: View {
     @Bindable var movie: Movie
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var playbackServices: PlaybackServices
     @State private var playback: PlaybackController?
     @State private var editing = false
@@ -106,7 +107,8 @@ struct MovieDetailView: View {
         }
         .sheet(isPresented: $editing) { NavigationStack { EditMovieView(movie: movie) } }
         .fullScreenCover(item: $playback) { controller in
-            PlaybackScreen(controller: controller)
+            PlaybackScreen(controller: controller, services: playbackServices,
+                           library: { (try? modelContext.fetch(FetchDescriptor<Movie>())) ?? [] })
                 .ignoresSafeArea()
                 .onDisappear { controller.stop() }
         }

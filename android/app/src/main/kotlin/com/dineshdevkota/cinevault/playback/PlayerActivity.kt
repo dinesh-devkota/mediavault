@@ -2,6 +2,7 @@
 
 package com.dineshdevkota.cinevault.playback
 
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -9,6 +10,8 @@ import android.os.Bundle
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.View
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -28,16 +31,29 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
+import androidx.media3.common.TrackSelectionParameters
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.ui.PlayerView
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.ui.ContinueWatchingItem
+import com.dineshdevkota.cinevault.ui.nextEpisodeFor
+import com.dineshdevkota.cinevault.ui.PlaybackSettingsActivity
+import com.dineshdevkota.cinevault.ui.languageName
+import com.dineshdevkota.cinevault.ui.chooseSubtitleLanguage
+import com.dineshdevkota.cinevault.subtitles.SubDlClient
+import com.dineshdevkota.cinevault.subtitles.SubDlSearchQuery
+import com.dineshdevkota.cinevault.subtitles.SubDlMediaType
+import com.dineshdevkota.cinevault.subtitles.SubDlSubtitle
 import com.dineshdevkota.cinevault.smb.SmbException
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
@@ -47,6 +63,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 
 /**
@@ -54,9 +73,10 @@ import kotlinx.coroutines.withContext
  * 10 seconds, on pause and on exit, and marks the movie watched past [WatchRules.WATCHED_FRACTION].
  */
 class PlayerActivity : ComponentActivity() {
-    private class Target(val movie: MovieEntity, val config: SourceConfig)
+    private class Target(val movie: MovieEntity, val config: SourceConfig, val source: SourceEntity)
 
     private lateinit var playerView: PlayerView
+    private lateinit var rootView: FrameLayout
     private lateinit var information: LinearLayout
     private lateinit var titleLabel: TextView
     private lateinit var detailLabel: TextView
@@ -67,6 +87,23 @@ class PlayerActivity : ComponentActivity() {
     private var playWhenReady = true
     private var finishedPlayback = false
     private var warnedAboutTracks = false
+    private var endHandled = false
+    private var playbackFailed = false
+    private var countdownJob: Job? = null
+    private var transitionJob: Job? = null
+    private var nextCard: LinearLayout? = null
+    private var pendingNext: ContinueWatchingItem? = null
+    private var subtitleConfigurations = emptyList<MediaItem.SubtitleConfiguration>()
+    private var onlineJob: Job? = null
+    private var onlineAttempted = false
+    private var subtitleNotice: String? = null
+    private var subtitleDialog: AlertDialog? = null
+    private var pendingSubtitleId: String? = null
+    private var subtitleChoiceGeneration = 0L
+    private val programmaticTrackChanges = mutableListOf<TrackSelectionParameters>()
+    private data class SubtitleIdentity(val id: String, val path: String, val source: String,
+        val movieTmdb: Int?, val seriesTmdb: Int?, val season: Int?, val episode: Int?)
+    private data class SubtitleRequest(val identity: SubtitleIdentity, val generation: Long, val language: String)
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -77,12 +114,39 @@ class PlayerActivity : ComponentActivity() {
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED) {
-                markFinished()
-                finish()
+                handleNaturalEnd()
             }
         }
 
-        override fun onTracksChanged(tracks: Tracks) = warnAboutUnsupportedTracks(tracks)
+        override fun onTracksChanged(tracks: Tracks) {
+            warnAboutUnsupportedTracks(tracks)
+            if (container.settings.subtitlePreference == "off") pendingSubtitleId = null
+            pendingSubtitleId?.let { id ->
+                player?.let { exo ->
+                    SubtitleTracks.selectById(exo.trackSelectionParameters, tracks, id)?.let { parameters ->
+                        pendingSubtitleId = null
+                        setProgrammaticTrackParameters(parameters)
+                    }
+                }
+            }
+            considerAutomaticSubtitles()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            playbackFailed = true
+            cancelNext()
+        }
+
+        override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
+            if (programmaticTrackChanges.remove(parameters)) return
+            val preference = SubtitleTracks.explicitPreference(parameters) ?: return
+            invalidateSubtitleRequest()
+            container.settings.subtitlePreference = preference
+            // Native None otherwise leaves forced captions enabled. Explicit Off must remain Off.
+            if (preference == "off" && C.TRACK_TYPE_TEXT !in parameters.disabledTrackTypes) {
+                setProgrammaticTrackParameters(SubtitleTracks.applyPreference(parameters, preference))
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,6 +160,8 @@ class PlayerActivity : ComponentActivity() {
             // Focused, the view gets D-pad presses (first one shows the controls) and remote media keys.
             isFocusable = true
         }
+        // One menu keeps online choices and NAS lookup notices accessible from both subtitle controls.
+        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.setOnClickListener { showSubtitleMenu() }
         val spacing = (24 * resources.displayMetrics.density).toInt()
         titleLabel = TextView(this).apply { setTextColor(Color.WHITE); textSize = 24f; maxLines = 2 }
         detailLabel = TextView(this).apply { setTextColor(Color.LTGRAY); textSize = 15f; maxLines = 3 }
@@ -107,6 +173,10 @@ class PlayerActivity : ComponentActivity() {
             addView(LinearLayout(this@PlayerActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 addView(titleLabel, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(Button(this@PlayerActivity).apply {
+                    text = "Subtitles"
+                    setOnClickListener { showSubtitleMenu() }
+                })
                 addView(android.widget.Button(this@PlayerActivity).apply {
                     setText(com.dineshdevkota.cinevault.R.string.back)
                     contentDescription = "Back to media details"
@@ -115,10 +185,11 @@ class PlayerActivity : ComponentActivity() {
             })
             addView(detailLabel)
         }
-        setContentView(FrameLayout(this).apply {
+        rootView = FrameLayout(this).apply {
             addView(playerView, FrameLayout.LayoutParams(-1, -1))
             addView(information, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
-        })
+        }
+        setContentView(rootView)
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility -> information.visibility = visibility })
         playerView.requestFocus()
         val movieId = intent.getStringExtra(EXTRA_MOVIE_ID) ?: return finish()
@@ -129,7 +200,8 @@ class PlayerActivity : ComponentActivity() {
         }
         onBackPressedDispatcher.addCallback(this) {
             // First Back hides the on-screen controls, the next one leaves the player.
-            if (playerView.isControllerFullyVisible && player?.playerError == null) playerView.hideController() else finish()
+            if (endHandled) finish()
+            else if (playerView.isControllerFullyVisible && player?.playerError == null) playerView.hideController() else finish()
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -145,14 +217,25 @@ class PlayerActivity : ComponentActivity() {
                 if (startPositionMs == C.TIME_UNSET) startPositionMs = if (resume) loaded.movie.playbackPositionMs else 0
                 target = loaded
                 showInformation(loaded.movie)
+                val downloaded = subtitleConfigurations.filter { it.id?.startsWith("subdl:") == true }
+                subtitleConfigurations = discoverSubtitles(loaded) + downloaded
+                onlineAttempted = false
+                if (isFinishing) return@repeatOnLifecycle
                 startPlayer()
-                container.database.movies().observe(movieId).collect { current ->
-                    if (current == null || PlaybackValidator.rejectionReason(current, loaded.config) != null) {
+                combine(container.database.movies().observe(movieId), container.database.sources().observe(loaded.source.id)) {
+                    current, source -> current to source
+                }.collect { (current, source) ->
+                    if (current == null || !sameSource(source, loaded.source) ||
+                        PlaybackValidator.rejectionReason(current, loaded.config) != null) {
                         stopPlayer()
                         target = null
                         Toast.makeText(this@PlayerActivity, "This item is no longer available for playback.", Toast.LENGTH_LONG).show()
                         finish()
-                    } else showInformation(current)
+                    } else {
+                        if (target?.movie?.subtitleIdentity() != current.subtitleIdentity()) invalidateSubtitleRequest()
+                        target = Target(current, loaded.config, source ?: loaded.source)
+                        showInformation(current)
+                    }
                 }
             }
         }
@@ -177,14 +260,24 @@ class PlayerActivity : ComponentActivity() {
                 throw SmbException("This item's source changed. Reopen it to play.")
             }
             PlaybackValidator.rejectionReason(current, config)?.let { throw SmbException(it) }
-            Target(current, config)
+            Target(current, config, source)
         }
     }
 
     override fun onStop() {
         super.onStop()
+        cancelNext()
+        invalidateSubtitleRequest()
+        subtitleDialog?.dismiss()
+        subtitleDialog = null
         stopPlayer()
         target = null
+        if (endHandled) finish()
+    }
+
+    override fun finish() {
+        cancelNext()
+        super.finish()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -198,7 +291,8 @@ class PlayerActivity : ComponentActivity() {
         if (player != null || isFinishing) return
         val smb = container.smb
         val files = DataSource.Factory { SmbDataSource { smb.open(target.config, target.movie.filePath) } }
-        val mediaSources = ProgressiveMediaSource.Factory(files, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
+        val mediaSources = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, files),
+            DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
             .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
         val exo = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setEnableDecoderFallback(true))
             .setMediaSourceFactory(mediaSources)
@@ -210,11 +304,13 @@ class PlayerActivity : ComponentActivity() {
             .setSeekBackIncrementMs(SEEK_BACK_MS)
             .setSeekForwardIncrementMs(SEEK_FORWARD_MS)
             .build()
+        exo.trackSelectionParameters = SubtitleTracks.applyPreference(exo.trackSelectionParameters, container.settings.subtitlePreference)
         exo.addListener(listener)
         exo.setMediaItem(
             MediaItem.Builder()
                 .setUri(smbUri(target.config, target.movie.filePath))
                 .setMediaId(target.movie.id)
+                .setSubtitleConfigurations(subtitleConfigurations)
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(target.movie.title)
                     .setDescription(target.movie.overview)
                     .setArtworkUri(com.dineshdevkota.cinevault.core.Tmdb.imageUrl(target.movie.posterPath)?.let(Uri::parse))
@@ -234,6 +330,336 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    private suspend fun discoverSubtitles(loaded: Target): List<MediaItem.SubtitleConfiguration> {
+        // Independent worker: a blocking NAS call cannot hold up video startup past this deadline.
+        val smb = container.smb
+        val language = container.settings.subtitleLanguage
+        val discovery = container.scope.async(Dispatchers.IO) {
+            try {
+                val found = smb.readSubtitleSidecars(loaded.config, loaded.movie.filePath, language)
+                found.files.mapNotNull(SubtitleTracks::configuration) to found.truncated
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { emptyList<MediaItem.SubtitleConfiguration>() to false }
+        }
+        return try {
+            val result = withTimeoutOrNull(2_500) { discovery.await() }
+            subtitleNotice = when {
+                result == null -> "NAS subtitle lookup took too long. Reopen this video to try again."
+                result.second -> "Some NAS captions were omitted. Lookup checks 4,096 folder entries and loads up to 8 matching files."
+                else -> null
+            }
+            result?.first.orEmpty()
+        } finally { discovery.cancel() }
+    }
+
+    private fun showSubtitleMenu() {
+        val exo = player ?: return
+        invalidateSubtitleRequest()
+        val options = mutableListOf("Off")
+        val actions = mutableListOf<() -> Unit>({
+            invalidateSubtitleRequest()
+            container.settings.subtitlePreference = "off"
+            exo.trackSelectionParameters = SubtitleTracks.applyPreference(exo.trackSelectionParameters, "off")
+        })
+        exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.forEach { group ->
+            for (index in 0 until group.length) {
+                if (!group.isTrackSupported(index)) continue
+                val format = group.getTrackFormat(index)
+                val label = format.label ?: format.language?.let(::languageName) ?: "Embedded subtitles"
+                options += (if (group.isTrackSelected(index)) "✓ " else "") + label
+                actions += {
+                    invalidateSubtitleRequest()
+                    exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index)).build()
+                }
+            }
+        }
+        options += "Find subtitles online · ${languageName(container.settings.subtitleLanguage)}"
+        actions += { searchOnlineSubtitles(automatic = false) }
+        options += "Preferred language"
+        actions += { subtitleDialog = chooseSubtitleLanguage(this, container.settings.subtitleLanguage) {
+            invalidateSubtitleRequest()
+            container.settings.subtitleLanguage = it
+            container.settings.subtitlePreference = it
+            exo.trackSelectionParameters = SubtitleTracks.applyPreference(exo.trackSelectionParameters, it)
+        } }
+        options += "Subtitle settings"
+        actions += { PlaybackSettingsActivity.start(this) }
+        subtitleNotice?.let { notice ->
+            options += "NAS subtitle lookup details"
+            actions += { subtitleDialog = AlertDialog.Builder(this).setTitle("NAS subtitles").setMessage(notice).setPositiveButton("OK", null).show() }
+        }
+        subtitleDialog = AlertDialog.Builder(this).setTitle("Subtitles")
+            .setItems(options.toTypedArray()) { _, index -> actions[index]() }
+            .setNegativeButton("Close", null).show()
+    }
+
+    private fun considerAutomaticSubtitles() {
+        val exo = player ?: return
+        val settings = container.settings
+        if (onlineAttempted || onlineJob != null || !settings.automaticSubtitles || !settings.subDlConnected ||
+            settings.subtitlePreference == "off" || exo.currentTracks.isEmpty) return
+        onlineAttempted = true
+        val desired = settings.subtitleLanguage
+        val matching = exo.currentTracks.groups.any { group ->
+            group.type == C.TRACK_TYPE_TEXT && (0 until group.length).any { index ->
+                group.isTrackSupported(index) && SubtitleTracks.sameLanguage(group.getTrackFormat(index).language, desired)
+            }
+        }
+        if (!matching) searchOnlineSubtitles(automatic = true)
+    }
+
+    private fun MovieEntity.subtitleIdentity(): SubtitleIdentity = SubtitleIdentity(id, filePath, sourceId,
+        tmdbId, seriesTmdbId, episodeInfo?.season, episodeInfo?.episode)
+
+    private fun invalidateSubtitleRequest() {
+        subtitleChoiceGeneration++
+        pendingSubtitleId = null
+        onlineJob?.cancel()
+        onlineJob = null
+    }
+
+    private fun setProgrammaticTrackParameters(parameters: TrackSelectionParameters) {
+        val exo = player ?: return
+        if (exo.trackSelectionParameters == parameters) return
+        programmaticTrackChanges += parameters
+        exo.trackSelectionParameters = parameters
+    }
+
+    private suspend fun currentSubtitleMovie(): MovieEntity? {
+        val playing = target ?: return null
+        return container.database.withTransaction {
+            if (!sameSource(container.database.sources().get(playing.source.id), playing.source)) return@withTransaction null
+            container.database.movies().get(playing.movie.id)?.takeIf {
+                it.filePath == playing.movie.filePath && PlaybackValidator.rejectionReason(it, playing.config) == null
+            }
+        }
+    }
+
+    private suspend fun subtitleRequestIsCurrent(request: SubtitleRequest): Boolean {
+        if (request.generation != subtitleChoiceGeneration || isFinishing || endHandled ||
+            !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return false
+        val current = currentSubtitleMovie() ?: return false
+        return request.generation == subtitleChoiceGeneration && current.subtitleIdentity() == request.identity &&
+            player?.currentMediaItem?.mediaId == request.identity.id
+    }
+
+    private fun subtitleQuery(movie: MovieEntity, language: String): SubDlSearchQuery? {
+        val episode = movie.episodeInfo
+        return if (episode != null) movie.seriesTmdbId?.let {
+            SubDlSearchQuery(it, SubDlMediaType.TV, episode.season, episode.episode, language)
+        } else movie.tmdbId?.let { SubDlSearchQuery(it, SubDlMediaType.MOVIE, language = language) }
+    }
+
+    private fun searchOnlineSubtitles(automatic: Boolean) {
+        if (isFinishing || endHandled) return
+        if (!automatic) invalidateSubtitleRequest()
+        else if (onlineJob != null) return
+        val settings = container.settings
+        if (!settings.subDlConnected) {
+            if (!automatic) subtitleDialog = AlertDialog.Builder(this).setTitle("Connect SubDL once")
+                .setMessage("Save your SubDL API key in Playback & Subtitles to find online captions.")
+                .setPositiveButton("Open settings") { _, _ -> PlaybackSettingsActivity.start(this) }
+                .setNegativeButton("Cancel", null).show()
+            return
+        }
+        val generation = subtitleChoiceGeneration
+        onlineJob = lifecycleScope.launch {
+            try {
+                val movie = currentSubtitleMovie() ?: return@launch
+                val request = SubtitleRequest(movie.subtitleIdentity(), generation, settings.subtitleLanguage)
+                val query = subtitleQuery(movie, request.language)
+                if (query == null) {
+                    if (!automatic) showSubtitleError("Match this movie or show with TMDB first, then try online subtitles.", retry = false)
+                    return@launch
+                }
+                if (!automatic) Toast.makeText(this@PlayerActivity, "Finding ${languageName(query.language)} subtitles…", Toast.LENGTH_SHORT).show()
+                val apiKey = withContext(Dispatchers.IO) { settings.subDlApiKey }
+                val results = SubDlClient().search(query, apiKey)
+                if (!subtitleRequestIsCurrent(request)) return@launch
+                if (results.isEmpty()) {
+                    if (!automatic) showSubtitleError("No matching subtitles were found for this language.")
+                    return@launch
+                }
+                val exact = results.filter { result ->
+                    (result.releaseNames + result.releaseName).any { SubtitleTracks.exactRelease(movie.fileName, it) }
+                }
+                if (automatic && exact.size == 1 && settings.subtitlePreference != "off") {
+                    downloadSubtitle(exact.single(), request, automatic = true)
+                } else if (!automatic) showOnlineResults(results, request)
+                else {
+                    subtitleNotice = "Online subtitles are available. Choose a release in Find subtitles online."
+                    Toast.makeText(this@PlayerActivity, subtitleNotice, Toast.LENGTH_LONG).show()
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (!automatic && generation == subtitleChoiceGeneration) showSubtitleError(e.message ?: "Could not find subtitles. Try again.")
+            } finally { if (onlineJob == coroutineContext[Job]) onlineJob = null }
+        }
+    }
+
+    private fun showOnlineResults(results: List<SubDlSubtitle>, request: SubtitleRequest) {
+        subtitleDialog = AlertDialog.Builder(this).setTitle("Choose subtitle release")
+            .setItems(results.map { subtitle ->
+                "${languageName(subtitle.language)} · ${subtitle.releaseName}" + if (subtitle.hearingImpaired) " · SDH" else ""
+            }.toTypedArray()) { _, index ->
+                invalidateSubtitleRequest()
+                val selectedRequest = request.copy(generation = subtitleChoiceGeneration)
+                onlineJob = lifecycleScope.launch {
+                    try { downloadSubtitle(results[index], selectedRequest, automatic = false) }
+                    catch (e: CancellationException) { throw e }
+                    catch (e: Exception) {
+                        if (selectedRequest.generation == subtitleChoiceGeneration)
+                            showSubtitleError(e.message ?: "Could not load this subtitle. Try another release.")
+                    } finally { if (onlineJob == coroutineContext[Job]) onlineJob = null }
+                }
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    private suspend fun downloadSubtitle(subtitle: SubDlSubtitle, request: SubtitleRequest, automatic: Boolean) {
+        if (!subtitleRequestIsCurrent(request)) return
+        val cache = SubtitleCache(applicationContext)
+        val key = "${request.identity.id}|${subtitle.id}|${subtitle.downloadUrl}"
+        val bytes = cache.read(key) ?: SubDlClient().download(subtitle)
+        val configuration = withContext(Dispatchers.Default) {
+            SubtitleTracks.configuration(bytes, if (subtitle.format == "vtt") "text/vtt" else "application/x-subrip",
+                subtitle.language, "${languageName(subtitle.language)} · SubDL · ${subtitle.releaseName}",
+                "subdl:${subtitle.id}", hearingImpaired = subtitle.hearingImpaired)
+        } ?: throw IllegalArgumentException("This subtitle is empty or damaged. Try another release.")
+        if (!subtitleRequestIsCurrent(request) || (automatic && container.settings.subtitlePreference == "off")) return
+        cache.write(key, bytes)
+        // Cache writes suspend too: re-check the latest user choice and metadata before touching playback.
+        if (!subtitleRequestIsCurrent(request)) return
+        val exo = player ?: return
+        val position = exo.currentPosition
+        val playing = exo.playWhenReady
+        subtitleConfigurations = subtitleConfigurations.filterNot { it.id == configuration.id } + configuration
+        val mediaItem = exo.currentMediaItem ?: return
+        container.settings.subtitlePreference = subtitle.language
+        setProgrammaticTrackParameters(SubtitleTracks.applyPreference(exo.trackSelectionParameters, subtitle.language))
+        pendingSubtitleId = configuration.id
+        exo.setMediaItem(mediaItem.buildUpon().setSubtitleConfigurations(subtitleConfigurations).build(), position)
+        exo.prepare()
+        exo.playWhenReady = playing
+        if (!automatic) Toast.makeText(this, "Subtitles ready", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showSubtitleError(message: String, retry: Boolean = true) {
+        if (isFinishing) return
+        subtitleDialog = AlertDialog.Builder(this).setTitle("Online subtitles").setMessage(message)
+            .setPositiveButton(if (retry) "Try again" else "OK") { _, _ -> if (retry) searchOnlineSubtitles(false) }
+            .setNegativeButton("Close", null).show()
+    }
+
+    private fun sameSource(current: SourceEntity?, original: SourceEntity): Boolean =
+        current?.copy(name = original.name, lastScanAt = original.lastScanAt) == original
+
+    private suspend fun nextAvailable(): ContinueWatchingItem? {
+        val playing = target ?: return null
+        val database = container.database
+        return container.playbackProgress.await {
+            database.withTransaction {
+                if (!sameSource(database.sources().get(playing.source.id), playing.source)) return@withTransaction null
+                val current = database.movies().get(playing.movie.id) ?: return@withTransaction null
+                if (current.filePath != playing.movie.filePath || PlaybackValidator.rejectionReason(current, playing.config) != null)
+                    return@withTransaction null
+                nextEpisodeFor(current, database.movies().available(), database.sources().all())
+            }
+        }
+    }
+
+    private fun handleNaturalEnd() {
+        if (endHandled) return
+        endHandled = true
+        markFinished()
+        // An open subtitle/provider dialog owns the user's attention; never advance behind it.
+        if (subtitleDialog?.isShowing == true) return
+        if (!container.settings.continuousPlay || target?.movie?.episodeInfo == null || playbackFailed || isFinishing ||
+            !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return finish()
+        countdownJob = lifecycleScope.launch {
+            val next = try { nextAvailable() }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { null }
+            if (next == null) return@launch finish()
+            if (isFinishing) return@launch
+            pendingNext = next
+            playerView.hideController()
+            playerView.useController = false
+            val label = TextView(this@PlayerActivity).apply { setTextColor(Color.WHITE); textSize = 23f }
+            val card = LinearLayout(this@PlayerActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(28), dp(24), dp(28), dp(24))
+                background = GradientDrawable().apply { setColor(0xF21B2030.toInt()); cornerRadius = dp(18).toFloat() }
+                addView(TextView(this@PlayerActivity).apply { text = next.label; setTextColor(0xFF8EBBFF.toInt()); textSize = 17f })
+                addView(label)
+                addView(TextView(this@PlayerActivity).apply {
+                    text = "${next.title} · ${next.movie.title}"; setTextColor(Color.LTGRAY); textSize = 18f; maxLines = 2
+                })
+                addView(LinearLayout(this@PlayerActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    addView(Button(this@PlayerActivity).apply { text = "Play now"; setOnClickListener { playNext() } })
+                    addView(Button(this@PlayerActivity).apply { text = "Cancel"; setOnClickListener { finish() } })
+                })
+            }
+            nextCard = card
+            rootView.addView(card, FrameLayout.LayoutParams(dp(600), -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = dp(48)
+            })
+            card.findViewWithText("Play now")?.requestFocus()
+            for (seconds in 10 downTo 1) {
+                label.text = "Playing in $seconds seconds"
+                delay(1_000)
+            }
+            playNext()
+        }
+    }
+
+    private fun LinearLayout.findViewWithText(text: String): View? {
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            if (child is Button && child.text == text) return child
+            if (child is LinearLayout) child.findViewWithText(text)?.let { return it }
+        }
+        return null
+    }
+
+    private fun playNext() {
+        val candidate = pendingNext ?: return
+        if (transitionJob != null || isFinishing) return
+        countdownJob?.cancel()
+        transitionJob = lifecycleScope.launch {
+            try {
+                if (!container.settings.continuousPlay || nextAvailable()?.movie?.id != candidate.movie.id) {
+                    Toast.makeText(this@PlayerActivity, "The next episode is no longer available.", Toast.LENGTH_LONG).show()
+                    return@launch finish()
+                }
+                val loaded = load(candidate.movie.id)
+                // Re-evaluate after the optional NAS probe; edits can finish while it was suspended.
+                if (nextAvailable()?.movie?.id != loaded.movie.id || isFinishing || playbackFailed ||
+                    !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch finish()
+                start(this@PlayerActivity, loaded.movie.id, loaded.movie.isInProgress)
+                finish()
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                Toast.makeText(this@PlayerActivity, "Could not play the next episode. ${SmbService.describe(e)}", Toast.LENGTH_LONG).show()
+                finish()
+            }
+        }
+    }
+
+    private fun cancelNext() {
+        pendingNext = null
+        countdownJob?.cancel()
+        countdownJob = null
+        transitionJob?.cancel()
+        transitionJob = null
+        nextCard?.let { rootView.removeView(it) }
+        nextCard = null
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
     private fun stopPlayer() {
         val exo = player ?: return
         progressJob?.cancel()
@@ -242,6 +668,7 @@ class PlayerActivity : ComponentActivity() {
         startPositionMs = exo.currentPosition
         playWhenReady = exo.playWhenReady
         exo.removeListener(listener)
+        programmaticTrackChanges.clear()
         playerView.player = null
         exo.release()
         player = null

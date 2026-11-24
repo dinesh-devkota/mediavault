@@ -148,8 +148,9 @@ fun SettingsTab() {
         item { ScreenHeader("Settings", kicker = "MEDIAVAULT",
             trailing = "Version ${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}") }
         item {
-            OutlinedButton(onClick = { MediaGuideActivity.start(context) }) {
-                Text("Media Guide & Help")
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedButton(onClick = { MediaGuideActivity.start(context) }) { Text("Media Guide & Help") }
+                OutlinedButton(onClick = { PlaybackSettingsActivity.start(context) }) { Text("Playback & Subtitles") }
             }
         }
         item { Text("Metadata (themoviedb.org)", style = MaterialTheme.typography.titleLarge) }

@@ -40,6 +40,12 @@ class PlaybackValidatorTest {
         assertNull(PlaybackValidator.rejectionReason(movie("Library/Private Collection/Feature.mp4"), exclusions))
     }
 
+    @Test fun hiddenRowsAndPathsOutsideEditedSourceRootCannotPlay() {
+        assertNotNull(PlaybackValidator.rejectionReason(movie("Library/Hidden.mp4").copy(isHidden = true), config))
+        assertNotNull(PlaybackValidator.rejectionReason(movie("Other/Feature.mp4"), config))
+        assertNotNull(PlaybackValidator.rejectionReason(movie("Library/../Other/Feature.mp4"), config))
+    }
+
     @Test fun supportedUnambiguousContainerDoesNotNeedAHeaderProbe() = runBlocking {
         PlaybackValidator.validate(movie("Library/Feature.mp4"), config) { _, _ -> error("Unexpected header probe") }
     }

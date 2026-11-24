@@ -27,6 +27,7 @@ The managed Linux environment has cache and tool activation instructions in
 - Media3 DataSource byte-range/EOF behavior and cleanup after a failed open.
 - Authenticated SMB scans, range reads, bad credentials, and reconnection.
 - Media3 playback over SMB, with rendered frames, advancing video, and resumed playback after seeking.
+- Matching SRT/WebVTT sidecars, invalid/oversized caption rejection, subtitle language/Off persistence, and continuous-episode countdown cancellation/transition against the separate MEDIAPLAYBACK share.
 
 The `Android TV` workflow uses an Android TV API 36 x86_64 emulator
 and a synthetic SMB share. The fixture has no access to a user's NAS or secrets.
@@ -64,6 +65,17 @@ dispatch **NAS integration** with **ui_only** enabled. It runs the remote UI
 suite and Home collection logic tests; the default push/PR run still executes
 the full simulator suite. This option does not substitute for NAS validation
 when scanning, connections, or playback code changes.
+
+Subtitle and continuous-playback changes require the full simulator suite. The
+synthetic SMB fixture now includes a **MEDIAPLAYBACK** share with three twelve-second
+episodes, English SRT/Spanish WebVTT cues, a wrong-episode filename, and invalid or
+oversized sidecars. The debug-only playback preview uses this share and isolated
+preferences; it must never be pointed at an owner's NAS or saved library.
+
+SubDL client tests use injected responses for account validation, exact title/episode
+identity, malformed responses, request limits, bounded raw downloads, redirects,
+and cancellation. They do not use a real API key or consume a user's download quota.
+A live account connection still needs a key entered by its owner in the app.
 
 ## Further device testing
 

@@ -28,6 +28,29 @@ def playable_movie(path: Path) -> None:
         destination.truncate(MOVIE_SIZE)
 
 
+def playback_fixtures(root: Path) -> None:
+    """An isolated share keeps subtitle/episode tests out of scan-count fixtures."""
+    folder = root / "TV Shows" / "Fixture Show" / "Season 01"
+    for episode in (1, 2, 4):
+        basename = f"Fixture Show.S01E{episode:02d}"
+        playable_movie(folder / f"{basename}.mp4")
+        (folder / f"{basename}.en.srt").write_text(
+            "1\n00:00:00,500 --> 00:00:05,000\n"
+            f"Episode {episode}: English subtitle.\n\n"
+            "2\n00:00:05,500 --> 00:00:11,500\n"
+            "The next caption follows a seek.\n", encoding="utf-8")
+        (folder / f"{basename}.es.vtt").write_text(
+            "WEBVTT\n\n00:00:00.500 --> 00:00:11.500\n"
+            f"Episodio {episode}: subtitulo de prueba.\n", encoding="utf-8")
+    (folder / "Fixture Show.S01E01.fr.srt").write_text(
+        "This is deliberately not a subtitle file.", encoding="utf-8")
+    with (folder / "Fixture Show.S01E01.de.srt").open("wb") as oversized:
+        oversized.truncate(2 * 1024 * 1024 + 1)
+    (folder / "Fixture Show.S01E010.en.srt").write_text(
+        "1\n00:00:00,500 --> 00:00:11,500\nWrong episode, never select this.\n",
+        encoding="utf-8")
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Usage: nas_fixture.py <fixture directory>")
@@ -68,10 +91,14 @@ def main() -> None:
     with (validation / "TooLarge.jpg").open("wb") as oversized:
         oversized.truncate(65 * 1024 * 1024)
 
+    playback_root = root.with_name(root.name + "-playback")
+    playback_fixtures(playback_root)
+
     logging.basicConfig(level=logging.INFO)
     server = smbserver.SimpleSMBServer(listenAddress="127.0.0.1", listenPort=1445)
     server.addShare("CINEVAULT", str(root), readOnly="yes")
     server.addShare("COVEPHOTOS", str(photo_root), readOnly="yes")
+    server.addShare("MEDIAPLAYBACK", str(playback_root), readOnly="yes")
     server.setSMB2Support(True)
     server.addCredential("cinevault", 0, compute_lmhash("fixture-only"), compute_nthash("fixture-only"))
     server.start()

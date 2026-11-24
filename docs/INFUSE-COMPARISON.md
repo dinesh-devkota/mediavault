@@ -1,6 +1,6 @@
 # MediaVault and Infuse: usability comparison
 
-Reviewed **2026-11-23** against MediaVault development baseline `3aa0f4b` (1.1.1, build 3). This is a source review and an official-documentation comparison, not a claim that either app has been tested on every device. Infuse's Apple TV behavior is used where its documentation distinguishes platforms; iPhone-only features are not counted as TV gaps.
+Updated **2026-11-24** for MediaVault **1.3.0, build 5**. This is a source review and an official-documentation comparison, not a claim that either app has been tested on every device. Infuse's Apple TV behavior is used where its documentation distinguishes platforms; iPhone-only features are not counted as TV gaps.
 
 ## What MediaVault already does
 
@@ -10,12 +10,14 @@ These are existing features, not proposed additions. The review used the shared 
 
 ## Comparison
 
-| User task | Infuse reference | MediaVault at the review baseline | Practical next step |
+| User task | Infuse reference | MediaVault 1.3.0 | Practical next step |
 |---|---|---|---|
-| Reach a collection from Home | Apple TV supports category Favorites and content Lists. [Favorites & Lists](https://support.firecore.com/hc/en-us/articles/360003184653-Managing-Favorites-Lists) | Home shelves preview at most 20 grouped cards, without a full-shelf destination. | Add a visible **See all** action. Open the complete shelf without changing the user's saved Library filters. |
+| Reach a collection from Home | Apple TV supports category Favorites and content Lists. [Favorites & Lists](https://support.firecore.com/hc/en-us/articles/360003184653-Managing-Favorites-Lists) | **See all** opens the complete grouped collection and preserves saved Library filters. | Keep Back/focus restoration and live collection membership covered by remote tests. |
 | Return to a favorite category | Categories can be pinned to Home. [Favorites & Lists](https://support.firecore.com/hc/en-us/articles/360003184653-Managing-Favorites-Lists) | Library remembers its latest section and filters, but has no named Home shortcuts. | Later, let users pin a saved filter combination with a readable default name. |
 | Avoid episode spoilers | A setting hides unwatched episode descriptions and thumbnails. [Settings](https://support.firecore.com/hc/en-us/articles/360015608854-Settings-Overview) | Episode artwork and descriptions display normally. | Add an optional spoiler preference and an explicit reveal action. Apply consistently to search, shelves, episodes, and details. |
-| Continue a series | Automatic next selection and continuous playback are available. [Settings](https://support.firecore.com/hc/en-us/articles/360015608854-Settings-Overview) | One Continue Watching card per active show; next-episode links exist. Playback does not automatically queue the next file. | Keep current suggestions; evaluate opt-in continuous playback separately with cancellation and entitlement checks. |
+| Continue a series | Automatic next selection and continuous playback are available. [Settings](https://support.firecore.com/hc/en-us/articles/360015608854-Settings-Overview) | Opt-in continuous TV viewing offers the next available unwatched episode with a ten-second **Play now / Cancel** countdown. Specials remain separate; availability and licensed playback are checked again. | Physical-device testing, particularly app switching and NAS interruptions. Intro/credits skipping remains separate future work. |
+| Use subtitles | Embedded/local subtitles and OpenSubtitles downloads are available. [Subtitles](https://support.firecore.com/hc/en-us/articles/215090967-Using-Subtitles) | Sibling SRT/WebVTT files, embedded track selection, remembered language/Off, and optional SubDL search/download after one-time secure key setup. Automatic downloads require an exact release match. | More subtitle formats and provider integrations can follow; direct YIFY download access could not be verified. |
+| Play varied NAS formats | Broader containers and audio codecs are supported. [Playback specifications](https://firecore.com/infuse) | Apple TV video uses native MP4/M4V/MOV playback. Android has broader container support with device-dependent codecs. | A broader Apple playback engine is a larger project; subtitle support does not change video compatibility. |
 | Organize related movies | Automatic TMDB sequel collections and custom collections are supported. [Collections](https://support.firecore.com/hc/en-us/articles/13692816354839-Collections) | Series grouping and Watchlist exist; movie franchises and named collections do not. | Add later after defining grouping, duplicate handling, and editing behavior. |
 | Choose another copy of a movie | Smart Groups combine versions under one item. [Settings](https://support.firecore.com/hc/en-us/articles/360015608854-Settings-Overview) | Files remain distinct; episode suggestions avoid selecting an arbitrary duplicate when a paused copy exists. | A future version picker needs clear source/format labels and progress rules. |
 | Use local artwork/metadata | Local artwork and NFO/XML overrides are supported. [Overrides](https://support.firecore.com/hc/en-us/articles/4405042929559-Overriding-Artwork-and-Metadata) | TMDB fetching and manual match/title correction exist; sidecar metadata is not imported. | Useful future work for home videos and offline libraries; it needs filename and precedence rules. |
@@ -31,6 +33,12 @@ The **1.2.0, build 4** implementation adds complete Home collections through
 estimates beside Resume. Home browsing preserves saved Library choices; collection
 counts reflect grouped shows, and returning from a removed item has a usable focus
 fallback. Spoiler hiding and the larger gaps below remain future work.
+
+The **1.3.0, build 5** update adds local/online subtitles and cancellable continuous
+TV viewing. SubDL connection validates and stores a key once; explicit Off and
+manual track choices take precedence over late downloads. Neither app rewrites NAS
+subtitle files. Movie-franchise collections, alternate-version grouping, sync,
+additional sources, spoiler hiding, and intro skipping remain future work.
 
 1. **Complete Home shelves.** Give Movies, TV Shows, Documentaries, Music, Watchlist, and Unwatched a discoverable route to all their items. Keep TV shows grouped. Back should return to the same shelf and control, including after a title disappears from a filtered collection.
 2. **Useful empty states.** Distinguish an empty library, an empty saved list, and filters that hide everything. Offer the relevant action in place: connect a source, browse the Library, or clear filters. Do not silently clear saved choices.

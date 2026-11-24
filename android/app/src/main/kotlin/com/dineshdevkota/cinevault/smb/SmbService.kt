@@ -1,5 +1,6 @@
 package com.dineshdevkota.cinevault.smb
 
+import com.dineshdevkota.cinevault.core.SubtitleSidecars
 import com.dineshdevkota.cinevault.core.RemoteFile
 import com.dineshdevkota.cinevault.core.VideoFile
 import com.dineshdevkota.cinevault.core.MediaFile
@@ -242,6 +243,57 @@ class SmbService(
         results
     }
 
+    /** Read-only, bounded lookup beside the video; never enumerates another folder or share. */
+    suspend fun readSubtitleSidecars(config: SourceConfig, videoPath: String, preferredLanguage: String? = null): SubtitleDiscovery = withShare(config) { share ->
+        if (!SubtitleSidecars.includesPath(videoPath, config.rootPath, config.ignoredFolders, config.ignoredFiles))
+            return@withShare SubtitleDiscovery(emptyList())
+        var truncated = false
+        val directory = videoPath.replace('\\', '/').substringBeforeLast('/', "")
+        val candidates = share.openDirectory(directory, EnumSet.of(AccessMask.FILE_LIST_DIRECTORY), null,
+            SMB2ShareAccess.ALL, SMB2CreateDisposition.FILE_OPEN, null).use { folder ->
+            val entries = folder.iterator()
+            buildList {
+                var visited = 0
+                while (visited < SubtitleSidecars.MAX_DIRECTORY_ENTRIES && entries.hasNext()) {
+                    coroutineContext.ensureActive()
+                    visited++
+                    val entry = entries.next()
+                    if (EnumUtils.isSet(entry.fileAttributes, FileAttributes.FILE_ATTRIBUTE_DIRECTORY)) continue
+                    if (entry.endOfFile !in 1L..SubtitleSidecars.MAX_BYTES.toLong()) continue
+                    val path = if (directory.isEmpty()) entry.fileName else "$directory/${entry.fileName}"
+                    if (!SubtitleSidecars.includesPath(path, config.rootPath, config.ignoredFolders, config.ignoredFiles)) continue
+                    SubtitleSidecars.match(videoPath, path)?.let { add(it) }
+                }
+                truncated = visited >= SubtitleSidecars.MAX_DIRECTORY_ENTRIES && entries.hasNext()
+            }
+        }
+        val selected = candidates.sortedWith(compareByDescending<SubtitleSidecars.Match> {
+            it.language?.equals(preferredLanguage, true) == true
+        }.thenBy { it.path.lowercase(java.util.Locale.ROOT) }).take(SubtitleSidecars.MAX_FILES)
+        val files = selected.mapNotNull { match ->
+            coroutineContext.ensureActive()
+            try {
+                share.openFile(match.path, EnumSet.of(AccessMask.GENERIC_READ), null, SMB2ShareAccess.ALL,
+                    SMB2CreateDisposition.FILE_OPEN, null).use { file ->
+                    val size = file.fileInformation.standardInformation.endOfFile
+                    if (size !in 1L..SubtitleSidecars.MAX_BYTES.toLong()) return@use null
+                    val bytes = ByteArray(size.toInt())
+                    var offset = 0
+                    while (offset < bytes.size) {
+                        coroutineContext.ensureActive()
+                        val count = file.read(bytes, offset.toLong(), offset, bytes.size - offset)
+                        if (count <= 0) return@use null
+                        offset += count
+                    }
+                    SubtitleFile(match, bytes)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) { null } // A missing or unreadable sidecar never prevents video playback.
+        }
+        SubtitleDiscovery(files, truncated || candidates.size > SubtitleSidecars.MAX_FILES)
+    }
+
     /** Checks legacy playback candidates with the same bounded probe used while scanning. */
     suspend fun hasPlayableContent(config: SourceConfig, path: String): Boolean {
         if (!MediaFile.isPlayable(path)) return false
@@ -345,3 +397,7 @@ class SmbService(
 }
 
 data class ScanProgress(val files: List<RemoteFile>, val found: Int, val folders: Int)
+
+data class SubtitleFile(val match: SubtitleSidecars.Match, val bytes: ByteArray)
+
+data class SubtitleDiscovery(val files: List<SubtitleFile>, val truncated: Boolean = false)

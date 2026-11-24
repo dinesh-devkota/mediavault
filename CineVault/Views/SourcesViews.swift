@@ -315,6 +315,7 @@ struct SourceEditorView: View {
 }
 
 struct SettingsView: View {
+    @AppStorage(ContinuousPlayback.enabledKey) private var continuousTV = false
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var playbackServices: PlaybackServices
     @State private var apiKey = ""
@@ -323,6 +324,16 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Subtitles") {
+                NavigationLink("Subtitle language & SubDL setup") { SubtitleSettingsView() }
+                    .accessibilityIdentifier("subtitle-settings")
+            }
+            Section {
+                Toggle("Play next TV episode automatically", isOn: $continuousTV)
+                    .accessibilityIdentifier("continuous-tv-toggle")
+            } header: { Text("Continuous TV viewing") } footer: {
+                Text("After an episode finishes, a 10-second countdown offers the next available unwatched episode. Choose Cancel or press Back to stay here. Movies and trial limits never start another episode.")
+            }
             #if CINEVAULT_COMMERCIAL
             Section("Playback") {
                 NavigationLink("Playback & Purchases") {

@@ -101,6 +101,19 @@ private fun MediaGuideScreen() {
         }
         item {
             GuideSection(
+                "Subtitles and continuous TV viewing",
+                "Open Settings → Playback & Subtitles. Choose your language, or turn subtitles Off. " +
+                    "Matching SRT and WebVTT files beside each video appear alongside embedded captions in the player. " +
+                    "Use the exact video basename, optionally followed by .en, .forced or .sdh; for example Show.S01E01.en.srt. " +
+                    "NAS lookup is read-only, limited to 4,096 folder entries and 8 matching captions of at most 2 MiB each. " +
+                    "For optional online subtitles, connect your SubDL API key once. Automatic downloads only choose a unique exact release match; " +
+                    "Subtitles → Find subtitles online lets you choose other releases. Playback continues if a lookup fails. " +
+                    "Play next episode is off by default. Enable it for a 10-second countdown to the next available unwatched episode. " +
+                    "Play now advances immediately; Cancel or Back stops. Specials remain separate from regular seasons.",
+            )
+        }
+        item {
+            GuideSection(
                 "Photo albums",
                 "Keep photos in folders such as Media/Photos/Family Trip, include their parent in your NAS source, then scan again. " +
                     "Open Photos, choose an album, and select a thumbnail. Previous and Next move through the album; Back returns to it. " +

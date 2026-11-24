@@ -171,9 +171,15 @@ actor SMBService {
     }
 
     /// Read-only entries for the source folder and exclusion pickers.
-    func listEntries(_ config: SourceConfig) async throws -> [NASDirectoryEntry] {
-        try await withManager(config) { manager in
-            let entries = try await manager.contentsOfDirectory(atPath: config.rootPath)
+    func listEntries(_ config: SourceConfig, directory: String? = nil) async throws -> [NASDirectoryEntry] {
+        let path: String
+        if let directory {
+            guard let safe = SubtitleFile.safePath(directory, within: config.rootPath, allowRoot: true),
+                  !config.excludesDirectory(safe) else { throw SMBError.sourceChanged }
+            path = safe
+        } else { path = config.rootPath }
+        return try await withManager(config) { manager in
+            let entries = try await manager.contentsOfDirectory(atPath: path)
             return entries.compactMap { entry -> NASDirectoryEntry? in
                 guard let name = entry[.nameKey] as? String, !name.isEmpty, name != ".", name != "..",
                       !name.contains("/"), !name.contains("\\") else { return nil }

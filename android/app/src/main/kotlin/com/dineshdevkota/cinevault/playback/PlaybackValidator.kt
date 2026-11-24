@@ -1,7 +1,7 @@
 package com.dineshdevkota.cinevault.playback
 
 import com.dineshdevkota.cinevault.core.MediaFile
-import com.dineshdevkota.cinevault.core.ScanExclusions
+import com.dineshdevkota.cinevault.core.SubtitleSidecars
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.smb.SmbException
 import com.dineshdevkota.cinevault.smb.SourceConfig
@@ -12,8 +12,8 @@ import kotlinx.coroutines.ensureActive
 object PlaybackValidator {
     fun rejectionReason(movie: MovieEntity, config: SourceConfig? = null): String? = when {
         !MediaFile.isPlayable(movie.filePath) -> "This file type is not supported for playback on Android."
-        movie.isMissing -> "This file is unavailable or ignored. Check the source settings and rescan before playing."
-        config != null && ScanExclusions.isFileExcluded(movie.filePath, config.rootPath,
+        movie.isMissing || movie.isHidden -> "This file is unavailable or ignored. Check the source settings and rescan before playing."
+        config != null && !SubtitleSidecars.includesPath(movie.filePath, config.rootPath,
             config.ignoredFolders, config.ignoredFiles) -> "This file is ignored by its source settings. Include it and rescan before playing."
         else -> null
     }
