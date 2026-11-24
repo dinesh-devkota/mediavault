@@ -62,7 +62,10 @@ object SubtitleSidecars {
 
     /** Canonical ISO/BCP-47 form for sidecars, embedded tracks and online searches. */
     fun normalizeLanguage(token: String): String? {
-        val parts = token.trim().lowercase(Locale.ROOT).replace('_', '-').split('-')
+        val normalized = token.trim().lowercase(Locale.ROOT).replace('_', '-')
+        // Android's ICU locale list includes und, unlike the desktop JVM's ISO list.
+        if (normalized == "off" || normalized == "und") return null
+        val parts = normalized.split('-')
         val base = languages[parts.first()] ?: return null
         if (parts.drop(1).any { !it.matches(Regex("[a-z]{2}|[a-z]{4}|[0-9]{3}")) }) return null
         return Locale.forLanguageTag((listOf(base) + parts.drop(1)).joinToString("-")).toLanguageTag()

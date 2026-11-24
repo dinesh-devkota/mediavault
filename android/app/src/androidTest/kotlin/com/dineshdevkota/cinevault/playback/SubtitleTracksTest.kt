@@ -14,6 +14,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.dineshdevkota.cinevault.CineVaultApp
 import com.dineshdevkota.cinevault.data.Settings
 import com.dineshdevkota.cinevault.data.SecretBox
+import com.dineshdevkota.cinevault.core.SubtitleSidecars
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -75,6 +76,7 @@ class SubtitleTracksTest {
             reloaded.subtitlePreference = "off"
             assertEquals("off", settings.subtitlePreference)
             assertEquals("es", settings.subtitleLanguage)
+            assertNull("Undetermined language is a playback choice, not a search language", SubtitleSidecars.normalizeLanguage("und"))
             reloaded.subtitlePreference = "und"
             assertEquals("es", settings.subtitleLanguage)
         } finally {

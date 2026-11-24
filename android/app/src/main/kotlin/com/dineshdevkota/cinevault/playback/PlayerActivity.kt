@@ -174,6 +174,7 @@ class PlayerActivity : ComponentActivity() {
                 orientation = LinearLayout.HORIZONTAL
                 addView(titleLabel, LinearLayout.LayoutParams(0, -2, 1f))
                 addView(Button(this@PlayerActivity).apply {
+                    id = com.dineshdevkota.cinevault.R.id.playback_subtitles
                     text = "Subtitles"
                     setOnClickListener { showSubtitleMenu() }
                 })
@@ -598,8 +599,14 @@ class PlayerActivity : ComponentActivity() {
                 })
                 addView(LinearLayout(this@PlayerActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    addView(Button(this@PlayerActivity).apply { text = "Play now"; setOnClickListener { playNext() } })
-                    addView(Button(this@PlayerActivity).apply { text = "Cancel"; setOnClickListener { finish() } })
+                    addView(Button(this@PlayerActivity).apply {
+                        id = com.dineshdevkota.cinevault.R.id.playback_play_next
+                        text = "Play now"; setOnClickListener { playNext() }
+                    })
+                    addView(Button(this@PlayerActivity).apply {
+                        id = com.dineshdevkota.cinevault.R.id.playback_cancel_next
+                        text = "Cancel"; setOnClickListener { finish() }
+                    })
                 })
             }
             nextCard = card

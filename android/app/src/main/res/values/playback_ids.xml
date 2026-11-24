@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item type="id" name="playback_subtitles" />
+    <item type="id" name="playback_play_next" />
+    <item type="id" name="playback_cancel_next" />
+</resources>

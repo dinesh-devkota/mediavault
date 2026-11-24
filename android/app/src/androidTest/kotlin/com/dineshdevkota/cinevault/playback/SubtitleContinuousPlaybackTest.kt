@@ -17,6 +17,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Configurator
+import androidx.test.uiautomator.UiObject2
+import java.util.regex.Pattern
+import java.io.ByteArrayOutputStream
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import com.dineshdevkota.cinevault.CineVaultApp
@@ -43,6 +47,7 @@ class SubtitleContinuousPlaybackTest {
     private var oldAutomatic = false
     private var oldLanguage = "en"
     private var oldPreference: String? = null
+    private var oldIdleTimeout = 10_000L
     private lateinit var episodes: List<MovieEntity>
 
     @Before fun prepare() = runBlocking<Unit> {
@@ -60,6 +65,9 @@ class SubtitleContinuousPlaybackTest {
         val nas = SourceEntity(name = "Synthetic playback", host = host!!, port = 1445, share = "MEDIAPLAYBACK",
             rootPath = "TV Shows", username = "cinevault", encryptedPassword = container.secrets.encrypt("fixture-only"))
         source = nas
+        oldIdleTimeout = Configurator.getInstance().waitForIdleTimeout
+        // Playback and its countdown update continuously; wait for the requested view, not global UI silence.
+        Configurator.getInstance().waitForIdleTimeout = 0
         container.database.sources().upsert(nas)
         episodes = listOf(1, 2, 4).map { number ->
             val name = "Fixture Show.S01E${number.toString().padStart(2, '0')}.mp4"
@@ -72,6 +80,7 @@ class SubtitleContinuousPlaybackTest {
 
     @After fun cleanUp() = runBlocking<Unit> {
         val nas = source ?: return@runBlocking
+        Configurator.getInstance().waitForIdleTimeout = oldIdleTimeout
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             Stage.entries.flatMap { ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(it) }
                 .filterIsInstance<PlayerActivity>().toSet().forEach { it.finish() }
@@ -95,18 +104,28 @@ class SubtitleContinuousPlaybackTest {
                 assertEquals(setOf("en", "es"), tracks.map { it.getTrackFormat(0).language }.toSet())
                 assertTrue("Preferred English caption should be selected", tracks.any { it.getTrackFormat(0).language == "en" && it.isSelected })
             }
+            awaitPlayer(scenario) { player ->
+                player.isPlaying && player.currentCues.cues.any { it.text?.toString() == "Episode 1: English subtitle." }
+            }
+            scenario.onActivity { it.player()!!.seekTo(6_500) }
+            awaitPlayer(scenario) { player ->
+                player.isPlaying && player.currentCues.cues.any { it.text?.toString() == "The next caption follows a seek." }
+            }
             // Exercise the actual TV subtitle controls, then recreate like an app lifecycle restart.
-            scenario.onActivity { it.playerView()!!.showController() }
+            scenario.onActivity { it.player()!!.pause(); it.playerView()!!.showController() }
             click("Subtitles")
             click("Off")
+            withTimeout(5_000) { while (container.settings.subtitlePreference != "off") delay(50) }
             assertEquals("off", container.settings.subtitlePreference)
             scenario.recreate()
-            awaitPlayer(scenario) { it.isPlaying && it.currentTracks.groups.any { group -> group.type == C.TRACK_TYPE_TEXT } }
+            awaitPlayer(scenario) { it.playbackState == Player.STATE_READY && it.currentTracks.groups.any { group -> group.type == C.TRACK_TYPE_TEXT } }
             scenario.onActivity { activity ->
                 val player = activity.player()!!
                 assertTrue(C.TRACK_TYPE_TEXT in player.trackSelectionParameters.disabledTrackTypes)
                 assertFalse(player.currentTracks.isTypeSelected(C.TRACK_TYPE_TEXT))
+                player.play()
             }
+            awaitPlayer(scenario) { it.isPlaying && !it.currentTracks.isTypeSelected(C.TRACK_TYPE_TEXT) }
         }
     }
 
@@ -194,8 +213,26 @@ class SubtitleContinuousPlaybackTest {
     private fun finishVideo(scenario: ActivityScenario<PlayerActivity>) {
         scenario.onActivity { it.player()!!.let { player -> player.seekTo((player.duration - 200).coerceAtLeast(0)); player.play() } }
     }
-    private fun visible(text: String) { assertTrue("Expected $text", device.wait(Until.hasObject(By.text(text)), 15_000)) }
-    private fun click(text: String) { visible(text); device.findObject(By.text(text)).click(); device.waitForIdle() }
+    private fun visible(text: String): UiObject2 {
+        val resource = when (text) {
+            "Subtitles" -> "playback_subtitles"
+            "Play now" -> "playback_play_next"
+            "Cancel" -> "playback_cancel_next"
+            else -> null
+        }
+        val selector = resource?.let { By.res("com.dineshdevkota.cinevault", it) }
+            ?: By.text(Pattern.compile(Pattern.quote(text), Pattern.CASE_INSENSITIVE))
+        val view = device.wait(Until.findObject(selector), 15_000)
+        if (view == null) {
+            val hierarchy = ByteArrayOutputStream().also { device.dumpWindowHierarchy(it) }.toString("UTF-8")
+            fail("Expected visible $text; current player=${resumedPlayerId()}; hierarchy=${hierarchy.take(8_000)}")
+        }
+        return checkNotNull(view).also {
+            assertFalse("$text must be visible on screen", it.visibleBounds.isEmpty)
+            assertTrue("$text must be enabled", it.isEnabled)
+        }
+    }
+    private fun click(text: String) { visible(text).click() }
     private fun resumedPlayerId(): String? {
         var id: String? = null
         InstrumentationRegistry.getInstrumentation().runOnMainSync { id = resumedActivity()?.player()?.currentMediaItem?.mediaId }
