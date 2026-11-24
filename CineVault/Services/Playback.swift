@@ -419,7 +419,7 @@ private struct ActivePlaybackView: View {
     var body: some View {
         ZStack {
         #if CINEVAULT_COMMERCIAL
-            CommercialPlayerView(session: controller.commercialSession)
+            CommercialPlayerView(session: controller.commercialSession, stopsSessionOnDisappear: false)
         #else
             PlayerView(controller: controller, close: close)
         #endif

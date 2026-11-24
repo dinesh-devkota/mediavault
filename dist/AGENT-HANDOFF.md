@@ -857,8 +857,9 @@ scan-summary failures are resolved.
 - Private work is isolated in
   `D:\CineVaultCommercial\.worktrees\mediavault-continuation` on
   `codex/mediavault-continuation`, pinned revision
-  `51f8daf1600a514bacea12e5a570ab86dc6bac19`. It exposes verified successful
-  completion after the final saved checkpoint. The public commercial build
+  `8f45afffdc8fe1d1c71a844defbb0cc3a9d76a40`. It exposes verified successful
+  completion after the final saved checkpoint and allows the public playback
+  owner to preserve a licensed session while showing subtitles. The public commercial build
   requires this API and still requires protected commercial validation before
   it can be reported ready. No TestFlight upload was requested.
 - Initial public revision `78a544f` passed Android unit tests, lint and builds.
@@ -895,5 +896,8 @@ scan-summary failures are resolved.
   The latest focused run `45480791681` passed **13/15**: Search/Back focus and
   Play now into episode two passed; native subtitle access and local subtitle
   selection still need diagnosis. Do not mark Apple playback validation complete.
+- Revision `f4fb621` prevents subtitle-sheet presentation from prematurely
+  stopping the Apple player. Full [Apple validation](https://github.com/dinesh-devkota/mediavault/actions/runs/45484118998)
+  is running; it includes a new modal-lifecycle regression (160 expected simulator tests).
 - Public main/development and private main have not yet been advanced for this
   update. Protected commercial validation has not been requested yet.
