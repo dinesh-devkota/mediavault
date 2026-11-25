@@ -60,6 +60,11 @@ struct JellyfinSubtitle: Sendable {
     let url: URL
 }
 
+struct JellyfinHLSResponse: Sendable {
+    let data: Data
+    let contentRange: String?
+}
+
 enum JellyfinPlaybackEvent: String {
     case started = "Sessions/Playing"
     case progress = "Sessions/Playing/Progress"
@@ -217,19 +222,20 @@ struct JellyfinClient: Sendable {
         }
     }
 
-    func playback(_ account: JellyfinAccount, itemID: String, startMillis: Int64, deviceProfile: Data) async throws -> JellyfinPlayback {
+    func playback(_ account: JellyfinAccount, itemID: String, startMillis: Int64, deviceProfile: Data,
+                  allowDirect: Bool = true) async throws -> JellyfinPlayback {
         guard let profile = try JSONSerialization.jsonObject(with: deviceProfile) as? [String: Any] else {
             throw JellyfinClientError.invalidResponse
         }
         let path = try pathFor("Items", itemID, "PlaybackInfo")
         let payload: [String: Any] = [
             "UserId": account.user.id, "StartTimeTicks": try Self.ticks(startMillis),
-            "EnableDirectPlay": true, "EnableDirectStream": true, "EnableTranscoding": true,
+            "EnableDirectPlay": allowDirect, "EnableDirectStream": allowDirect, "EnableTranscoding": true,
             "DeviceProfile": profile,
         ]
         let info: PlaybackInfo = try await decode(jsonRequest(path, account: account, payload: payload))
         guard let playSessionID = info.session, !playSessionID.isEmpty else { throw JellyfinClientError.unplayable }
-        let direct = info.sources?.first { $0.directPlay == true }
+        let direct = allowDirect ? info.sources?.first { $0.directPlay == true } : nil
         guard let source = direct ?? info.sources?.first(where: { $0.transcode?.isEmpty == false }) else {
             throw JellyfinClientError.unplayable
         }
@@ -242,7 +248,8 @@ struct JellyfinClient: Sendable {
                 URLQueryItem(name: "playSessionId", value: playSessionID),
             ])
         } else {
-            stream = try transcodeURL(source.transcode ?? "", itemID: itemID)
+            stream = try hlsResource(source.transcode ?? "", relativeTo: address.endpoint, itemID: itemID)
+            guard stream.pathExtension.lowercased() == "m3u8" else { throw JellyfinClientError.unplayable }
         }
         let subtitles = try (source.streams ?? []).compactMap { entry -> JellyfinSubtitle? in
             guard entry.type == "Subtitle", entry.textSubtitle == true, let index = entry.index, index >= 0 else { return nil }
@@ -267,6 +274,16 @@ struct JellyfinClient: Sendable {
             payload["PlayMethod"] = playback.method.rawValue
         }
         _ = try await send(jsonRequest(event.rawValue, account: account, payload: payload))
+    }
+
+    func endTranscode(_ account: JellyfinAccount, playback: JellyfinPlayback) async throws {
+        guard playback.method == .transcode else { return }
+        var request = try request("Videos/ActiveEncodings", account: account, query: [
+            URLQueryItem(name: "deviceId", value: deviceID),
+            URLQueryItem(name: "playSessionId", value: playback.playSessionID),
+        ])
+        request.httpMethod = "DELETE"
+        _ = try await send(request)
     }
 
     func artwork(_ item: JellyfinCatalogItem, width: Int) throws -> URL? {
@@ -342,6 +359,64 @@ struct JellyfinClient: Sendable {
         return try SubtitleDocument.parse(data)
     }
 
+    func readHLS(_ url: URL, account: JellyfinAccount, range: String?) async throws -> JellyfinHLSResponse {
+        let requestedRange = try range.map { value -> (start: Int64, end: Int64?) in
+            let endpoints = value.dropFirst("bytes=".count).split(separator: "-", omittingEmptySubsequences: false)
+            guard value.hasPrefix("bytes="), endpoints.count == 2, let start = Int64(endpoints[0]), start >= 0 else {
+                throw JellyfinClientError.invalidResponse
+            }
+            if endpoints[1].isEmpty { return (start, nil) }
+            guard let end = Int64(endpoints[1]), end >= start else { throw JellyfinClientError.invalidResponse }
+            return (start, end)
+        }
+        var request = try assetRequest(url, account: account)
+        request.setValue(range, forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let (bytes, response) = try await Self.session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw JellyfinClientError.invalidResponse }
+        let limit = url.pathExtension.lowercased() == "m3u8" ? 2 * 1024 * 1024 : 16 * 1024 * 1024
+        let contentRange: String?
+        let requiredLength: Int64
+        switch http.statusCode {
+        case 200:
+            contentRange = nil
+            requiredLength = response.expectedContentLength
+        case 206:
+            guard let requestedRange,
+                  let header = http.value(forHTTPHeaderField: "Content-Range"),
+                  let span = WebDAVTransport.parseRange(header), span.start == requestedRange.start,
+                  span.end - span.start < Int64(limit),
+                  span.end == min(requestedRange.end ?? span.total - 1, span.total - 1),
+                  response.expectedContentLength < 0 || response.expectedContentLength == span.end - span.start + 1 else {
+                throw JellyfinClientError.invalidResponse
+            }
+            contentRange = "bytes \(span.start)-\(span.end)/\(span.total)"
+            requiredLength = span.end - span.start + 1
+        default: throw JellyfinClientError.status(http.statusCode)
+        }
+        guard response.expectedContentLength <= Int64(limit),
+              http.value(forHTTPHeaderField: "Content-Encoding").map({ $0.lowercased() == "identity" }) ?? true else {
+            throw JellyfinClientError.invalidResponse
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < limit else { throw JellyfinClientError.invalidResponse }
+            data.append(byte)
+        }
+        guard !data.isEmpty, requiredLength < 0 || requiredLength == Int64(data.count) else {
+            throw JellyfinClientError.invalidResponse
+        }
+        if contentRange == nil, let requestedRange {
+            let size = Int64(data.count)
+            guard requestedRange.start < size else { throw JellyfinClientError.status(416) }
+            let end = min(requestedRange.end ?? size - 1, size - 1)
+            let bytes = data.subdata(in: Int(requestedRange.start)..<Int(end + 1))
+            return JellyfinHLSResponse(data: bytes, contentRange: "bytes \(requestedRange.start)-\(end)/\(size)")
+        }
+        return JellyfinHLSResponse(data: data, contentRange: contentRange)
+    }
+
     private func pathFor(_ parts: String...) throws -> String {
         guard parts.allSatisfy({ !$0.contains("/") && WebDAVAddress.contains($0, within: "") }) else {
             throw JellyfinClientError.invalidResponse
@@ -356,11 +431,15 @@ struct JellyfinClient: Sendable {
         return address.relativePath(href: url.absoluteString, requested: address.endpoint)
     }
 
-    private func transcodeURL(_ value: String, itemID: String) throws -> URL {
-        let relative = value.lowercased().hasPrefix("/videos/") ? String(value.dropFirst()) : value
-        guard let url = URL(string: relative, relativeTo: address.endpoint)?.absoluteURL,
+    func hlsResource(_ value: String, relativeTo parent: URL, itemID: String) throws -> URL {
+        let rootRelative = value.lowercased().hasPrefix("/videos/")
+        let relative = rootRelative ? String(value.dropFirst()) : value
+        guard !relative.isEmpty,
+              let url = URL(string: relative, relativeTo: rootRelative ? address.endpoint : parent)?.absoluteURL,
               var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let path = scopedPath(parts) else { throw JellyfinClientError.invalidAddress }
+              parts.fragment == nil,
+              let path = scopedPath(parts), ["m3u8", "ts", "m4s", "mp4", "aac", "vtt"].contains(url.pathExtension.lowercased())
+        else { throw JellyfinClientError.invalidAddress }
         let pathParts = path.split(separator: "/")
         guard pathParts.count >= 2, pathParts[0].lowercased() == "videos", Self.sameItemID(String(pathParts[1]), itemID) else {
             throw JellyfinClientError.invalidAddress

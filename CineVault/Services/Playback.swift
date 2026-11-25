@@ -171,6 +171,7 @@ final class PlaybackController: ObservableObject {
     private var finishedPlayback = false
     private var stopped = false
     private var jellyfinReporter: JellyfinPlaybackReporter?
+    private var jellyfinRelay: JellyfinHLSRelay?
     private var playbackStateObservation: NSKeyValueObservation?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
@@ -203,32 +204,14 @@ final class PlaybackController: ObservableObject {
         guard let source = try playbackSource(for: movie, household: household) else { return nil }
         let config = try sourceConfig(source)
         let path = movie.filePath
-        var reportSession: JellyfinPlaybackReporter?
-        var providerTracks: PlaybackSubtitles.ProviderTracks?
-        let reader: SMBResourceLoader.Reader?
         if config.isJellyfin {
-            let connection = try JellyfinSourceConnection(config: config)
-            let stream = try await connection.directPlayback(path: path)
-            guard household.sessionIsCurrent(householdSession), household.allows(movie),
-                  movie.source === source, try sourceConfig(source) == config else {
-                throw PlaybackPreparationError.fileUnavailable
-            }
-            reportSession = JellyfinPlaybackReporter(connection: connection, playback: stream)
-            let tracks = Dictionary(stream.subtitles.prefix(64).map { ("jellyfin-caption-\($0.index)", $0) },
-                                    uniquingKeysWith: { first, _ in first })
-            let choices = tracks.keys.sorted {
-                (tracks[$0]?.index ?? 0) < (tracks[$1]?.index ?? 0)
-            }.map { id in SubtitleFile(path: id, language: tracks[id]?.language) }
-            providerTracks = PlaybackSubtitles.ProviderTracks(files: choices, read: { file in
-                guard let track = tracks[file.path] else { throw JellyfinClientError.invalidResponse }
-                return try await connection.client.fetchSubtitle(track, account: connection.account)
-            })
-            reader = SMBResourceLoader.Reader(
-                size: { try await connection.client.readDirect(stream, account: connection.account, offset: 0, length: 1).size },
-                read: { try await connection.client.readDirect(stream, account: connection.account, offset: $0, length: $1).data }
+            return try await prepareJellyfin(
+                movie: movie, resume: resume, services: services, defaults: defaults, household: household,
+                householdSession: householdSession, source: source, config: config, path: path,
+                sourceConfig: sourceConfig, loadPlayable: loadPlayable
             )
-        } else { reader = nil }
-        let loader = SMBResourceLoader(config: config, path: path, household: household, reader: reader)
+        }
+        let loader = SMBResourceLoader(config: config, path: path, household: household)
         let asset = loader.makeAsset()
         return try await withTaskCancellationHandler {
             do {
@@ -240,10 +223,7 @@ final class PlaybackController: ObservableObject {
                       movie.filePath == path, try sourceConfig(currentSource) == config else {
                     throw PlaybackPreparationError.fileUnavailable
                 }
-                let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset, household: household)
-                controller.subtitles.providerTracks = providerTracks
-                if let reportSession { controller.attachJellyfinReporter(reportSession) }
-                return controller
+                return PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset, household: household)
             } catch {
                 asset.cancelLoading()
                 throw error
@@ -251,6 +231,84 @@ final class PlaybackController: ObservableObject {
         } onCancel: {
             asset.cancelLoading()
         }
+    }
+
+    private static func prepareJellyfin(
+        movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, household: HouseholdStore,
+        householdSession: UUID, source: MediaSource, config: SourceConfig, path: String,
+        sourceConfig: (MediaSource) throws -> SourceConfig, loadPlayable: (AVURLAsset) async throws -> Bool
+    ) async throws -> PlaybackController {
+        let connection = try JellyfinSourceConnection(config: config)
+        let sourceID = config.id
+        let allowsRead: @Sendable () -> Bool = {
+            household.sessionIsCurrent(householdSession) && household.allowsPath(sourceID: sourceID, path: path, caseSensitive: true)
+        }
+        func verifySource() throws {
+            try Task.checkCancellation()
+            guard allowsRead(), let currentSource = try playbackSource(for: movie, household: household),
+                  currentSource === source, movie.filePath == path, try sourceConfig(currentSource) == config else {
+                throw PlaybackPreparationError.fileUnavailable
+            }
+        }
+
+        for allowDirect in [true, false] {
+            let stream = try await connection.playback(path: path, allowDirect: allowDirect)
+            let reporter = JellyfinPlaybackReporter(connection: connection, playback: stream)
+            var relay: JellyfinHLSRelay?
+            var loadingAsset: AVURLAsset?
+            do {
+                try verifySource()
+                let loader: SMBResourceLoader
+                let asset: AVURLAsset
+                switch stream.method {
+                case .directPlay:
+                    let reader = SMBResourceLoader.Reader(
+                        size: { try await connection.client.readDirect(stream, account: connection.account, offset: 0, length: 1).size },
+                        read: { try await connection.client.readDirect(stream, account: connection.account, offset: $0, length: $1).data }
+                    )
+                    loader = SMBResourceLoader(config: config, path: path, household: household, reader: reader)
+                    asset = loader.makeAsset()
+                case .transcode:
+                    let streamRelay = try JellyfinHLSRelay(connection: connection, playback: stream, allowsRead: allowsRead)
+                    relay = streamRelay
+                    let url = try await streamRelay.start()
+                    loader = SMBResourceLoader(config: config, path: path, household: household)
+                    asset = AVURLAsset(url: url)
+                }
+                loadingAsset = asset
+                let playable = try await withTaskCancellationHandler {
+                    try await loadPlayable(asset)
+                } onCancel: { asset.cancelLoading() }
+                try verifySource()
+                guard playable else { throw PlaybackPreparationError.unsupportedFormat }
+
+                let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults,
+                                                    loader: loader, asset: asset, household: household)
+                controller.jellyfinRelay = relay
+                controller.attachJellyfinReporter(reporter)
+                controller.subtitles.providerTracks = jellyfinTracks(stream, connection: connection)
+                return controller
+            } catch {
+                loadingAsset?.cancelLoading()
+                relay?.stop()
+                await reporter.stop(seconds: 0)
+                try verifySource()
+                guard allowDirect, stream.method == .directPlay else { throw error }
+            }
+        }
+        throw JellyfinClientError.unplayable
+    }
+
+    private static func jellyfinTracks(_ stream: JellyfinPlayback, connection: JellyfinSourceConnection) -> PlaybackSubtitles.ProviderTracks {
+        let tracks = Dictionary(stream.subtitles.prefix(64).map { ("jellyfin-caption-\($0.index)", $0) },
+                                uniquingKeysWith: { first, _ in first })
+        let choices = tracks.keys.sorted {
+            (tracks[$0]?.index ?? 0) < (tracks[$1]?.index ?? 0)
+        }.map { id in SubtitleFile(path: id, language: tracks[id]?.language) }
+        return PlaybackSubtitles.ProviderTracks(files: choices, read: { file in
+            guard let track = tracks[file.path] else { throw JellyfinClientError.invalidResponse }
+            return try await connection.client.fetchSubtitle(track, account: connection.account)
+        })
     }
 
     convenience init?(movie: Movie, resume: Bool, services: PlaybackServices,
@@ -433,6 +491,8 @@ final class PlaybackController: ObservableObject {
             Task { await jellyfinReporter.stop(seconds: position) }
             self.jellyfinReporter = nil
         }
+        jellyfinRelay?.stop()
+        jellyfinRelay = nil
         subtitles.stop()
         artworkTask?.cancel()
         artworkTask = nil
