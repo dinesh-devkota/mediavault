@@ -1,4 +1,5 @@
 import AVFoundation
+import CineVaultCore
 import Foundation
 import SwiftData
 import UIKit
@@ -33,10 +34,14 @@ final class JellyfinIntegrationTests: XCTestCase {
         try context.save()
         let scanner = LibraryScanner()
         await scanner.scan(source, context: context)
-        let movie = try XCTUnwrap(source.movies.first { $0.filePath.hasSuffix(".mp4") }, scanner.status ?? "The catalog was empty.")
+        let movie = try XCTUnwrap(source.movies.first { $0.filePath == "fixture-movie.mp4" }, scanner.status ?? "The catalog was empty.")
         XCTAssertEqual(movie.filePath, "fixture-movie.mp4")
         XCTAssertEqual(movie.title, "Fixture Film")
         XCTAssertEqual(movie.usContentRating, "G")
+        XCTAssertEqual(movie.tmdbID, 27182)
+        let episode = try XCTUnwrap(source.movies.first { $0.filePath == "fixture-series/1/fixture-episode.mp4" })
+        XCTAssertEqual(episode.seriesTMDBID, 31415)
+        XCTAssertNil(episode.tmdbID)
         XCTAssertFalse(movie.isWatched)
         let photo = try XCTUnwrap(source.movies.first { $0.filePath.hasSuffix(".jpg") })
         let loader = PhotoImageLoader()
@@ -63,6 +68,10 @@ final class JellyfinIntegrationTests: XCTestCase {
         let prepared = try await PlaybackController.prepare(movie: movie, resume: false, services: PlaybackServices())
         let controller = try XCTUnwrap(prepared)
         defer { controller.stop() }
+        let query = try XCTUnwrap(controller.subtitles.onlineQuery)
+        XCTAssertEqual(query.tmdbID, 27182)
+        XCTAssertEqual(query.type, .movie)
+        try await verifyOnlineCaption(query)
         let player = controller.player
         controller.subtitles.start()
         let subtitleTimeout = ContinuousClock.now.advanced(by: .seconds(15))
@@ -93,10 +102,30 @@ final class JellyfinIntegrationTests: XCTestCase {
         movie.isWatchlisted = true
         try context.save()
         await scanner.scan(source, context: context)
-        let refreshed = try XCTUnwrap(source.movies.first { $0.filePath.hasSuffix(".mp4") })
-        XCTAssertEqual(source.movies.count, 2)
+        let refreshed = try XCTUnwrap(source.movies.first { $0.filePath == "fixture-movie.mp4" })
+        XCTAssertEqual(source.movies.count, 3)
         XCTAssertEqual(refreshed.id, originalID)
         XCTAssertTrue(refreshed.isWatchlisted)
+    }
+
+    private func verifyOnlineCaption(_ query: SubDLSearchQuery) async throws {
+        let client = SubDLClient { request, _ in
+            let url = try XCTUnwrap(request.url)
+            if url.host == "api.subdl.com" {
+                let parameters = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+                XCTAssertEqual(parameters?.first { $0.name == "tmdb_id" }?.value, "27182")
+                let data = Data(#"{"status":true,"results":[{"tmdb_id":27182,"type":"movie"}],"subtitles":[{"unpack_files":[{"file_n_id":"caption","language":"EN","format":"srt","release_name":"Fixture.Release","url":"/subtitle/fixture/caption"}]}]}"#.utf8)
+                return SubDLHTTPResponse(statusCode: 200, url: url, data: data)
+            }
+            XCTAssertEqual(url.host, "dl.subdl.com")
+            let data = Data("1\n00:00:01,000 --> 00:00:02,000\nDownloaded fixture caption\n".utf8)
+            return SubDLHTTPResponse(statusCode: 200, url: url, data: data)
+        }
+        // Use a fixed test language instead of the player's persisted setting.
+        let results = try await client.search(SubDLSearchQuery(tmdbID: query.tmdbID, type: query.type), apiKey: "fixture-only")
+        let selected = try XCTUnwrap(results.first)
+        let data = try await client.download(selected, apiKey: "fixture-only")
+        XCTAssertEqual(try SubtitleDocument.parse(data).text(at: 1.5), "Downloaded fixture caption")
     }
 
     private func waitForPlayback(_ player: AVPlayer, past target: Double) async throws {

@@ -322,7 +322,7 @@ final class PlaybackSubtitles: ObservableObject {
     }
     var canSearchOnline: Bool { onlineQuery != nil }
 
-    private var onlineQuery: SubDLSearchQuery? {
+    var onlineQuery: SubDLSearchQuery? {
         if let episode = movie.episodeInfo, let id = movie.seriesTMDBID, id > 0 {
             return SubDLSearchQuery(tmdbID: id, type: .tv, season: episode.season, episode: episode.episode, language: preferredLanguage)
         }
@@ -354,7 +354,8 @@ final class PlaybackSubtitles: ObservableObject {
                 try Task.checkCancellation()
                 guard !self.stopped, self.generation == token, self.sourceUnchanged else { return }
                 self.online = results; self.searching = false
-                if automatically, let exact = Self.automaticMatch(results, videoPath: self.path) {
+                // Jellyfin catalog paths use item IDs instead of the release's filename.
+                if automatically, !self.config.isJellyfin, let exact = Self.automaticMatch(results, videoPath: self.path) {
                     self.selectOnline(exact, remember: false)
                 } else if !results.isEmpty {
                     self.onlineMessage = "Subtitles are available. Choose the release that matches your video."

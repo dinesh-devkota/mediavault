@@ -34,12 +34,20 @@ struct JellyfinCatalogItem: Decodable, Sendable, Identifiable {
     let year: Int?
     let rating: String?
     let primaryImage: [String: String]?
+    let providerIDs: [String: String]?
 
     enum CodingKeys: String, CodingKey {
         case id = "Id", name = "Name", type = "Type", collection = "CollectionType"
         case seriesID = "SeriesId", seasonID = "SeasonId", seriesName = "SeriesName"
         case season = "ParentIndexNumber", number = "IndexNumber", overview = "Overview"
-        case year = "ProductionYear", rating = "OfficialRating", primaryImage = "ImageTags"
+        case year = "ProductionYear", rating = "OfficialRating", primaryImage = "ImageTags", providerIDs = "ProviderIds"
+    }
+
+    var tmdbID: Int? {
+        guard let raw = providerIDs?["Tmdb"] ?? providerIDs?["tmdb"],
+              (1...10).contains(raw.utf8.count), raw.utf8.allSatisfy({ (48...57).contains($0) }),
+              let id = Int(raw), id > 0 else { return nil }
+        return id
     }
 }
 
@@ -194,7 +202,7 @@ struct JellyfinClient: Sendable {
                 URLQueryItem(name: "parentId", value: libraryID),
                 URLQueryItem(name: "recursive", value: "true"),
                 URLQueryItem(name: "includeItemTypes", value: "Movie,Series,Season,Episode,Photo,MusicAlbum,Audio"),
-                URLQueryItem(name: "fields", value: "Overview"),
+                URLQueryItem(name: "fields", value: "Overview,ProviderIds"),
                 URLQueryItem(name: "enableUserData", value: "false"),
                 URLQueryItem(name: "sortBy", value: "SortName"),
                 URLQueryItem(name: "startIndex", value: String(start)),
