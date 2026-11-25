@@ -31,7 +31,7 @@ class LibraryFeaturesNavigationTest {
     @get:Rule val compose = createEmptyComposeRule()
     private val app = ApplicationProvider.getApplicationContext<CineVaultApp>()
     private val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-    private val tv get() = app.resources.configuration.isTelevision()
+    private val tv get() = app.isTelevision()
 
     @Test fun localArtworkVersionsAndNamedCollectionsUseNativeControls() = runBlocking<Unit> {
         assertEquals("Only run on a disposable CI emulator", "true", InstrumentationRegistry.getArguments().getString("libraryUiFixture"))

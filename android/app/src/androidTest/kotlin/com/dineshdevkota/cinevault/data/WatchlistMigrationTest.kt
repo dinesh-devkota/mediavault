@@ -52,7 +52,7 @@ class WatchlistMigrationTest {
         val movie = requireNotNull(db.movies().get(legacy.movie.id))
         assertEquals(legacy.source, source)
         assertEquals(legacy.movie, movie)
-        assertEquals("fixture-only", source.config(SecretBox()).password)
+        assertEquals("fixture-only", source.config(SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext())).password)
         assertFalse("Existing movies must start outside the watchlist", movie.isWatchlisted)
         assertEquals(7, db.openHelper.readableDatabase.version)
     }
@@ -102,8 +102,8 @@ class WatchlistMigrationTest {
         db = openDatabase()
         assertEquals(changed, db.sources().get(changed.id))
         assertEquals(legacy.movie, db.movies().get(legacy.movie.id))
-        assertEquals(changed.ignoredFolders, db.sources().get(changed.id)!!.config(SecretBox()).ignoredFolders)
-        assertEquals(changed.ignoredFiles, db.sources().get(changed.id)!!.config(SecretBox()).ignoredFiles)
+        assertEquals(changed.ignoredFolders, db.sources().get(changed.id)!!.config(SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext())).ignoredFolders)
+        assertEquals(changed.ignoredFiles, db.sources().get(changed.id)!!.config(SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext())).ignoredFiles)
     }
 
     @Test
@@ -147,7 +147,7 @@ class WatchlistMigrationTest {
         assertFalse(requireNotNull(movies.get(id)).metadataFetched)
 
         var remoteFiles = emptyList<RemoteFile>()
-        val scanner = LibraryScanner(db, SecretBox(), scanVideos = { remoteFiles })
+        val scanner = LibraryScanner(db, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), scanVideos = { remoteFiles })
         scanner.scan(legacy.source.id)
         assertTrue(requireNotNull(movies.get(id)).isMissing)
         assertTrue(requireNotNull(movies.get(id)).isWatchlisted)
@@ -180,7 +180,7 @@ class WatchlistMigrationTest {
             source = SourceEntity(
                 id = "legacy-source", name = "Original NAS", host = "fixture.invalid", port = 1445,
                 share = "CINEVAULT", rootPath = "Movies", username = "cinevault",
-                encryptedPassword = SecretBox().encrypt("fixture-only"), lastScanAt = 1_234,
+                encryptedPassword = SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()).encrypt("fixture-only"), lastScanAt = 1_234,
             ),
             movie = MovieEntity(
                 id = "legacy-movie", sourceId = "legacy-source", filePath = "Movies/Feature (2020).mp4",

@@ -29,7 +29,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class LibraryDatabaseTest {
     private fun library(database: CineVaultDatabase) = com.dineshdevkota.cinevault.family.FamilyLibrary(database,
-        com.dineshdevkota.cinevault.family.FamilyStore(ApplicationProvider.getApplicationContext(), SecretBox(), "isolated-editor-${java.util.UUID.randomUUID()}"))
+        com.dineshdevkota.cinevault.family.FamilyStore(ApplicationProvider.getApplicationContext(), SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), "isolated-editor-${java.util.UUID.randomUUID()}"))
     private lateinit var db: CineVaultDatabase
 
     @Before

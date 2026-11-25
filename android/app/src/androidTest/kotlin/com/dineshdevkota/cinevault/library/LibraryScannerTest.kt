@@ -39,7 +39,7 @@ class LibraryScannerTest {
     @Test fun concertVideoKeepsItsParsedYearAndRemainsEligibleForMetadata() = runBlocking {
         val source = SourceEntity(name = "Media", host = "localhost", share = "Media")
         database.sources().upsert(source)
-        val scanner = LibraryScanner(database, SecretBox(), scanVideos = {
+        val scanner = LibraryScanner(database, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), scanVideos = {
             listOf(RemoteFile("Concerts/Stage Show (2019).mp4", 100))
         })
         scanner.scan(source.id)
@@ -60,7 +60,7 @@ class LibraryScannerTest {
         )
         database.movies().insert(existing)
         var metadataRan = false
-        val scanner = LibraryScanner(database, SecretBox(), scanVideos = {
+        val scanner = LibraryScanner(database, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), scanVideos = {
             database.sources().upsert(source.copy(share = "replacement"))
             listOf(RemoteFile("Old Share.mp4", 100))
         }, afterScan = { metadataRan = true; null })
@@ -75,7 +75,7 @@ class LibraryScannerTest {
     fun deletedSourceIsNotRecreatedAfterScan() = runBlocking {
         val source = SourceEntity(name = "NAS", host = "localhost", share = "movies")
         database.sources().upsert(source)
-        val scanner = LibraryScanner(database, SecretBox(), scanVideos = {
+        val scanner = LibraryScanner(database, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), scanVideos = {
             database.sources().delete(source.id)
             listOf(RemoteFile("Movie.mp4", 100))
         })
@@ -91,7 +91,7 @@ class LibraryScannerTest {
         val old = MovieEntity(sourceId = source.id, filePath = "Movies/Old.mp4", fileName = "Old.mp4", fileSize = 100,
             parsedTitle = "Old", parsedYear = null, title = "My edited title", year = null, isWatched = true)
         database.movies().insert(old)
-        val scanner = LibraryScanner(database, SecretBox(), scanVideos = { error("Progress walker must be used") },
+        val scanner = LibraryScanner(database, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), scanVideos = { error("Progress walker must be used") },
             scanWithProgress = { _, report ->
                 report(ScanProgress(listOf(RemoteFile("Music/Album/01 - Song.mp3", 100)), 1, 2))
                 val partial = database.movies().forSource(source.id)
@@ -115,7 +115,7 @@ class LibraryScannerTest {
             parsedTitle = "Old", parsedYear = null, title = "Old", year = null)
         database.movies().insert(old)
         val files = listOf(RemoteFile("Movies/New.mp4", 100), RemoteFile("Documentaries/Nature.mp4", 100))
-        val scanner = LibraryScanner(database, SecretBox(), scanVideos = { error("Progress walker must be used") },
+        val scanner = LibraryScanner(database, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), scanVideos = { error("Progress walker must be used") },
             scanWithProgress = { _, report ->
                 report(ScanProgress(files.take(1), 1, 1))
                 assertFalse(database.movies().get(old.id)!!.isMissing)
@@ -143,7 +143,7 @@ class LibraryScannerTest {
         assertEquals(fileItem.copy(isMissing = true), database.movies().get(fileItem.id))
         assertEquals(sibling, database.movies().get(sibling.id))
         val remote = listOf(folderItem, fileItem, sibling).map { RemoteFile(it.filePath, it.fileSize) }
-        val scanner = LibraryScanner(database, SecretBox(), scanVideos = { remote })
+        val scanner = LibraryScanner(database, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), scanVideos = { remote })
         scanner.scan(source.id)
         assertTrue(database.movies().get(folderItem.id)!!.isMissing)
         assertTrue(database.movies().get(fileItem.id)!!.isMissing)
@@ -161,7 +161,7 @@ class LibraryScannerTest {
         database.sources().upsert(source)
         val files = listOf("Library/Private/Hidden.mp4", "Library/Skip.mp4", "Library/fetch.d.ts",
             "Library/node_modules/demo.mp4", "Library/Keep.mp4").map { RemoteFile(it, 100) }
-        val scanner = LibraryScanner(database, SecretBox(), scanVideos = { error("Use progress") },
+        val scanner = LibraryScanner(database, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), scanVideos = { error("Use progress") },
             scanWithProgress = { config, report ->
                 assertEquals(source.ignoredFiles, config.ignoredFiles)
                 report(ScanProgress(files, files.size, 2))
@@ -179,7 +179,7 @@ class LibraryScannerTest {
         val old = MovieEntity(sourceId = source.id, filePath = "Private/Old.mp4", fileName = "Old.mp4", fileSize = 100,
             parsedTitle = "Old", parsedYear = null, title = "Old", year = null, isWatchlisted = true)
         database.movies().insert(old)
-        val scanner = LibraryScanner(database, SecretBox(), scanVideos = {
+        val scanner = LibraryScanner(database, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), scanVideos = {
             database.saveSourceWithExclusions(source.copy(ignoredFolders = listOf("Private")))
             listOf(RemoteFile(old.filePath, 100), RemoteFile("Private/New.mp4", 100))
         })

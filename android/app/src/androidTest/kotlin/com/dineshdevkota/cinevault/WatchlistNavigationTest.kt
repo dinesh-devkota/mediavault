@@ -251,7 +251,7 @@ class WatchlistNavigationTest {
         // Preferences from unsupported or future sections cannot hide the Library.
         for (invalid in listOf("UNKNOWN_SECTION", "PHOTO")) {
             prefs.edit().putString("library_section", invalid).commit()
-            assertEquals(MediaKind.MOVIE, Settings(application, SecretBox()).librarySection)
+            assertEquals(MediaKind.MOVIE, Settings(application, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext())).librarySection)
         }
         launchHomeAfterScan().use { main ->
             device.pressDPadRight()
@@ -259,7 +259,7 @@ class WatchlistNavigationTest {
             activate("Section: Movies")
             activate("TV Shows")
             visible("Section: TV Shows")
-            assertEquals(MediaKind.TV_SHOW, Settings(application, SecretBox()).librarySection)
+            assertEquals(MediaKind.TV_SHOW, Settings(application, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext())).librarySection)
             activate("Home")
             visible("Welcome to MediaVault")
             activate("Library")

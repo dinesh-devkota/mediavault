@@ -6,7 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.ColorSpace
 import android.graphics.ImageDecoder
 import android.graphics.Matrix
-import android.media.ExifInterface
+import androidx.exifinterface.media.ExifInterface
 import android.os.Build
 import android.util.LruCache
 import androidx.annotation.RequiresApi
@@ -217,7 +217,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
         val options = BitmapFactory.Options().apply {
             inSampleSize = PhotoDecodePolicy.sampleSize(bounds.outWidth, bounds.outHeight, size)
             inPreferredConfig = Bitmap.Config.ARGB_8888
-            inPreferredColorSpace = ColorSpace.get(ColorSpace.Named.SRGB)
+            if (Build.VERSION.SDK_INT >= 26) inPreferredColorSpace = ColorSpace.get(ColorSpace.Named.SRGB)
             inScaled = false
         }
         val bitmap = BitmapFactory.decodeFile(file.path, options)

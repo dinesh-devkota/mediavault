@@ -2,6 +2,10 @@ package com.dineshdevkota.cinevault.family
 
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.security.NoSuchAlgorithmException
+import org.bouncycastle.crypto.digests.SHA256Digest
+import org.bouncycastle.crypto.generators.PKCS5S2ParametersGenerator
+import org.bouncycastle.crypto.params.KeyParameter
 import java.util.Base64
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
@@ -25,8 +29,24 @@ data class PinVerifier(val salt: String, val hash: String, val rounds: Int = ROU
         }
         private fun derive(pin: String, salt: ByteArray, rounds: Int): ByteArray {
             val spec = PBEKeySpec(pin.toCharArray(), salt, rounds, 256)
-            return try { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded }
+            return try {
+                val factory = try { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256") }
+                catch (_: NoSuchAlgorithmException) { return derivePortable(pin, salt, rounds) }
+                factory.generateSecret(spec).encoded
+            }
             finally { spec.clearPassword() }
+        }
+
+        /** Identical algorithm, iteration count and bytes on pre-26 Android; never changes stored PINs. */
+        internal fun derivePortable(pin: String, salt: ByteArray, rounds: Int = ROUNDS): ByteArray {
+            require(valid(pin) && salt.size == 16 && rounds == ROUNDS)
+            val password = pin.toByteArray(Charsets.UTF_8)
+            return try {
+                PKCS5S2ParametersGenerator(SHA256Digest()).run {
+                    init(password, salt, rounds)
+                    (generateDerivedParameters(256) as KeyParameter).key
+                }
+            } finally { password.fill(0) }
         }
     }
 }

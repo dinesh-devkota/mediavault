@@ -7,9 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
@@ -197,7 +199,7 @@ class PlayerActivity : ComponentActivity() {
         }
         // One menu keeps online choices and NAS lookup notices accessible from both subtitle controls.
         playerView.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.setOnClickListener { showSubtitleMenu() }
-        val isTv = resources.configuration.isTelevision()
+        val isTv = isTelevision()
         val spacing = ((if (isTv) 24 else 12) * resources.displayMetrics.density).toInt()
         titleLabel = TextView(this).apply { setTextColor(Color.WHITE); textSize = 24f; maxLines = 2 }
         detailLabel = TextView(this).apply { setTextColor(Color.LTGRAY); textSize = 15f; maxLines = 3 }
@@ -248,7 +250,8 @@ class PlayerActivity : ComponentActivity() {
             else if (playerView.isControllerFullyVisible && player?.playerError == null) playerView.hideController() else finish()
         }
         lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
+            // Older Fire OS devices cannot reliably share scarce decoder resources while paused.
+            repeatOnLifecycle(if (Build.VERSION.SDK_INT < 24) Lifecycle.State.RESUMED else Lifecycle.State.STARTED) {
                 val loaded = try {
                     load(movieId)
                 } catch (e: CancellationException) {
@@ -342,7 +345,17 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        if (Build.VERSION.SDK_INT < 24) releasePlayback()
+        super.onPause()
+    }
+
     override fun onStop() {
+        releasePlayback()
+        super.onStop()
+    }
+
+    private fun releasePlayback() {
         jellyfinFallbackJob?.cancel()
         jellyfinFallbackJob = null
         cancelNext()
@@ -352,7 +365,27 @@ class PlayerActivity : ComponentActivity() {
         stopPlayer()
         target = null
         if (endHandled) finish()
-        super.onStop()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
+        handleTransportKey(event) || super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
+        handleTransportKey(event) || super.onKeyUp(keyCode, event)
+
+    private fun handleTransportKey(event: KeyEvent): Boolean {
+        if (::playerView.isInitialized && player != null) {
+            if (isTelevision() && event.keyCode == KeyEvent.KEYCODE_MENU) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) showSubtitleMenu()
+                return true
+            }
+            // Header buttons are siblings of PlayerView. Keep transport keys working when one
+            // of them has focus, without changing D-pad navigation or touch-phone behavior.
+            if (event.keyCode in setOf(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY,
+                    KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+                    KeyEvent.KEYCODE_MEDIA_STOP) && playerView.dispatchMediaKeyEvent(event)) return true
+        }
+        return false
     }
 
     override fun finish() {

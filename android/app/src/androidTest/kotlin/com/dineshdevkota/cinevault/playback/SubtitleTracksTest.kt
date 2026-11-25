@@ -104,7 +104,7 @@ class SubtitleTracksTest {
         try {
             settings.subtitleLanguage = "en"
             settings.subtitlePreference = "spa"
-            val reloaded = Settings(context, SecretBox())
+            val reloaded = Settings(context, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()))
             assertEquals("es", reloaded.subtitlePreference)
             assertEquals("A later online search must follow the selected Spanish track", "es", reloaded.subtitleLanguage)
             reloaded.subtitlePreference = "off"

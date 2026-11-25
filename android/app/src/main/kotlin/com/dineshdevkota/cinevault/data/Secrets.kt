@@ -1,10 +1,12 @@
 package com.dineshdevkota.cinevault.data
 
 import android.content.Context
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.core.content.edit
+import androidx.annotation.RequiresApi
 import com.dineshdevkota.cinevault.core.LibraryFilter
 import com.dineshdevkota.cinevault.core.LibraryFacets
 import com.dineshdevkota.cinevault.core.LibrarySort
@@ -20,19 +22,21 @@ class SecretReadException(cause: Exception) : IllegalStateException(
     "Saved credentials could not be read. Enter and save them again.", cause,
 )
 
-/** Encrypts small secrets (NAS passwords, TMDB key) with a non-exportable Android Keystore AES key. */
-class SecretBox {
-    private val lock = Any()
+/** Keystore-protected secrets; API 22 wraps ephemeral AES keys with its non-exportable RSA key. */
+class SecretBox(context: Context, private val keyAlias: String = "cinevault-secrets") {
+    private val legacy = LegacySecretEnvelope(context.applicationContext, "$keyAlias-rsa-v1")
 
+    @RequiresApi(23)
     private fun key(createIfMissing: Boolean = true): SecretKey = synchronized(lock) {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
-        val existing = store.getKey(ALIAS, null) as? SecretKey
+        val existing = store.getKey(keyAlias, null) as? SecretKey
         if (existing != null) return@synchronized existing
         check(createIfMissing) { "The saved credentials' encryption key is unavailable." }
+        check(!store.containsAlias(keyAlias)) { "The saved credentials' encryption key is invalid." }
         KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
             .apply {
                 init(
-                    KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                    KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                         .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                         .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                         .setKeySize(256)
@@ -44,6 +48,7 @@ class SecretBox {
 
     fun encrypt(plain: String): String {
         if (plain.isEmpty()) return ""
+        if (Build.VERSION.SDK_INT < 23) return legacy.encrypt(plain)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val sealed = cipher.iv + cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
@@ -54,6 +59,9 @@ class SecretBox {
     fun decrypt(sealed: String): String {
         if (sealed.isEmpty()) return ""
         return try {
+            // Keep older envelopes readable after an OS upgrade; new writes use native AES on 23+.
+            if (sealed.startsWith(LegacySecretEnvelope.PREFIX)) return legacy.decrypt(sealed)
+            if (Build.VERSION.SDK_INT < 23) error("This credential requires a newer device.")
             val bytes = Base64.decode(sealed, Base64.NO_WRAP)
             require(bytes.size >= IV_BYTES + TAG_BITS / 8) { "Invalid encrypted credentials." }
             val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -65,8 +73,8 @@ class SecretBox {
     }
 
     private companion object {
+        val lock = Any()
         const val KEYSTORE = "AndroidKeyStore"
-        const val ALIAS = "cinevault-secrets"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_BYTES = 12
         const val TAG_BITS = 128

@@ -1,6 +1,5 @@
 package com.dineshdevkota.cinevault.ui
 
-import android.content.res.Configuration
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -15,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
@@ -31,15 +31,12 @@ val ErrorText = Color(0xFFFF8A80)
 
 internal val LocalTvLayout = staticCompositionLocalOf { true }
 
-internal fun Configuration.isTelevision(): Boolean =
-    uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
-
 val ScreenPadding
     @Composable get() = if (LocalTvLayout.current) 48.dp else 16.dp
 
 @Composable
 fun CineVaultTheme(content: @Composable () -> Unit) {
-    val isTv = LocalConfiguration.current.isTelevision()
+    val isTv = LocalContext.current.isTelevision(LocalConfiguration.current)
     MobileMaterialTheme(
         colorScheme = mobileDarkColorScheme(
             primary = Accent,
