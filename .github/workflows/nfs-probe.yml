@@ -59,7 +59,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Cross-build the separate JNI and libnfs libraries
         run: |
-          sdkmanager "ndk;28.2.13676358"
+          if [ ! -f "$ANDROID_HOME/ndk/28.2.13676358/source.properties" ]; then
+            sdk_manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            test -x "$sdk_manager"
+            "$sdk_manager" --sdk_root="$ANDROID_HOME" "ndk;28.2.13676358"
+          fi
           python3 scripts/build_android_nfs.py --ndk "$ANDROID_HOME/ndk/28.2.13676358" \
             --output "$RUNNER_TEMP/android-nfs" --abi x86_64 --abi arm64-v8a
       - name: Enable KVM for the Android TV emulator
