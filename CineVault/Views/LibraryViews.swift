@@ -499,7 +499,7 @@ private struct SearchResultsView: View {
                 let key = "show:\(result.id)"
                 NavigationLink(value: SearchShowSelection(result.show)) {
                     TVShowArtwork(title: result.show.title, subtitle: result.subtitle,
-                        path: result.show.posterPath, focused: focusedResult == key)
+                        path: result.show.posterPath, embyMovie: result.show.firstEpisode, embySeries: true, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -511,7 +511,7 @@ private struct SearchResultsView: View {
                 let key = "episode:\(result.id)"
                 NavigationLink(value: result.movie) {
                     TVShowArtwork(title: result.movie.title, subtitle: result.subtitle,
-                        path: result.movie.backdropPath, wide: true, focused: focusedResult == key)
+                        path: result.movie.backdropPath, embyMovie: result.movie, wide: true, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -751,10 +751,12 @@ struct PosterView: View {
                         .lineLimit(3)
                         .padding(.horizontal, 18)
                 }
-                AsyncImage(url: TMDB.imageURL(movie.posterPath, size: "w342")) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Color.clear
+                if movie.source?.isEmby == true {
+                    EmbyArtwork(movie: movie, width: 342)
+                } else {
+                    AsyncImage(url: TMDB.imageURL(movie.posterPath, size: "w342")) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: { Color.clear }
                 }
             }
             .frame(width: CinemaTheme.posterWidth, height: CinemaTheme.posterHeight)

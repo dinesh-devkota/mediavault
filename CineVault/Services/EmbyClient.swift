@@ -275,6 +275,15 @@ struct EmbyClient: Sendable {
         return ByteRange(bytes: data, totalLength: total)
     }
 
+    func primaryImage(_ account: Account, itemID: String, width: Int) async throws -> Data {
+        guard EmbySourceConnection.validID(itemID), (64...1280).contains(width) else { throw EmbyError.invalidResponse }
+        return try await send(["Items", itemID, "Images", "Primary"], account: account, query: [
+            URLQueryItem(name: "MaxWidth", value: String(width)),
+            URLQueryItem(name: "MaxHeight", value: String(width * 2)),
+            URLQueryItem(name: "Format", value: "Jpg"),
+        ], maximumBytes: 5 * 1024 * 1024, mimeType: "image/jpeg")
+    }
+
     func textSubtitle(_ account: Account, playback: DirectPlayback, index: Int, maximumBytes: Int) async throws -> Data {
         guard playback.owner == playbackOwner, playback.accountToken == account.AccessToken,
               playback.accountID == account.User.Id, playback.textSubtitles.contains(where: { $0.id == index }),
@@ -320,12 +329,15 @@ struct EmbyClient: Sendable {
     }
 
     private func send(_ path: [String], account: Account? = nil, query: [URLQueryItem] = [],
-                      body: Data? = nil, maximumBytes: Int = EmbyClient.maximumBody) async throws -> Data {
-        let request = try makeRequest(path, account: account, query: query, body: body)
+                      body: Data? = nil, maximumBytes: Int = EmbyClient.maximumBody,
+                      mimeType: String? = nil) async throws -> Data {
+        var request = try makeRequest(path, account: account, query: query, body: body)
+        if let mimeType { request.setValue(mimeType, forHTTPHeaderField: "Accept") }
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw EmbyError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw EmbyError.http(http.statusCode) }
+        guard mimeType == nil || response.mimeType?.lowercased() == mimeType else { throw EmbyError.invalidResponse }
         guard response.expectedContentLength <= Int64(maximumBytes) else { throw EmbyError.invalidResponse }
         var data = Data()
         for try await byte in bytes {

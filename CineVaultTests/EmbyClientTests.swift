@@ -15,6 +15,8 @@ final class EmbyClientTests: XCTestCase {
         let account = try await client.signIn(username: "Viewer", password: "fixture-password")
         let libraries = try await client.libraries(account)
         XCTAssertEqual(libraries.map { $0.Name }, ["Movies"])
+        let artwork = try await client.primaryImage(account, itemID: "movie-a", width: 342)
+        XCTAssertEqual(artwork, Data("fixture-jpeg".utf8))
         var movieTitles = [String]()
         try await client.catalog(account, libraryID: "library") { page in
             movieTitles += page.map { $0.Name }
@@ -183,6 +185,10 @@ private final class EmbyFixture: URLProtocol {
             if query["StartIndex"] == "1" {
                 return (200, #"{"Items":[{"Id":"movie-b","Name":"Two","Type":"Movie"}],"TotalRecordCount":2}"#, [:])
             }
+        case "/emby/Items/movie-a/Images/Primary":
+            guard query["MaxWidth"] == "342", query["MaxHeight"] == "684", query["Format"] == "Jpg",
+                  request.value(forHTTPHeaderField: "Accept") == "image/jpeg" else { return failure }
+            return (200, "fixture-jpeg", ["Content-Type": "image/jpeg"])
         case "/emby/Items/movie-a/PlaybackInfo":
             guard query["UserId"] == "viewer" else { return failure }
             return (200, #"{"PlaySessionId":"fixture-session","MediaSources":[{"Id":"fixture-source","Container":"mp4","SupportsDirectPlay":true,"MediaStreams":[{"Type":"Subtitle","Index":3,"IsTextSubtitleStream":true,"IsExternal":true,"Language":"eng","DisplayTitle":"English (SRT)"},{"Type":"Subtitle","Index":4,"IsTextSubtitleStream":false,"IsExternal":true}]}]}"#, [:])
