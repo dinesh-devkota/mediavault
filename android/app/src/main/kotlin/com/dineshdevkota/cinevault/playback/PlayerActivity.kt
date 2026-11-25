@@ -638,7 +638,9 @@ class PlayerActivity : ComponentActivity() {
                 if (!automatic) Toast.makeText(this@PlayerActivity, "Finding ${languageName(query.language)} subtitles…", Toast.LENGTH_SHORT).show()
                 val apiKey = withContext(Dispatchers.IO) { settings.subDlApiKey }
                 val results = SubDlClient().search(query, apiKey)
-                if (!subtitleRequestIsCurrent(request)) return@launch
+                if (!subtitleRequestIsCurrent(request)) {
+                    return@launch
+                }
                 if (results.isEmpty()) {
                     if (!automatic) showSubtitleError("No matching subtitles were found for this language.")
                     return@launch
