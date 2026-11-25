@@ -84,6 +84,31 @@ class JellyfinServerTest {
         }
     }
 
+    @Test fun loadsServerArtworkAndPhotosThroughScopedImageRequests() = runBlocking {
+        val password = System.getenv("MEDIAVAULT_JELLYFIN_FIXTURE_PASSWORD")
+        assumeTrue("Start the synthetic loopback Jellyfin fixture before this test.", !password.isNullOrEmpty())
+        val client = JellyfinClient("http://127.0.0.1:18096/", "mediavault-fixture-images", "1.0",
+            allowHttpForFixture = true)
+        val session = client.signIn("fixture", requireNotNull(password))
+        try {
+            val libraries = client.libraries(session)
+            for ((libraryName, kind) in listOf("Fixture Movies" to "Movie", "Fixture Photos" to "Photo")) {
+                val library = libraries.single { it.name == libraryName }
+                val items = mutableListOf<JellyfinItem>()
+                client.catalog(session, library.id) { items += it }
+                val imageItem = items.single { it.type == kind }
+                client.openImage(session, imageItem.id, JellyfinImage.Primary, 342).use { response ->
+                    assertEquals(200, response.code)
+                    val body = requireNotNull(response.body)
+                    assertEquals("image", body.contentType()?.type)
+                    assertTrue(body.source().request(16L))
+                }
+            }
+        } finally {
+            client.signOut(session)
+        }
+    }
+
     private fun firstMediaLink(playlist: String): String =
         playlist.lineSequence().map(String::trim).first { it.isNotEmpty() && !it.startsWith("#") }
 

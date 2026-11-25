@@ -30,6 +30,29 @@ internal fun jellyfinItemID(path: String): String? =
     path.takeIf { it.startsWith("jellyfin/") && it.endsWith(".mp4") }
         ?.removePrefix("jellyfin/")?.removeSuffix(".mp4")?.takeIf { DavAddress.safeComponent(it) }
 
+internal fun jellyfinPhotoID(path: String): String? =
+    path.takeIf { it.startsWith("jellyfin/") && it.endsWith(".jpg") }
+        ?.removePrefix("jellyfin/")?.removeSuffix(".jpg")?.takeIf { DavAddress.safeComponent(it) }
+
+private fun jellyfinPhoto(sourceId: String, item: JellyfinItem, old: MovieEntity?): MovieEntity? {
+    if (!DavAddress.safeComponent(item.id)) throw JellyfinException("Jellyfin returned an invalid item identifier.")
+    val title = item.name.trim().takeIf(String::isNotEmpty) ?: return null
+    val record = old ?: MovieEntity(
+        sourceId = sourceId, filePath = "jellyfin/${item.id}.jpg", fileName = "$title.jpg", fileSize = 0,
+        parsedTitle = title, parsedYear = item.year, title = title, year = item.year,
+    )
+    return record.copy(
+        fileName = "$title.jpg",
+        parsedTitle = title,
+        parsedYear = item.year,
+        title = if (record.isLocked) record.title else title,
+        sortTitle = if (record.isLocked) record.sortTitle else WatchRules.sortTitle(title),
+        year = if (record.isLocked) record.year else item.year,
+        metadataFetched = true,
+        isMissing = false,
+    )
+}
+
 internal fun jellyfinMovie(
     sourceId: String,
     item: JellyfinItem,
@@ -93,9 +116,11 @@ internal suspend fun importJellyfinLibrary(
         var total = 0
         var added = 0
         for (item in catalog) {
-            val path = "jellyfin/${item.id}.mp4"
+            val path = if (item.type == "Photo") "jellyfin/${item.id}.jpg" else "jellyfin/${item.id}.mp4"
             val prior = previous[path]
-            val result = jellyfinMovie(source.id, item, item.seriesId?.let { series[it] }, prior) ?: continue
+            val result = if (item.type == "Photo") jellyfinPhoto(source.id, item, prior)
+                else jellyfinMovie(source.id, item, item.seriesId?.let { series[it] }, prior)
+            if (result == null) continue
             previous.remove(path)
             if (prior == null) { dao.insert(result); added++ }
             else dao.update(result)

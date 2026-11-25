@@ -121,7 +121,7 @@ private fun JellyfinSetup(sourceId: String?, close: () -> Unit) {
         }.distinctBy { it.id }.filter { it.id.isNotBlank() }
         libraries = if (saved == null) available else available.filter { it.id == saved.share }
         if (libraries.isEmpty()) throw JellyfinException(
-            if (saved == null) "This account has no accessible video libraries."
+            if (saved == null) "This account has no accessible movie, TV or photo libraries."
             else "This account no longer has access to the saved Jellyfin library.")
         authorize()
         connection = JellyfinConnection(client, signedIn)

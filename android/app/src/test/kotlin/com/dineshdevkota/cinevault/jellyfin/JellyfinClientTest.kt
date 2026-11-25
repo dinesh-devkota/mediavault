@@ -73,6 +73,24 @@ class JellyfinClientTest {
         }
     }
 
+    @Test fun imageRequestsUseItemScopeAndKeepAuthorizationOutOfRedirects() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(json(account))
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/redirected"))
+            val client = fixture(server)
+            val session = client.signIn("viewer", "password")
+            client.openImage(session, "image-item", JellyfinImage.Primary, 342).use { response ->
+                assertEquals(302, response.code)
+            }
+            server.takeRequest()
+            val requested = server.takeRequest()
+            assertEquals("/jellyfin/Items/image-item/Images/Primary", requested.requestUrl?.encodedPath)
+            assertEquals(setOf("maxWidth", "maxHeight"), requested.requestUrl?.queryParameterNames)
+            assertTrue(requested.getHeader("Authorization").orEmpty().contains("fixture-token"))
+            assertEquals(2, server.requestCount)
+        }
+    }
+
     @Test fun repeatedCatalogIdsFailBeforePublishingTheInvalidPage() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(json(account))

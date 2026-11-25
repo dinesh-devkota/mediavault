@@ -104,19 +104,18 @@ enum class JellyfinPlaybackEvent(internal val route: String) {
     STOPPED("Sessions/Playing/Stopped"),
 }
 
+internal enum class JellyfinImage { Primary, Backdrop }
+
 /** Read-only catalog access and the associated account lifecycle. Tokens are scoped to one server. */
 class JellyfinClient(
     endpoint: String,
     private val deviceId: String,
     private val version: String,
     allowHttpForFixture: Boolean = false,
-    private val http: OkHttpClient = OkHttpClient.Builder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .callTimeout(35, TimeUnit.SECONDS)
-        .build(),
+    http: OkHttpClient = defaultHttp,
 ) {
+    private val http = if (!http.followRedirects && !http.followSslRedirects) http
+        else http.newBuilder().followRedirects(false).followSslRedirects(false).build()
     private val address = DavAddress(endpoint, allowHttpForFixture)
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -272,6 +271,19 @@ class JellyfinClient(
             .addQueryParameter("maxWidth", width.toString()).build()
     }
 
+    internal fun openImage(
+        session: JellyfinSession, itemId: String, image: JellyfinImage, edge: Int,
+    ): okhttp3.Response {
+        require(edge in 1..4096)
+        val url = urlFor("Items", itemId, "Images", image.name).newBuilder()
+            .addQueryParameter("maxWidth", edge.toString())
+            .addQueryParameter("maxHeight", edge.toString())
+            .build()
+        // Deriving the item route locally ensures callers never supply arbitrary asset URLs.
+        val request = assetRequest(session, url)
+        return http.newCall(request).execute()
+    }
+
     /** Pass this on every asset and HLS segment request. Never forward it through a redirect. */
     fun assetRequest(session: JellyfinSession, url: HttpUrl): Request {
         if (url.queryParameterNames.any { it.equals("api_key", ignoreCase = true) } || !isScoped(url)) {
@@ -371,6 +383,10 @@ class JellyfinClient(
     }
 
     private companion object {
+        val defaultHttp = OkHttpClient.Builder()
+            .followRedirects(false).followSslRedirects(false)
+            .connectTimeout(12, TimeUnit.SECONDS).callTimeout(35, TimeUnit.SECONDS)
+            .build()
         val GUID = Regex("(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})")
         val HEADER_VALUE = Regex("[A-Za-z0-9_.-]{1,128}")
         const val PAGE_SIZE = 100
