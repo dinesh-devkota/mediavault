@@ -68,23 +68,29 @@ def format_fixtures(root: Path) -> None:
     if not ffmpeg:
         raise RuntimeError("The playback fixture requires ffmpeg. Install it before starting the test NAS.")
     configurations = [
-        ("Feature.mkv", ["-c", "copy"]),
+        ("Feature.mkv", ["-c:v", "copy", "-c:a", "aac"]),
         ("Feature.avi", ["-c:v", "mpeg4", "-q:v", "8", "-c:a", "libmp3lame"]),
         ("Feature.webm", ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-c:a", "libopus"]),
     ]
     for name, codecs in configurations:
         subprocess.run([ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-                        "-i", str(SAMPLES / "playback.mp4"), *codecs, str(root / name)],
+                        "-i", str(SAMPLES / "playback.mp4"),
+                        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=12",
+                        "-map", "0:v:0", "-map", "1:a:0", "-t", "12",
+                        *codecs, str(root / name)],
                        check=True, timeout=60)
     (root / "Feature.en.srt").write_text(
         "1\n00:00:00,500 --> 00:00:05,000\nA subtitle for the broader player.\n\n"
         "2\n00:00:05,500 --> 00:00:11,500\nA caption after seeking.\n", encoding="utf-8")
     # A longer clip leaves time to exercise actual phone/remote controls. The
-    # duplicate audio tracks are synthetic test signals, tagged for selection.
+    # audio tracks are synthetic test signals, tagged for selection. The source
+    # MP4 contains video only; audio must be generated rather than copied.
     subprocess.run([
         ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-        "-stream_loop", "-1", "-i", str(SAMPLES / "playback.mp4"), "-t", "60",
-        "-map", "0:v:0", "-map", "0:a:0", "-map", "0:a:0", "-c", "copy",
+        "-stream_loop", "-1", "-i", str(SAMPLES / "playback.mp4"),
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=60",
+        "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000:duration=60", "-t", "60",
+        "-map", "0:v:0", "-map", "1:a:0", "-map", "2:a:0", "-c:v", "copy", "-c:a", "aac",
         "-metadata:s:a:0", "language=eng", "-metadata:s:a:0", "title=English fixture",
         "-metadata:s:a:1", "language=spa", "-metadata:s:a:1", "title=Spanish fixture",
         str(root / "Controls.mkv"),

@@ -56,7 +56,8 @@ jobs:
           python scripts/nas_fixture.py "$RUNNER_TEMP/phone-nas" >"$RUNNER_TEMP/phone-nas.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/phone-nas.pid"
           python - <<'PY'
-          import socket, time
+          import os, socket, time
+          from pathlib import Path
           for attempt in range(30):
               try:
                   with socket.create_connection(("127.0.0.1", 1445), timeout=1):
@@ -64,6 +65,7 @@ jobs:
               except OSError:
                   time.sleep(1)
           else:
+              print((Path(os.environ["RUNNER_TEMP"]) / "phone-nas.log").read_text())
               raise SystemExit("SMB fixture did not start")
           PY
       - name: Exercise the phone launcher, setup and player
@@ -85,6 +87,7 @@ jobs:
             android/app/build/outputs/androidTest-results/
             android/app/build/reports/androidTests/
             android/app/build/phone-screenshots/
+            ${{ runner.temp }}/phone-nas.log
           if-no-files-found: warn
       - name: Stop synthetic SMB fixture
         if: always()

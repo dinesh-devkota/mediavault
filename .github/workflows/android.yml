@@ -106,7 +106,8 @@ jobs:
           echo "$!" > "$RUNNER_TEMP/android-nas-fixture.pid"
           bash scripts/start_webdav_fixture.sh "$RUNNER_TEMP/android-webdav-fixture"
           python - <<'PY'
-          import socket, time
+          import os, socket, time
+          from pathlib import Path
           for attempt in range(30):
               try:
                   with socket.create_connection(("127.0.0.1", 1445), timeout=1):
@@ -114,6 +115,7 @@ jobs:
               except OSError:
                   time.sleep(1)
           else:
+              print((Path(os.environ["RUNNER_TEMP"]) / "android-nas-fixture.log").read_text())
               raise SystemExit("SMB fixture did not start")
           PY
       - name: Test on Android TV
