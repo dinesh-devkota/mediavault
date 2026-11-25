@@ -21,6 +21,7 @@
 #include <apmf/process.h>
 #include <apmf/ptr.h>
 #include <stdexcept>
+#include <syslog.h>
 
 namespace mediavault {
 namespace crypto = apmf::iface::com::amazon::kepler::crypto;
@@ -28,6 +29,23 @@ namespace keystore = apmf::iface::com::amazon::kepler::keystore;
 namespace filesystem = apmf::iface::com::amazon::kepler::file_system;
 namespace security = apmf::iface::com::amazon::kepler::security;
 namespace {
+template <typename Operation>
+auto storageStep(const char *code, const char *stage, Operation &&operation)
+    -> decltype(operation()) {
+  try {
+    return operation();
+  } catch (const UserError &) {
+    throw;
+  } catch (...) {
+    // Only fixed labels are logged: SDK exceptions may contain credentials or
+    // encrypted record contents, so never forward their text across the bridge.
+    syslog(LOG_ERR, "MediaVault protected storage failed: %s (%s)", stage,
+           code);
+    throw UserError(
+        std::string("Protected settings are unavailable. Try again. (") + code +
+        ")");
+  }
+}
 std::string recordPrefix(const std::string &id) {
   const char *hex = "0123456789abcdef";
   std::string encoded;
@@ -48,31 +66,49 @@ struct Vault::Impl {
   apmf::Ptr<filesystem::IFileSystem> files;
   std::mutex mutex;
   Impl() {
-    auto process = apmf::GetProcessObject();
-    crypto = process->getComponent("/com.amazon.kepler.crypto")
-                 .QueryInterface<crypto::ICrypto>();
-    auto principal = process->getComponent("/com.amazon.kepler.security")
-                         .QueryInterface<security::IKeplerSecurityModule>()
-                         ->getCurrentContextCredential();
-    store = process->getComponent("/com.amazon.kepler.keystore")
-                .QueryInterface<keystore::IKeystoreModule>()
-                ->getMostSecurePrivateKeystore(principal);
-    files = process->getComponent("/com.amazon.kepler.file_system")
-                .QueryInterface<filesystem::IFileSystems>()
-                ->getDefault();
+    auto process =
+        storageStep("MV01", "process", [] { return apmf::GetProcessObject(); });
+    crypto = storageStep("MV02", "crypto interface", [&] {
+      return process->getComponent("/com.amazon.kepler.crypto")
+          .QueryInterface<crypto::ICrypto>();
+    });
+    auto securityModule = storageStep("MV03", "security interface", [&] {
+      return process->getComponent("/com.amazon.kepler.security")
+          .QueryInterface<security::IKeplerSecurityModule>();
+    });
+    auto principal = storageStep("MV04", "current security context", [&] {
+      return securityModule->getCurrentContextCredential();
+    });
+    auto keystoreModule = storageStep("MV05", "keystore interface", [&] {
+      return process->getComponent("/com.amazon.kepler.keystore")
+          .QueryInterface<keystore::IKeystoreModule>();
+    });
+    store = storageStep("MV06", "private keystore", [&] {
+      return keystoreModule->getMostSecurePrivateKeystore(principal);
+    });
+    auto fileSystems = storageStep("MV07", "filesystem interface", [&] {
+      return process->getComponent("/com.amazon.kepler.file_system")
+          .QueryInterface<filesystem::IFileSystems>();
+    });
+    files = storageStep("MV08", "private filesystem",
+                        [&] { return fileSystems->getDefault(); });
     const std::string name = "mediavault.credential-encryption.v1";
-    for (const auto &candidate : store->getAllKeys()) {
-      if (candidate->getName() == name) {
-        key = candidate.QueryInterface<crypto::ISymmetricKey>();
-        break;
+    storageStep("MV09", "existing encryption keys", [&] {
+      for (const auto &candidate : store->getAllKeys()) {
+        if (candidate->getName() == name) {
+          key = candidate.QueryInterface<crypto::ISymmetricKey>();
+          break;
+        }
       }
-    }
+    });
   }
   void requireKey(bool allowCreation) {
     if (key)
       return;
     bool encryptedDataExists = false;
-    for (const auto &entry : files->getEntries("/data")) {
+    for (const auto &entry :
+         storageStep("MV10", "protected record directory",
+                     [&] { return files->getEntries("/data"); })) {
       std::string name(entry->getName());
       if (name.compare(0, 18, "mediavault-secret-") == 0) {
         encryptedDataExists = true;
@@ -94,7 +130,9 @@ struct Vault::Impl {
   std::vector<std::string> paths(const std::string &id) {
     const auto prefix = recordPrefix(id);
     std::vector<std::string> result;
-    for (const auto &entry : files->getEntries("/data")) {
+    for (const auto &entry :
+         storageStep("MV10", "protected record directory",
+                     [&] { return files->getEntries("/data"); })) {
       std::string name(entry->getName());
       if (name.compare(0, prefix.size(), prefix) == 0) {
         const auto metadata = entry->getMetadata(true);

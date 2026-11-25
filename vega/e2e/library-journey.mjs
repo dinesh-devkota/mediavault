@@ -97,6 +97,10 @@ try {
   session = created.sessionId;
   assert(session, 'Appium must return a real device session.');
   await step('01-connect-and-scan', async () => {
+    await waitFor(async () => {
+      if (await exists(byID('startup-error'))) { throw new Error('Library startup failed: ' + await text('startup-error')); }
+      return exists(byID('action-sources'));
+    }, 'The protected library did not finish opening.');
     await addSource('Fixture NAS', endpoint); await element(byID(feature)); await element(byID(sequel));
     assert.equal((await call('POST', '/elements', {using: 'xpath', value: '//*[starts-with(@test_id,"media-group-")]'})).length, 5,
       'Five visible grouped titles: two movies, one show, one invalid-metadata movie, one standalone photo. Sidecar artwork must be suppressed.');

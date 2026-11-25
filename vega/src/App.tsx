@@ -33,6 +33,7 @@ export const App = () => {
   const [routes, setRoutes] = useState<Route[]>([{page: 'home'}]);
   const route = routes[routes.length - 1]!;
   const [error, setError] = useState<string>();
+  const [initializationAttempt, setInitializationAttempt] = useState(0);
   const [busy, setBusy] = useState<string>();
   const [query, setQuery] = useState('');
   const [sections, setSections] = useState<MediaKind[]>([]);
@@ -89,9 +90,9 @@ export const App = () => {
       if (value.profiles.length === 1 && !value.profiles[0]!.pinReference) {
         profileRef.current = value.profiles[0]!.id; setProfileId(profileRef.current); unlockedRef.current = true; setUnlocked(true);
       } else { setRoutes([{page: 'profiles'}]); }
-    }).catch(report);
+    }).catch(reason => { if (active) { report(reason); } });
     return () => { active = false; scanAbort.current?.abort(); void platformServices.revokeAll(); };
-  }, [report]);
+  }, [initializationAttempt, report]);
   useEffect(() => {
     const handle = BackHandler.addEventListener('hardwareBackPress', () => { if (routes.length > 1) { back(); return true; } return false; });
     return () => handle.remove();
@@ -179,7 +180,10 @@ export const App = () => {
       navigate({page: 'ignored', id: value.id, folder});
     } catch (reason) { report(reason); } finally { setBusy(undefined); }
   };
-  if (!library) { return <View style={shared.page}><Text style={shared.title}>MediaVault</Text><Text style={error ? shared.error : shared.subtitle}>{error ?? 'Opening your library…'}</Text></View>; }
+  if (!library) { return <View style={shared.page}><Text style={shared.title}>MediaVault</Text>
+    <Text style={error ? shared.error : shared.subtitle} testID={error ? 'startup-error' : 'startup-status'}>{error ?? 'Opening your library…'}</Text>
+    {error && <Action label="Try again" preferred testID="startup-retry" onPress={() => { setError(undefined); setInitializationAttempt(value => value + 1); }}/ >}
+  </View>; }
   if (route.page === 'player' && item) {
     const token = session, next = nextEpisode(item, available), currentSource = library.sources.find(value => value.id === item.sourceId)!;
     return <Player key={`${session}|${item.id}`} item={item} resume={personal.viewing[item.id]} next={next}
