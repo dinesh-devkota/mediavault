@@ -168,9 +168,10 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   Emby source entry, catalog and range validation, and household photo access.
   Authenticated Android HLS passed rendering and seek and has been ported into
   the draft. Its combined Android TV suite passed 97 tests with zero failures
-  or skips. Integration against current development and Apple TV transcoding
-  are still open.
+  or skips. The port to current development has separate hosted checks.
+  Apple TV transcoding remains open.
   [Emby](https://github.com/dinesh-devkota/mediavault/pull/3)
+  · [Current development port](https://github.com/dinesh-devkota/mediavault/pull/17)
   · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45680172178)
   · [Apple build](https://github.com/dinesh-devkota/mediavault/actions/runs/45678384113)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45678390628)
@@ -216,7 +217,7 @@ submission also needs a signed archive built with Apple's current SDK,
 physical-device validation, active Apple Developer membership and current
 provider approvals. Apple decides approval. The public tvOS release checkpoint
 passed on the current SDK and verified the bundled privacy manifest and policy.
-[Apple release build](https://github.com/dinesh-devkota/mediavault/actions/runs/45671952006/job/139409305009)
+[Apple release build with merged Jellyfin](https://github.com/dinesh-devkota/mediavault/actions/runs/45681021201)
 · [Privacy and release readiness PR](https://github.com/dinesh-devkota/mediavault/pull/14)
 
 - Give reviewers a reachable, dedicated test service with temporary least-
