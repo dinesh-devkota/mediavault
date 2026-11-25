@@ -73,18 +73,7 @@ final class MediaVaultPhoneTests: XCTestCase {
         XCTAssertTrue(sources.waitForExistence(timeout: 10))
         let editorClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: save)
         XCTAssertEqual(XCTWaiter.wait(for: [editorClosed], timeout: 10), .completed)
-        dismissFixturePasswordPrompt(app)
-        let library = app.tabBars.buttons["Library"]
-        XCTAssertTrue(library.isHittable)
-        library.tap()
-        if dismissFixturePasswordPrompt(app), !library.isSelected {
-            // The system can present its password sheet in response to the first
-            // navigation tap. Only resume that observed interrupted action.
-            XCTAssertTrue(library.isHittable)
-            library.tap()
-        }
-        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: library)
-        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed, app.debugDescription)
+        selectLibraryAfterFixtureImport(app)
         capture("Library after authenticated WebDAV import", app)
         let poster = app.buttons["Film"]
         XCTAssertTrue(poster.waitForExistence(timeout: 10), app.debugDescription)
@@ -96,18 +85,53 @@ final class MediaVaultPhoneTests: XCTestCase {
         capture("Imported WebDAV movie opens its playback details", app)
     }
 
-    @MainActor @discardableResult
-    private func dismissFixturePasswordPrompt(_ app: XCUIApplication) -> Bool {
-        // iOS may offer to save the synthetic WebDAV credentials after the form
-        // closes. Keep that normal product behavior; decline only in this test.
+    @MainActor
+    private func selectLibraryAfterFixtureImport(_ app: XCUIApplication) {
+        let library = app.tabBars.buttons["Library"]
         let prompt = app.sheets["Save Password?"]
-        guard prompt.waitForExistence(timeout: 3) else { return false }
-        let notNow = prompt.buttons["Not Now"]
-        XCTAssertTrue(notNow.isHittable, app.debugDescription)
-        notNow.tap()
-        let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: prompt)
-        XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 5), .completed, app.debugDescription)
-        return true
+        // Use one navigation budget even if iOS begins presenting its password
+        // window before its sheet becomes accessible or after the first tap.
+        let deadline = Date().addingTimeInterval(10)
+        var needsTap = true
+        func waitFor(_ predicate: NSPredicate, object: Any? = nil) -> Bool {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            let expectation = XCTNSPredicateExpectation(predicate: predicate, object: object)
+            return XCTWaiter.wait(for: [expectation], timeout: remaining) == .completed
+        }
+        while true {
+            let ready = NSPredicate { _, _ in
+                prompt.exists || library.isSelected || (needsTap && library.isHittable)
+            }
+            guard waitFor(ready) else {
+                capture("Library navigation did not become actionable", app)
+                XCTFail("Library did not become actionable or selected within the navigation budget.")
+                return
+            }
+            if prompt.exists {
+                // Decline only the observed system offer for synthetic credentials.
+                let notNow = prompt.buttons["Not Now"]
+                guard waitFor(NSPredicate(format: "hittable == true"), object: notNow) else {
+                    capture("Password prompt did not become actionable", app)
+                    XCTFail("The observed password prompt did not expose its Not Now action.")
+                    return
+                }
+                notNow.tap()
+                guard waitFor(NSPredicate(format: "exists == false"), object: prompt) else {
+                    capture("Password prompt did not close", app)
+                    XCTFail("The observed password prompt did not close.")
+                    return
+                }
+                // A second tab tap is allowed only after this actual interruption.
+                needsTap = !library.isSelected
+            } else if library.isSelected {
+                return
+            } else {
+                XCTAssertTrue(needsTap && library.isHittable, app.debugDescription)
+                library.tap()
+                needsTap = false
+            }
+        }
     }
 
     @MainActor private func capture(_ name: String, _ app: XCUIApplication) {
