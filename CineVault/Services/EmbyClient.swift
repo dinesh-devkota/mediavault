@@ -71,7 +71,7 @@ struct EmbyClient: Sendable {
             throw EmbyError.invalidEndpoint
         }
         self.endpoint = address
-        identity = "MediaBrowser Client=\"MediaVault\", Device=\"Apple TV\", DeviceId=\"\(deviceID)\", Version=\"\(appVersion)\""
+        identity = "Emby Client=\"MediaVault\", Device=\"Apple TV\", DeviceId=\"\(deviceID)\", Version=\"\(appVersion)\""
     }
 
     func signIn(username: String, password: String) async throws -> Account {
@@ -130,7 +130,7 @@ struct EmbyClient: Sendable {
         if !query.isEmpty { components.queryItems = query }
         guard let target = components.url else { throw EmbyError.invalidEndpoint }
         var request = URLRequest(url: target)
-        request.setValue(identity, forHTTPHeaderField: "X-Emby-Authorization")
+        request.setValue(identity, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let account {
             guard Self.headerValue(account.AccessToken) else { throw EmbyError.invalidResponse }
