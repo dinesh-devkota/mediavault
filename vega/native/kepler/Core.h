@@ -17,6 +17,10 @@ class UserError : public std::runtime_error {
 public:
   using std::runtime_error::runtime_error;
 };
+class ResponseLimitError : public UserError {
+public:
+  using UserError::UserError;
+};
 std::string safeID(const std::string &value);
 std::string safePath(const std::string &value);
 bool contains(const std::string &path, const std::string &root,
@@ -48,6 +52,11 @@ struct Source {
   JSON serialized() const;
   static Source parse(const JSON &json);
   void authorize(const std::string &path, bool listing = false) const;
+  void authorizeJellyfinCatalog(const std::string &path,
+                                const std::string &method,
+                                const JSON &query) const;
+  void authorizeJellyfinResource(const std::string &path, bool image,
+                                 const JSON &query) const;
 };
 
 struct HTTPResult {
@@ -57,9 +66,11 @@ struct HTTPResult {
 };
 HTTPResult http(const Source &source, const JSON &request,
                 const std::function<void()> &assertCurrent);
+std::string textResponse(const HTTPResult &result);
 class SMB {
 public:
-  explicit SMB(const Source &source);
+  explicit SMB(
+      const Source &source, const std::function<void()> &assertCurrent = [] {});
   ~SMB();
   JSON list(const std::string &path);
   JSON stat(const std::string &path);

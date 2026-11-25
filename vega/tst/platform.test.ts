@@ -2,6 +2,7 @@ import Native from '../src/native/MediaVaultNative';
 import {platformServices} from '../src/native/platform';
 import {itemFromFile} from '../src/domain/library';
 import {Source} from '../src/domain/model';
+import {InvalidTextFileError} from '../src/domain/metadata';
 
 jest.mock('../src/native/MediaVaultNative', () => ({__esModule: true, default: {
   request: jest.fn(), stat: jest.fn(), readRange: jest.fn(), acquirePlaybackTicket: jest.fn(), acquireImageTicket: jest.fn(),
@@ -42,6 +43,27 @@ describe('actual native facade contract', () => {
     expect(native.readRange).toHaveBeenCalledTimes(2);
     native.readRange.mockResolvedValue('eA==');
     await expect(platformServices.client({...source, kind: 'smb'}).readText('Movies/Film.srt', 2 * 1024 * 1024)).rejects.toThrow('changed');
+  });
+  it('distinguishes confirmed oversized and invalid UTF-8 sidecars from transport failures', async () => {
+    const client = platformServices.client({...source, kind: 'smb'});
+    native.stat.mockResolvedValue(JSON.stringify({size: 1025, directory: false}));
+    await expect(client.readText('Movies/Film.nfo', 1024)).rejects.toBeInstanceOf(InvalidTextFileError);
+    expect(native.readRange).not.toHaveBeenCalled();
+    native.stat.mockResolvedValue(JSON.stringify({size: 1, directory: false})); native.readRange.mockResolvedValue('/w==');
+    await expect(client.readText('Movies/Film.nfo', 1024)).rejects.toBeInstanceOf(InvalidTextFileError);
+    native.stat.mockRejectedValue(new Error('Network unavailable'));
+    await expect(client.readText('Movies/Film.nfo', 1024)).rejects.not.toBeInstanceOf(InvalidTextFileError);
+  });
+  it('maps only explicit native HTTP text failures to invalid sidecars', async () => {
+    const client = platformServices.client(source);
+    for (const code of ['text-too-large', 'invalid-utf8']) {
+      native.request.mockResolvedValue(JSON.stringify({error: {code}}));
+      await expect(client.readText('Movies/Film.nfo', 1024)).rejects.toBeInstanceOf(InvalidTextFileError);
+    }
+    native.request.mockRejectedValue(new Error('The request was cancelled.'));
+    await expect(client.readText('Movies/Film.nfo', 1024)).rejects.not.toBeInstanceOf(InvalidTextFileError);
+    native.request.mockResolvedValue(JSON.stringify({error: {code: 'unknown'}}));
+    await expect(client.readText('Movies/Film.nfo', 1024)).rejects.not.toBeInstanceOf(InvalidTextFileError);
   });
   it('releases a playback capability if cancellation arrives during acquisition', async () => {
     const cancel = new AbortController();

@@ -41,15 +41,20 @@ isolated Ubuntu host with pinned base images and a verified official installer.
 Source development includes SMB, WebDAV and Jellyfin, local metadata/artwork,
 profile-scoped collections, versions, photos, continuous viewing and protected
 source access. The native SMB/HTTP/credential bridge compiles against Amazon's
-real SDK. TypeScript checking, 22 app/contract tests and 27 native host regression
-tests pass. The first complete aarch64 debug VPKG also passes Amazon's manifest
+real SDK. TypeScript checking, 25 app/contract tests and 49 native host regression
+tests pass. The host suite exercises real SMB/HTTPS fixtures, including rejected
+credentials, cancellation, certificate verification and Jellyfin access boundaries.
+The first complete aarch64 debug VPKG also passes Amazon's manifest
 and binary-interface validation, with its Hermes interface bundle and both
 native libraries present. Runtime validation is still in progress; do not describe
 Vega as released or device-verified yet. Host tests do not exercise the device keystore.
 
-Initial real transport checks exposed a wrong-password timeout in the SMB
-library, which is being fixed; the other 39 initial transport/core cases passed.
-Do not distribute this checkpoint until that failure and VVD results are resolved.
+The SMB sign-in stall found by the negative-credential tests is fixed. Connection
+negotiation and authentication have a ten-second deadline and support cancellation;
+upstream system DNS resolution can still take longer. All three release architectures
+compiled in the initial cloud run. The build now selects the final VPKG explicitly
+instead of counting the SDK's staging copy twice. Virtual-device results remain
+required before distributing this checkpoint.
 
 The initial Vega app still lacks the existing Android/Apple apps' TMDB settings,
 SubDL downloads, automatic NAS discovery and editing an existing household profile.
@@ -76,7 +81,7 @@ then run `bash tools/vega/install-sdk.sh`. Run
 validates the package and verifies that both the native bridge and SMB shared
 library are present. It does not publish an app or configure an owner account.
 
-`.github/workflows/vega.yml` builds all three architectures and runs eight real
+`.github/workflows/vega.yml` builds all three architectures and runs ten real
 Appium journeys on a fresh virtual device. The runtime script refuses to attach
 to a physical TV or run outside the isolated cloud job. It forwards a synthetic
 loopback NAS explicitly; it does not scan the owner's network or use their media.

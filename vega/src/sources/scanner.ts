@@ -1,6 +1,6 @@
 import {CancellationSignal, DirectoryEntry, LocalMetadata, MediaItem, Source, SourceClient} from '../domain/model';
 import {ignored, itemFromFile} from '../domain/library';
-import {applyLocalMetadata, artworkCandidates, MAXIMUM_NFO_BYTES, metadataCandidates, parseNFO} from '../domain/metadata';
+import {applyLocalMetadata, artworkCandidates, InvalidTextFileError, MAXIMUM_NFO_BYTES, metadataCandidates, parseNFO} from '../domain/metadata';
 import {contains, joinPath, parentPath} from '../domain/paths';
 
 export interface ScanProgress { folders: number; files: number; directory: string }
@@ -53,7 +53,7 @@ export async function scanSource(source: Source, client: SourceClient, previous:
       pending = (async () => {
         let data: string;
         try { data = await client.readText(path, MAXIMUM_NFO_BYTES, signal); check(); }
-        catch { check(); return {unavailable: true}; }
+        catch (reason) { check(); return reason instanceof InvalidTextFileError ? {invalid: true} : {unavailable: true}; }
         try { return {info: parseNFO(data)}; } catch { return {invalid: true}; }
       })();
       sidecars.set(path, pending);

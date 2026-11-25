@@ -80,7 +80,10 @@ CASE(http_certificate_validation) {
 }
 CASE(http_limits) {
     auto source = server();
-    test::rejected([&] { fetch(source, request("oversized", "GET", 32)); });
+    bool sizeLimit = false;
+    try { fetch(source, request("oversized", "GET", 32)); }
+    catch (const ResponseLimitError&) { sizeLimit = true; }
+    CHECK(sizeLimit);
     test::rejected([&] { fetch(source, request("oversized-headers")); });
     test::rejected([&] { fetch(source, request("conflicting-headers")); });
     auto before = audit().size();
@@ -117,9 +120,25 @@ CASE(http_profile_expiry) {
     auto marker = environment("MEDIAVAULT_TEST_PROFILE_MARKER");
     CHECK(!std::ifstream(marker).good());
     unsigned checks = 0;
-    test::rejected([&] { http(server(), request("profile-expired"), [&] {
-        ++checks;
-        if (std::ifstream(marker).good()) throw UserError("Profile access expired");
-    }); });
+    bool cancelled = false;
+    try { http(server(), request("profile-expired", "GET", 0), [&] {
+            ++checks;
+            if (std::ifstream(marker).good()) throw UserError("Profile access expired");
+        }); }
+    catch (const ResponseLimitError&) { throw std::runtime_error("Cancellation must not become corrupt/oversized metadata"); }
+    catch (const UserError& error) { cancelled = std::string(error.what()) == "Profile access expired"; }
+    CHECK(cancelled);
     CHECK(std::ifstream(marker).good()); CHECK(checks > 1);
+}
+CASE(http_text_decoding) {
+    auto invalid = fetch(server(), request("invalid-utf8"));
+    CHECK(invalid.status == 200);
+    auto decoded = JSON::parse(textResponse(invalid));
+    CHECK(decoded.at("error").at("code") == "invalid-utf8"); CHECK(!decoded.contains("body"));
+    for (const Bytes& bytes : std::vector<Bytes>{{0xc0, 0xaf}, {0xed, 0xa0, 0x80}, {0xf4, 0x90, 0x80, 0x80}, {0xe2, 0x82}})
+        CHECK(JSON::parse(textResponse({200, bytes, {}})).at("error").at("code") == "invalid-utf8");
+    const std::string valid = u8"<title>Été 日本語</title>";
+    auto success = JSON::parse(textResponse({207, Bytes(valid.begin(), valid.end()), {{"content-type", "text/xml"}}}));
+    CHECK(success.at("status") == 207); CHECK(success.at("body") == valid);
+    CHECK(success.at("headers").at("content-type") == "text/xml");
 }

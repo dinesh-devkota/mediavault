@@ -1,5 +1,6 @@
 #include "Test.h"
 #include <cstdlib>
+#include <chrono>
 using namespace mediavault;
 
 namespace {
@@ -52,9 +53,31 @@ CASE(smb_unicode) {
 }
 CASE(smb_authentication) {
     auto bad = nas(); bad.password = "wrong-fixture-password";
+    auto started = std::chrono::steady_clock::now();
     test::rejected([&] { SMB denied(bad); });
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(12));
     bad = nas(); bad.username = "unknown-fixture-account";
+    started = std::chrono::steady_clock::now();
     test::rejected([&] { SMB denied(bad); });
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(12));
+    SMB valid(nas()); CHECK(valid.stat("Movies/Feature (2020)/bytes.bin").at("size") == 10);
+}
+CASE(smb_cancellation) {
+    auto bad = nas(); bad.password = "wrong-fixture-password";
+    const auto started = std::chrono::steady_clock::now();
+    unsigned checks = 0;
+    bool cancelled = false;
+    try {
+        SMB pending(bad, [&] {
+            ++checks;
+            if (std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(250))
+                throw UserError("Fixture profile changed");
+        });
+    } catch (const UserError& error) {
+        cancelled = std::string(error.what()) == "Fixture profile changed";
+    }
+    CHECK(cancelled); CHECK(checks > 1);
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(2));
     SMB valid(nas()); CHECK(valid.stat("Movies/Feature (2020)/bytes.bin").at("size") == 10);
 }
 CASE(smb_invalid_paths) {

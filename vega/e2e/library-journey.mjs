@@ -70,6 +70,10 @@ async function position() {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 async function capture(name) {
+  if (await exists('//*[starts-with(@test_id,"field-") and contains(@test_id,"pin")]') || await exists(byID('source-password'))) {
+    await writeFile(resolve(output, `${name}.capture-skipped.txt`), 'Visual and hierarchy evidence omitted while protected entry fields were on screen.');
+    return;
+  }
   const source = await call('GET', '/source');
   await writeFile(resolve(output, `${name}.xml`), source);
   const screenshot = await call('GET', '/screenshot');
@@ -78,7 +82,11 @@ async function capture(name) {
 async function step(name, run) {
   const started = Date.now();
   try { await run(); await capture(name); results.push({name, passed: true, durationMs: Date.now() - started}); }
-  catch (error) { results.push({name, passed: false, error: String(error), durationMs: Date.now() - started}); await capture(name + '-failure').catch(() => {}); throw error; }
+  catch (error) {
+    const sanitized = String(error).replace(/482619|000000|fixture-only/g, '[fixture credential]');
+    results.push({name, passed: false, error: sanitized, durationMs: Date.now() - started});
+    await capture(name + '-failure').catch(() => {}); throw new Error(sanitized);
+  }
 }
 const feature = 'media-group-tmdb:910001', sequel = 'media-group-tmdb:910002';
 try {
@@ -162,6 +170,33 @@ try {
     assert.equal(await exists(byID('action-sources')), false, 'A viewer cannot manage credentials or household permissions.');
     await click('action-collections');
     assert.equal(await exists(byID('action-movie-night-1-title')), false, 'Collections belong to the creating profile.');
+  });
+  await step('09-pin-rejection-and-unlock', async () => {
+    await click('action-back'); await click('action-kids'); await click('action-everyone-pin-protected');
+    await enter('field-profile-pin', '000000'); await click('action-continue');
+    await waitFor(async () => (await call('GET', '/source')).includes('That PIN did not match'), 'An incorrect PIN must be rejected.');
+    assert.equal(await exists(byID('library-grid')), false, 'Failed PIN entry must not reveal the library.');
+    await enter('field-profile-pin', '482619', '000000'); await click('action-continue');
+    await element(byID(feature));
+    await element(byID('action-sources'));
+    // Capture only after the app has cleared the PIN field and restored the library.
+  });
+  await step('10-keystore-and-source-persistence', async () => {
+    await call('POST', '/appium/device/terminate_app', {appId: 'com.dineshdevkota.cinevault'});
+    await call('POST', '/appium/device/activate_app', {appId: 'com.dineshdevkota.cinevault.main'});
+    await element(byID('action-everyone-pin-protected'));
+    assert.equal(await exists(byID('library-grid')), false, 'Restart must keep the protected household locked.');
+    await click('action-everyone-pin-protected'); await enter('field-profile-pin', '482619'); await click('action-continue');
+    await element(byID(feature)); await click('action-sources');
+    const scan = await element(byID('action-scan-fixture-nas'));
+    const before = await text('source-scan-Fixture NAS');
+    await click('action-scan-fixture-nas');
+    await waitFor(async () => !await call('GET', `/element/${scan}/enabled`), 'The saved NAS scan must begin.');
+    await waitFor(() => call('GET', `/element/${scan}/enabled`), 'The saved NAS scan must finish.', 120_000);
+    const after = await call('GET', '/source');
+    assert.notEqual(await text('source-scan-Fixture NAS'), before, 'The completed scan must update its saved timestamp.');
+    assert(!after.includes('Reconnect this source') && !after.includes('rejected this account'), 'Saved source credentials must still work.');
+    await click('action-back'); await element(byID(feature));
   });
 } finally {
   await writeFile(resolve(output, 'results.json'), JSON.stringify({executedOnDevice: Boolean(session), results}, null, 2));

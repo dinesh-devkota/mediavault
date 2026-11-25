@@ -89,6 +89,8 @@ def serve_tls(folder: Path, certificate: str, audit: Path, marker: Path, capture
                 return self.reply(302, headers={"Location": f"{scheme}://localhost:{self.server.capture_port}/capture"})
             if path == "/media/oversized":
                 return self.reply(200, b"a" * 65536)
+            if path == "/media/invalid-utf8":
+                return self.reply(200, b"<movie><title>\xff\xc0\xaf</title></movie>")
             if path == "/media/oversized-headers":
                 return self.reply(200, b"", {"X-Too-Large": "a" * 40000})
             if path == "/media/conflicting-headers":

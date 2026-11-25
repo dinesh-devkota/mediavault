@@ -72,7 +72,7 @@ jobs:
         with:
           name: vega-${{ matrix.target }}
           path: |
-            vega/build/**/*.vpkg
+            vega/build/*-release/*.vpkg
             vega/build/evidence/
             vega/THIRD-PARTY-NOTICES.md
             vega/licenses/

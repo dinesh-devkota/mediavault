@@ -2,6 +2,7 @@ schema-version = 1
 
 [package]
 title = "MediaVault"
+icon = "@image/mediavault.png"
 version = "1.5.0"
 # Floor so local builds pass vpt validate; pass an increasing --build-number for every Appstore upload.
 build-number = 7

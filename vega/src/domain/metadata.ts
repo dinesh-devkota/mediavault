@@ -4,6 +4,10 @@ import {itemFromFile} from './library';
 import {joinPath, parentPath, stem} from './paths';
 
 export const MAXIMUM_NFO_BYTES = 1024 * 1024;
+/** A present sidecar is confirmed unreadable as text; unlike network failure, its rating cannot be trusted. */
+export class InvalidTextFileError extends Error {
+  constructor(message: string) { super(message); this.name = 'InvalidTextFileError'; }
+}
 export function utf8Length(input: string): number {
   let bytes = 0;
   for (const character of input) {

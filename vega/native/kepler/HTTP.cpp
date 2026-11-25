@@ -4,6 +4,7 @@
 #include <cctype>
 #include <curl/curl.h>
 #include <stdexcept>
+#include <utf8proc.h>
 
 namespace mediavault {
 namespace {
@@ -12,13 +13,14 @@ struct Transfer {
   size_t limit = 0, headerBytes = 0;
   std::function<void()> check;
   bool invalid = false;
+  bool sizeExceeded = false;
 };
 size_t bodyCallback(char *bytes, size_t size, size_t count, void *opaque) {
   auto &t = *static_cast<Transfer *>(opaque);
   try {
     t.check();
     if (size && count > (t.limit - t.result.body.size()) / size) {
-      t.invalid = true;
+      t.sizeExceeded = true;
       return 0;
     }
     t.result.body.insert(t.result.body.end(), bytes, bytes + size * count);
@@ -220,6 +222,9 @@ HTTPResult http(const Source &source, const JSON &request,
   curl_easy_setopt(handle.get(), CURLOPT_XFERINFODATA, &t);
   auto result = curl_easy_perform(handle.get());
   assertCurrent();
+  if (t.sizeExceeded)
+    throw ResponseLimitError(
+        "The server text or media file exceeds the supported size limit.");
   if (result != CURLE_OK || t.invalid)
     throw UserError("The secure server request failed or exceeded its limit. "
                     "Check its address and certificate.");
@@ -230,5 +235,24 @@ HTTPResult http(const Source &source, const JSON &request,
     throw UserError("Enter the final server address. Redirects are blocked to "
                     "protect your sign-in.");
   return std::move(t.result);
+}
+std::string textResponse(const HTTPResult &result) {
+  size_t offset = 0;
+  while (offset < result.body.size()) {
+    utf8proc_int32_t codepoint = 0;
+    const auto size = utf8proc_iterate(result.body.data() + offset,
+                                       result.body.size() - offset, &codepoint);
+    if (size <= 0)
+      return JSON{
+          {"error",
+           {{"code", "invalid-utf8"},
+            {"message", "This metadata or subtitle file is not valid UTF-8."}}}}
+          .dump();
+    offset += static_cast<size_t>(size);
+  }
+  return JSON{{"status", result.status},
+              {"body", std::string(result.body.begin(), result.body.end())},
+              {"headers", result.headers}}
+      .dump();
 }
 } // namespace mediavault

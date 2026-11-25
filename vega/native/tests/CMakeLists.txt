@@ -24,7 +24,7 @@ FetchContent_Declare(utf8proc URL https://github.com/JuliaStrings/utf8proc/relea
   URL_HASH SHA256=a393fbef160835fb315bc3e91ba8d86f7a73a7cec9e6198b6c60b848b498bfeb)
 FetchContent_MakeAvailable(utf8proc)
 
-add_executable(mediavault_native_tests TestMain.cpp PathTests.cpp KeyPolicyTests.cpp RelayTests.cpp
+add_executable(mediavault_native_tests TestMain.cpp PathTests.cpp KeyPolicyTests.cpp JellyfinPolicyTests.cpp RelayTests.cpp
   ../kepler/Path.cpp ../kepler/Relay.cpp)
 target_include_directories(mediavault_native_tests PRIVATE ../kepler)
 target_link_libraries(mediavault_native_tests PRIVATE mbedcrypto utf8proc nlohmann_json::nlohmann_json Threads::Threads)
@@ -34,6 +34,8 @@ enable_testing()
 foreach(test IN ITEMS
   path_identifiers path_traversal path_encoding source_boundaries source_unicode_aliases source_parse_limits
   key_existing key_missing_read key_missing_records key_fresh_save key_creation_failure
+  jellyfin_catalog_allowed jellyfin_catalog_scope jellyfin_catalog_parameters
+  jellyfin_resources_allowed jellyfin_resource_routes jellyfin_resource_parameters
   relay_get_head relay_ranges relay_invalid_ranges relay_invalid_requests relay_resource_limits
   relay_ticket_isolation relay_read_bounds relay_chunk_bounds relay_permission_before_read relay_permission_after_size
   relay_permission_after_read relay_revoke_blocked_read relay_replace_blocked_read relay_revoke_all
@@ -89,9 +91,9 @@ if(MEDIAVAULT_NATIVE_INTEGRATION)
   target_sources(mediavault_native_tests PRIVATE SMBTests.cpp HTTPTests.cpp ../kepler/SMB.cpp ../kepler/HTTP.cpp)
   target_include_directories(mediavault_native_tests PRIVATE "${smb2_SOURCE_DIR}/include" "${CMAKE_CURRENT_BINARY_DIR}/fixture")
   target_link_libraries(mediavault_native_tests PRIVATE smb2 CURL::libcurl)
-  foreach(test IN ITEMS smb_list_stat smb_ranges smb_unicode smb_authentication smb_invalid_paths
+  foreach(test IN ITEMS smb_list_stat smb_ranges smb_unicode smb_authentication smb_cancellation smb_invalid_paths
       http_get_head_range http_unicode_query http_authentication http_redirect_credentials
-      http_certificate_validation http_limits http_untrusted_input http_profile_expiry)
+      http_certificate_validation http_limits http_untrusted_input http_profile_expiry http_text_decoding)
     add_test(NAME ${test} COMMAND mediavault_native_tests ${test})
     set_tests_properties(${test} PROPERTIES TIMEOUT 30 LABELS integration)
   endforeach()

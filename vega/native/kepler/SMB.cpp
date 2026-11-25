@@ -1,6 +1,9 @@
 #include "Core.h"
+#include <cerrno>
+#include <chrono>
 #include <curl/curl.h>
 #include <fcntl.h>
+#include <poll.h>
 // libsmb2.h uses types declared by smb2.h.
 // clang-format off
 #include <smb2/smb2.h>
@@ -21,6 +24,8 @@ std::string component(CURLU *url, CURLUPart part, unsigned flags = 0) {
 } // namespace
 struct SMB::Impl {
   smb2_context *ctx = nullptr;
+  bool connected = false;
+  int connectionStatus = -1;
   std::mutex mutex;
   ~Impl() {
     if (ctx)
@@ -44,7 +49,9 @@ struct SMB::Impl {
     } while (true);
   }
 };
-SMB::SMB(const Source &source) : impl(std::make_unique<Impl>()) {
+SMB::SMB(const Source &source, const std::function<void()> &assertCurrent)
+    : impl(std::make_unique<Impl>()) {
+  assertCurrent();
   std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> url(curl_url(),
                                                           curl_url_cleanup);
   if (!url ||
@@ -76,10 +83,42 @@ SMB::SMB(const Source &source) : impl(std::make_unique<Impl>()) {
   smb2_set_sign(impl->ctx, 1);
   smb2_set_user(impl->ctx, source.username.c_str());
   smb2_set_password(impl->ctx, source.password.c_str());
-  if (smb2_connect_share(impl->ctx, host.c_str(), share.c_str(),
-                         source.username.c_str()) != 0)
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  const auto complete = [](smb2_context *, int status, void *, void *opaque) {
+    auto &state = *static_cast<Impl *>(opaque);
+    state.connectionStatus = status;
+    state.connected = true;
+  };
+  if (smb2_connect_share_async(impl->ctx, host.c_str(), share.c_str(),
+                               source.username.c_str(), complete,
+                               impl.get()) != 0)
     throw UserError(
         "Could not connect to this NAS. Check the address, share and sign-in.");
+  // The upstream synchronous waiter can remain in poll after rejected
+  // authentication without an outstanding PDU to expire. Own the whole
+  // connection deadline and service cancellation between short polls.
+  while (!impl->connected) {
+    assertCurrent();
+    if (std::chrono::steady_clock::now() >= deadline)
+      throw UserError("The NAS sign-in timed out. Check the address, share and "
+                      "credentials.");
+    pollfd descriptor{smb2_get_fd(impl->ctx),
+                      static_cast<short>(smb2_which_events(impl->ctx)), 0};
+    if (::poll(&descriptor, 1, 100) < 0) {
+      if (errno == EINTR)
+        continue;
+      throw UserError("The NAS connection could not be checked.");
+    }
+    assertCurrent();
+    if (smb2_service(impl->ctx, descriptor.revents) < 0)
+      throw UserError(
+          "The NAS connection was rejected. Check the share and sign-in.");
+  }
+  assertCurrent();
+  if (impl->connectionStatus != 0)
+    throw UserError(
+        "The NAS rejected this sign-in or share. Check your credentials.");
 }
 SMB::~SMB() = default;
 JSON SMB::list(const std::string &path) {

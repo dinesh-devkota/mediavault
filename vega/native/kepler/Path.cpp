@@ -164,4 +164,56 @@ void Source::authorize(const std::string &path, bool listing) const {
       if (candidate == normalized(file))
         throw UserError("This file is excluded.");
 }
+void Source::authorizeJellyfinCatalog(const std::string &path,
+                                      const std::string &method,
+                                      const JSON &query) const {
+  if (kind != "jellyfin" || userID.empty() || method != "GET" ||
+      safePath(path) != "Users/" + safeID(userID) + "/Items" ||
+      !query.is_object())
+    throw UserError("Use the protected Jellyfin library browser.");
+  for (auto it = query.begin(); it != query.end(); ++it) {
+    const std::string fields[] = {
+        "Recursive", "IncludeItemTypes", "Fields",    "StartIndex",
+        "Limit",     "SortBy",           "SortOrder", "ParentId"};
+    if (std::find(std::begin(fields), std::end(fields), it.key()) ==
+            std::end(fields) ||
+        !it.value().is_string() ||
+        it.value().get_ref<const std::string &>().size() > 4096)
+      throw UserError("Unsupported Jellyfin library parameters.");
+  }
+  if (!root.empty() && query.value("ParentId", "") != safeID(root))
+    throw UserError("This request is outside the selected Jellyfin library.");
+}
+void Source::authorizeJellyfinResource(const std::string &path, bool image,
+                                       const JSON &query) const {
+  safePath(path);
+  if (kind != "jellyfin" || userID.empty() || !query.is_object())
+    throw UserError("Use a protected Jellyfin media item.");
+  const auto prefix = image ? std::string("Items/")
+                      : path.compare(0, 7, "Videos/") == 0
+                          ? std::string("Videos/")
+                          : std::string("Audio/");
+  const auto suffix =
+      image ? std::string("/Images/Primary") : std::string("/stream");
+  if (path.size() <= prefix.size() + suffix.size() ||
+      path.compare(0, prefix.size(), prefix) != 0 ||
+      path.compare(path.size() - suffix.size(), suffix.size(), suffix) != 0)
+    throw UserError("Unsupported Jellyfin media endpoint.");
+  safeID(
+      path.substr(prefix.size(), path.size() - prefix.size() - suffix.size()));
+  if (image) {
+    if (query.size() > 1 || (!query.empty() && !query.contains("maxWidth")))
+      throw UserError("Unsupported Jellyfin image parameters.");
+    if (query.contains("maxWidth")) {
+      const auto width = query.at("maxWidth").get<std::string>();
+      if (width.empty() || width.size() > 4 ||
+          !std::all_of(width.begin(), width.end(),
+                       [](unsigned char c) { return c >= '0' && c <= '9'; }) ||
+          std::stoi(width) < 1 || std::stoi(width) > 2560)
+        throw UserError("Unsupported Jellyfin image size.");
+    }
+  } else if (query.size() != 1 || query.value("static", "") != "true") {
+    throw UserError("Use the protected direct-play Jellyfin stream.");
+  }
+}
 } // namespace mediavault

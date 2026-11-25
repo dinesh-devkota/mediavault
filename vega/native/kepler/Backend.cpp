@@ -122,10 +122,12 @@ struct Backend::Impl {
     sources[id] = entry;
     return entry;
   }
-  std::shared_ptr<SMB> smb(const std::shared_ptr<Entry> &entry) {
+  std::shared_ptr<SMB> smb(const std::shared_ptr<Entry> &entry,
+                           uint64_t epoch) {
     std::lock_guard<std::mutex> lock(mutex);
     if (!entry->smb)
-      entry->smb = std::make_shared<SMB>(entry->source);
+      entry->smb =
+          std::make_shared<SMB>(entry->source, [this, epoch] { check(epoch); });
     return entry->smb;
   }
   JSON stat(const std::shared_ptr<Entry> &entry, const std::string &path,
@@ -133,7 +135,7 @@ struct Backend::Impl {
     check(epoch);
     JSON result;
     if (entry->source.kind == "smb")
-      result = smb(entry)->stat(path);
+      result = smb(entry, epoch)->stat(path);
     else {
       auto response = http(entry->source,
                            {{"path", path},
@@ -162,7 +164,7 @@ struct Backend::Impl {
     check(epoch);
     Bytes bytes;
     if (entry->source.kind == "smb")
-      bytes = smb(entry)->read(path, offset, length);
+      bytes = smb(entry, epoch)->read(path, offset, length);
     else {
       if (!length || offset > std::numeric_limits<uint64_t>::max() - length)
         throw UserError("Invalid byte range.");
@@ -220,7 +222,7 @@ std::string Backend::configure(const std::string &json, std::string username,
   JSON account = JSON::object();
   std::shared_ptr<SMB> smb;
   if (source.kind == "smb") {
-    smb = std::make_shared<SMB>(source);
+    smb = std::make_shared<SMB>(source, [this, epoch] { impl->check(epoch); });
     if (!smb->stat(source.root).at("directory").get<bool>())
       throw UserError("Select a NAS folder.");
   } else if (jellyfin) {
@@ -318,7 +320,7 @@ std::string Backend::list(const std::string &id, const std::string &path,
   entry->source.authorize(path, true);
   if (entry->source.kind != "smb")
     throw UserError("Use the protocol folder browser.");
-  auto list = impl->smb(entry)->list(path);
+  auto list = impl->smb(entry, epoch)->list(path);
   impl->check(epoch);
   JSON result = JSON::array();
   for (const auto &item : list) {
@@ -333,6 +335,8 @@ std::string Backend::list(const std::string &id, const std::string &path,
 std::string Backend::stat(const std::string &id, const std::string &path,
                           uint64_t epoch) {
   auto entry = impl->source(id, epoch);
+  if (entry->source.kind == "jellyfin")
+    throw UserError("Use a protected Jellyfin media item.");
   entry->source.authorize(path);
   return impl->stat(entry, path, JSON::object(), epoch).dump();
 }
@@ -343,6 +347,8 @@ std::string Backend::read(const std::string &id, const std::string &path,
       std::floor(length) != length)
     throw UserError("Invalid media read length.");
   auto entry = impl->source(id, epoch);
+  if (entry->source.kind == "jellyfin")
+    throw UserError("Use a protected Jellyfin media item.");
   entry->source.authorize(path);
   return base64(impl->read(entry, path, JSON::object(), decimal(offset),
                            size_t(length), epoch));
@@ -356,17 +362,30 @@ std::string Backend::request(const std::string &id, const std::string &json,
   auto path = safePath(request.at("path"));
   if (request.at("maximumBytes").get<int64_t>() > 8 * 1024 * 1024)
     throw UserError("This request is too large.");
-  if (entry->source.kind == "webdav")
+  if (entry->source.kind == "webdav") {
+    const auto method = request.at("method").get<std::string>();
+    if (method != "GET" && method != "HEAD" && method != "PROPFIND")
+      throw UserError("This source allows browsing and reading media only.");
     entry->source.authorize(path, request.at("method") == "PROPFIND");
-  if (entry->source.kind == "jellyfin" &&
-      path.find("Authenticate") != std::string::npos)
-    throw UserError("Use the protected sign-in flow.");
-  auto result =
-      http(entry->source, request, [this, epoch] { impl->check(epoch); });
-  return JSON{{"status", result.status},
-              {"body", std::string(result.body.begin(), result.body.end())},
-              {"headers", result.headers}}
-      .dump();
+  } else if (entry->source.kind == "jellyfin") {
+    entry->source.authorizeJellyfinCatalog(
+        path, request.at("method"), request.value("query", JSON::object()));
+    if (!request.value("body", "").empty())
+      throw UserError("Jellyfin browsing requests cannot include a body.");
+  } else
+    throw UserError("Use the NAS file browser.");
+  try {
+    auto result =
+        http(entry->source, request, [this, epoch] { impl->check(epoch); });
+    return textResponse(result);
+  } catch (const ResponseLimitError &) {
+    impl->check(epoch);
+    return JSON{{"error",
+                 {{"code", "text-too-large"},
+                  {"message", "This metadata or subtitle file exceeds the "
+                              "supported size limit."}}}}
+        .dump();
+  }
 }
 std::string Backend::ticket(const std::string &id, const std::string &path,
                             const std::string &queryJSON, uint64_t epoch) {
@@ -377,6 +396,8 @@ std::string Backend::ticket(const std::string &id, const std::string &path,
   auto query = JSON::parse(queryJSON);
   if (!query.is_object() || query.size() > 30)
     throw UserError("Invalid media parameters.");
+  if (entry->source.kind == "jellyfin")
+    entry->source.authorizeJellyfinResource(path, false, query);
   auto metadata = impl->stat(entry, path, query, epoch);
   auto size = metadata.at("size").get<uint64_t>();
   auto mime = metadata.value("mime", mimeFor(path));
@@ -421,6 +442,8 @@ std::string Backend::imageTicket(const std::string &id, const std::string &path,
   auto query = JSON::parse(queryJSON);
   if (!query.is_object() || query.size() > 30)
     throw UserError("Invalid image parameters.");
+  if (entry->source.kind == "jellyfin")
+    entry->source.authorizeJellyfinResource(path, true, query);
   Bytes bytes;
   std::string mime = mimeFor(path);
   if (entry->source.kind == "smb") {

@@ -20,7 +20,9 @@ npm run test:domain
 # Calling `vega build` directly here can produce a VPKG without its interface.
 npx react-native build-vega --target "$target" --build-type "$configuration" --max-workers 4 --include-js-bundle true
 
-mapfile -t packages < <(find build -type f -name "*${target}*.vpkg")
+# The SDK keeps a second staging copy under build/private. Publish only its
+# final architecture/configuration output, or artifact consumers see duplicates.
+mapfile -t packages < <(find "build/${target}-${configuration,,}" -maxdepth 1 -type f -name '*.vpkg')
 if [[ ${#packages[@]} -ne 1 ]]; then
   printf 'Expected one %s package; found %s.\n' "$target" "${#packages[@]}" >&2
   exit 1

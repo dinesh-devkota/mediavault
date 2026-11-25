@@ -1,7 +1,7 @@
 import Native from './MediaVaultNative';
 import {CancellationSignal, DirectoryEntry, MediaItem, PlaybackResource, Source, SourceClient} from '../domain/model';
 import {contains, safePath} from '../domain/paths';
-import {utf8Length} from '../domain/metadata';
+import {InvalidTextFileError, utf8Length} from '../domain/metadata';
 import {URL} from 'react-native-url-polyfill';
 import {PlatformServices} from '../services/contracts';
 import {HTTPRequest, HTTPResponse, httpMessage, listWebDAV} from '../sources/http';
@@ -38,14 +38,19 @@ function utf8(value: Uint8Array): string {
     chunks.push(Array.from(value.subarray(i, i + 4096), byte => '%' + byte.toString(16).padStart(2, '0')).join(''));
   }
   try { return decodeURIComponent(chunks.join('')).replace(/^\uFEFF/, ''); }
-  catch { throw new Error('This metadata or subtitle file is not valid UTF-8.'); }
+  catch { throw new InvalidTextFileError('This metadata or subtitle file is not valid UTF-8.'); }
 }
 const http = async (sourceId: string, request: HTTPRequest): Promise<HTTPResponse> => {
-  const result = parse<HTTPResponse>(await Native.request(sourceId, JSON.stringify(request)));
+  const result = parse<HTTPResponse & {error?: {code?: string}}>(await Native.request(sourceId, JSON.stringify(request)));
+  if (result.error?.code === 'text-too-large') { throw new InvalidTextFileError('This server text exceeds the supported limit.'); }
+  if (result.error?.code === 'invalid-utf8') { throw new InvalidTextFileError('This server text is not valid UTF-8.'); }
   if (!Number.isInteger(result.status) || result.status < 100 || result.status > 599 || typeof result.body !== 'string'
-    || utf8Length(result.body) > request.maximumBytes || !result.headers || typeof result.headers !== 'object') {
+    || !result.headers || typeof result.headers !== 'object') {
     throw new Error('The server returned an invalid response.');
   }
+  let size: number;
+  try { size = utf8Length(result.body); } catch { throw new InvalidTextFileError('This server text is not valid UTF-8.'); }
+  if (size > request.maximumBytes) { throw new InvalidTextFileError('The server returned an invalid response: this text exceeds the supported limit.'); }
   return result;
 };
 
@@ -94,7 +99,7 @@ function client(source: Source): SourceClient {
       }
       const stat = parse<{size: number; directory: boolean}>(await Native.stat(source.id, path));
       cancelled(signal);
-      if (stat.directory || !Number.isSafeInteger(stat.size) || stat.size < 0 || stat.size > maximumBytes) { throw new Error('This text file is too large.'); }
+      if (stat.directory || !Number.isSafeInteger(stat.size) || stat.size < 0 || stat.size > maximumBytes) { throw new InvalidTextFileError('This text file is invalid or too large.'); }
       if (!stat.size) { return ''; }
       const content = new Uint8Array(stat.size);
       for (let offset = 0; offset < stat.size; offset += 1024 * 1024) {

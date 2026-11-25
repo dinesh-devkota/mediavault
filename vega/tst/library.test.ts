@@ -1,5 +1,5 @@
 import {collectionGroups, createCollection, groupLibrary, itemFromFile, kindForPath, nextEpisode, progressState, versionKey, versionLabel, visible} from '../src/domain/library';
-import {applyLocalMetadata, parseNFO} from '../src/domain/metadata';
+import {applyLocalMetadata, InvalidTextFileError, parseNFO} from '../src/domain/metadata';
 import {emptyProfileLibrary, HouseholdProfile, MediaItem, Source, SourceClient} from '../src/domain/model';
 import {SourceAddress} from '../src/domain/paths';
 import {matchingSubtitles, parseSubtitles} from '../src/domain/subtitles';
@@ -112,5 +112,18 @@ describe('Vega library contracts', () => {
     expect(result.find(item => item.path === 'Photos/poster.jpg')?.missing).toBe(false);
     const failed: SourceClient = {...client, list: async () => { throw new Error('offline'); }};
     await expect(scanSource(source, failed, result, () => {}, () => {})).rejects.toThrow('offline');
+  });
+  it('makes confirmed invalid text ratings unknown but retains them during a network outage', async () => {
+    const original = applyLocalMetadata(movie('Feature (2020).mp4'), parseNFO('<movie><title>Known title</title><mpaa>PG</mpaa></movie>'));
+    const client: SourceClient = {
+      list: async () => ['Feature (2020).mp4', 'Feature (2020).nfo'].map(name => ({path: name, name, directory: false, size: 30})),
+      readText: async () => { throw new InvalidTextFileError('Confirmed oversized file'); },
+      playback: async item => ({uri: item.path}),
+    };
+    const invalid = (await scanSource(source, client, [original], () => {}, () => {}))[0]!;
+    expect(invalid.title).toBe('Known title'); expect(invalid.certification).toBeUndefined();
+    expect(invalid.local?.certificationPresent).toBe(true);
+    const outage = {...client, readText: async () => { throw new Error('Offline'); }};
+    expect((await scanSource(source, outage, [original], () => {}, () => {}))[0]!.certification).toBe('PG');
   });
 });
