@@ -24,7 +24,11 @@ internal fun SourceEntity.jellyfinConnection(secrets: SecretBox, fixtureHttp: Ok
     return JellyfinConnection(client, JellyfinSession(token, JellyfinUser(username, "")))
 }
 
-internal fun jellyfinEndpoint(raw: String): String = DavAddress(raw).base.toString()
+internal fun jellyfinEndpoint(raw: String): String =
+    try { DavAddress(raw).base.toString() }
+    catch (_: IllegalArgumentException) {
+        throw IllegalArgumentException("Enter a complete Jellyfin HTTPS address without credentials, a query, or a fragment.")
+    }
 
 internal fun jellyfinItemID(path: String): String? =
     path.takeIf { it.startsWith("jellyfin/") && it.endsWith(".mp4") }
@@ -110,7 +114,8 @@ internal suspend fun importJellyfinLibrary(
     val series = catalog.filter { it.type == "Series" }.associateBy { it.id }
     // Only a complete, validated catalog can make a previously present item missing.
     return database.withTransaction {
-        if (database.sources().get(source.id) != source) return@withTransaction null
+        val current = database.sources().get(source.id)
+        if (current?.copy(name = source.name) != source) return@withTransaction null
         val dao = database.movies()
         val previous = dao.forSource(source.id).associateBy { it.filePath }.toMutableMap()
         var total = 0
