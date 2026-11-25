@@ -35,7 +35,12 @@ struct EmbyClient: Sendable {
     struct Item: Decodable, Sendable {
         let Id: String
         let Name: String
-        let Type: String
+        let type: String
+
+        enum CodingKeys: String, CodingKey {
+            case Id, Name, SeriesId, SeasonId, ParentIndexNumber, IndexNumber, Overview, OfficialRating, ImageTags
+            case type = "Type"
+        }
         let SeriesId: String?
         let SeasonId: String?
         let ParentIndexNumber: Int?
