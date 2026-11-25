@@ -77,7 +77,12 @@ final class MediaVaultPhoneTests: XCTestCase {
         let library = app.tabBars.buttons["Library"]
         XCTAssertTrue(library.isHittable)
         library.tap()
-        dismissFixturePasswordPrompt(app)
+        if dismissFixturePasswordPrompt(app), !library.isSelected {
+            // The system can present its password sheet in response to the first
+            // navigation tap. Only resume that observed interrupted action.
+            XCTAssertTrue(library.isHittable)
+            library.tap()
+        }
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: library)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed, app.debugDescription)
         capture("Library after authenticated WebDAV import", app)
@@ -91,16 +96,18 @@ final class MediaVaultPhoneTests: XCTestCase {
         capture("Imported WebDAV movie opens its playback details", app)
     }
 
-    @MainActor private func dismissFixturePasswordPrompt(_ app: XCUIApplication) {
+    @MainActor @discardableResult
+    private func dismissFixturePasswordPrompt(_ app: XCUIApplication) -> Bool {
         // iOS may offer to save the synthetic WebDAV credentials after the form
         // closes. Keep that normal product behavior; decline only in this test.
         let prompt = app.sheets["Save Password?"]
-        guard prompt.waitForExistence(timeout: 3) else { return }
+        guard prompt.waitForExistence(timeout: 3) else { return false }
         let notNow = prompt.buttons["Not Now"]
         XCTAssertTrue(notNow.isHittable, app.debugDescription)
         notNow.tap()
         let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: prompt)
         XCTAssertEqual(XCTWaiter.wait(for: [closed], timeout: 5), .completed, app.debugDescription)
+        return true
     }
 
     @MainActor private func capture(_ name: String, _ app: XCUIApplication) {

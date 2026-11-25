@@ -16,33 +16,38 @@ integration branch at `3becf4e` (which includes development's WebDAV, Jellyfin,
 and Android phone work). Do not reset the owner's original checkouts.
 
 Public worktree: `D:\CineVault\.worktrees\mediavault-library-playback`.
-Implementation checkpoint: `777ea11`. Version **1.5.0, build 7**. This adds
+Public implementation includes `f8282b4`. Version **1.5.0, build 7**. This adds
 local NFO/XML and companion artwork, profile-specific custom collections,
 NFO/TMDB franchise groups, conservative alternate-version grouping, and an
 official pinned VideoLAN fallback on both Apple platforms. Files retain their
 individual histories; metadata import is read-only. See `docs/PLAYBACK-ENGINE.md`
 and `docs/TESTING.md` for dependency and fixture details.
 
-Hosted validation is in progress, and this PR remains a draft. Checkpoint
-`ac0c150` compiled both Apple test targets and the unsigned Apple TV app. iPhone
-passed 215/220 cases; Apple TV passed 226/230. The failures exposed an unfinished
-TCP send in the playback relay and nested version-picker navigation. Both are
-corrected in the current changes, with a multi-chunk relay regression. A photo
-assertion now compares canonical SMB paths. The phone collection screen also
-uses a compact native heading and an options menu. The WebDAV source-setup timeout was independently reproduced: an idle TCP
-connection blocked TLS handshaking in the fixture listener. Its handshake now
-runs in a bounded worker; three authentication/range/concurrency regressions pass.
+The same Apple implementation passed on the Fire branch at `2d1ffac`: Apple TV
+233/233 (run `45709711906`) and iPhone 223/223 plus unsigned release build (run
+`45709712002`). These include real MKV/AVI/WebM decoding, seeking, pause/resume,
+local subtitles, audio selection, revoked streams and collection/version journeys.
+Screenshots were inspected. Original `ee00db6` iPhone also passed 223/223 and the
+release build. Its duplicate Apple TV run had one keyboard-injection failure:
+the test saved `Movie N` before all of `Movie Night` had arrived. `9bf7d62` waits
+for each field edit before keyboard dismissal; its Apple TV run passed 233/233
+(`45713647345`). Repeated iPhone runs exposed an intermittent fixture TLS failure
+and controls remaining in the accessibility tree after hiding. `f8282b4` hides
+inactive controls from accessibility and keeps controls visible for VoiceOver;
+its rerun is pending. Four fixture tests pass, with explicit TLS-stage diagnostics.
+The phone connection journey also resumes a Library tap only when an observed
+system Save Password sheet actually interrupted it.
 
-Checkpoint `8fdb8a7` also corrects hosted media fixture generation: the original
-sample has no audio, so generated format fixtures now include explicitly bounded
-synthetic audio tracks. MKV, AVI, WebM and the dual-audio MKV were generated and
-fully decoded locally. That checkpoint passed core/unsigned tvOS CI; hosted phone
-and TV runtime checks must be inspected before declaring the features verified.
+Earlier actual defects are corrected: TCP send completion, VLC parser timeout
+units, pending-pause acknowledgement, synchronous stream revocation, nested
+version navigation, phone collection sizing, focused button contrast and the
+bounded TLS fixture accept loop. Do not reintroduce those old approaches.
 
-Android local core/app tests, debug lint, app APK and instrumentation APK passed:
-101 core and 136 app cases (237 total), including malformed episode-rating
-protection. Hosted runtime and visual checks remain required. Never run the
-disposable test fixture against the owner's installed emulator.
+Android core/app tests, debug lint and APK builds passed. The Fire branch has
+101 core and 137 app tests passing, with two existing Jellyfin tests skipped
+without their server. Hosted modern Android TV passed 110/110 (run `45709711876`)
+and phone passed 7/7 (run `45709711901`). Never run disposable test fixtures
+against the owner's installed emulator or real NAS.
 
 The private companion branch is `codex/mediavault-playback-engines` at
 `5cd626eba6ce3b534ec1f0b3e74cc7cbfe0bb6c0`, in
