@@ -42,8 +42,31 @@ struct JellyfinCatalogItem: Decodable, Sendable, Identifiable {
     }
 }
 
+struct JellyfinPlayback: Sendable {
+    enum Method: String, Sendable { case directPlay = "DirectPlay", transcode = "Transcode" }
+
+    let itemID: String
+    let mediaSourceID: String
+    let playSessionID: String
+    let method: Method
+    let url: URL
+    let subtitles: [JellyfinSubtitle]
+}
+
+struct JellyfinSubtitle: Sendable {
+    let index: Int
+    let language: String?
+    let url: URL
+}
+
+enum JellyfinPlaybackEvent: String {
+    case started = "Sessions/Playing"
+    case progress = "Sessions/Playing/Progress"
+    case stopped = "Sessions/Playing/Stopped"
+}
+
 enum JellyfinClientError: LocalizedError, Equatable {
-    case invalidAddress, invalidIdentity, invalidResponse, invalidCatalog, status(Int)
+    case invalidAddress, invalidIdentity, invalidResponse, invalidCatalog, unplayable, status(Int)
 
     var errorDescription: String? {
         switch self {
@@ -51,6 +74,7 @@ enum JellyfinClientError: LocalizedError, Equatable {
         case .invalidIdentity: return "The Jellyfin device or session identity is invalid."
         case .invalidResponse: return "The server returned an invalid Jellyfin response."
         case .invalidCatalog: return "The library changed during import. Try again."
+        case .unplayable: return "Jellyfin could not find a format this device can play."
         case .status(401): return "Jellyfin rejected this sign-in or the session expired."
         case .status(403): return "This account cannot access the requested Jellyfin content."
         case .status(300..<400): return "Enter the final Jellyfin address. Redirects are blocked to protect your sign-in."
@@ -77,6 +101,30 @@ struct JellyfinClient: Sendable {
         enum CodingKeys: String, CodingKey { case items = "Items", start = "StartIndex", total = "TotalRecordCount" }
     }
 
+    private struct PlaybackInfo: Decodable {
+        struct Source: Decodable {
+            struct Stream: Decodable {
+                let type: String?
+                let index: Int?
+                let textSubtitle: Bool?
+                let language: String?
+                enum CodingKeys: String, CodingKey {
+                    case type = "Type", index = "Index", textSubtitle = "IsTextSubtitleStream", language = "Language"
+                }
+            }
+            let id: String
+            let directPlay: Bool?
+            let transcode: String?
+            let streams: [Stream]?
+            enum CodingKeys: String, CodingKey {
+                case id = "Id", directPlay = "SupportsDirectPlay", transcode = "TranscodingUrl", streams = "MediaStreams"
+            }
+        }
+        let session: String?
+        let sources: [Source]?
+        enum CodingKeys: String, CodingKey { case session = "PlaySessionId", sources = "MediaSources" }
+    }
+
     private static let pageSize = 100
     private static let maxItems = 250_000
     private static let maxResponse = 8 * 1024 * 1024
@@ -92,12 +140,14 @@ struct JellyfinClient: Sendable {
 
     private let address: WebDAVAddress
     private let deviceHeader: String
+    private let deviceID: String
     private let exchange: Exchange
 
     init(endpoint: String, deviceID: String, version: String, exchange: Exchange? = nil) throws {
         guard let address = try? WebDAVAddress(endpoint) else { throw JellyfinClientError.invalidAddress }
         guard Self.validHeaderValue(deviceID), Self.validHeaderValue(version) else { throw JellyfinClientError.invalidIdentity }
         self.address = address
+        self.deviceID = deviceID
         deviceHeader = "MediaBrowser Client=\"MediaVault\", Device=\"Apple TV\", DeviceId=\"\(deviceID)\", Version=\"\(version)\""
         self.exchange = exchange ?? { request in try await Self.perform(request) }
     }
@@ -166,6 +216,107 @@ struct JellyfinClient: Sendable {
         }
     }
 
+    func playback(_ account: JellyfinAccount, itemID: String, startMillis: Int64, deviceProfile: Data) async throws -> JellyfinPlayback {
+        guard let profile = try JSONSerialization.jsonObject(with: deviceProfile) as? [String: Any] else {
+            throw JellyfinClientError.invalidResponse
+        }
+        let path = try pathFor("Items", itemID, "PlaybackInfo")
+        let payload: [String: Any] = [
+            "UserId": account.user.id, "StartTimeTicks": try Self.ticks(startMillis),
+            "EnableDirectPlay": true, "EnableDirectStream": true, "EnableTranscoding": true,
+            "DeviceProfile": profile,
+        ]
+        let info: PlaybackInfo = try await decode(jsonRequest(path, account: account, payload: payload))
+        guard let playSessionID = info.session, !playSessionID.isEmpty else { throw JellyfinClientError.unplayable }
+        let direct = info.sources?.first { $0.directPlay == true }
+        guard let source = direct ?? info.sources?.first(where: { $0.transcode?.isEmpty == false }) else {
+            throw JellyfinClientError.unplayable
+        }
+        let stream: URL
+        if direct != nil {
+            stream = try target(pathFor("Videos", itemID, "stream"), query: [
+                URLQueryItem(name: "static", value: "true"),
+                URLQueryItem(name: "mediaSourceId", value: source.id),
+                URLQueryItem(name: "deviceId", value: deviceID),
+                URLQueryItem(name: "playSessionId", value: playSessionID),
+            ])
+        } else {
+            stream = try transcodeURL(source.transcode ?? "", itemID: itemID)
+        }
+        let subtitles = try (source.streams ?? []).compactMap { entry -> JellyfinSubtitle? in
+            guard entry.type == "Subtitle", entry.textSubtitle == true, let index = entry.index, index >= 0 else { return nil }
+            let url = try target(pathFor("Videos", itemID, source.id, "Subtitles", String(index), "Stream.vtt"))
+            return JellyfinSubtitle(index: index, language: entry.language, url: url)
+        }
+        return JellyfinPlayback(itemID: itemID, mediaSourceID: source.id, playSessionID: playSessionID,
+                                method: direct == nil ? .transcode : .directPlay, url: stream, subtitles: subtitles)
+    }
+
+    func report(_ account: JellyfinAccount, playback: JellyfinPlayback, event: JellyfinPlaybackEvent,
+                positionMillis: Int64, paused: Bool = false, failed: Bool = false) async throws {
+        var payload: [String: Any] = [
+            "ItemId": playback.itemID, "MediaSourceId": playback.mediaSourceID, "PlaySessionId": playback.playSessionID,
+            "PositionTicks": try Self.ticks(positionMillis),
+        ]
+        if event == .stopped {
+            payload["Failed"] = failed
+        } else {
+            payload["IsPaused"] = paused
+            payload["CanSeek"] = true
+            payload["PlayMethod"] = playback.method.rawValue
+        }
+        _ = try await send(jsonRequest(event.rawValue, account: account, payload: payload))
+    }
+
+    func artwork(_ item: JellyfinCatalogItem, width: Int) throws -> URL? {
+        guard let tag = item.primaryImage?["Primary"], (1...4096).contains(width) else { return nil }
+        return try target(pathFor("Items", item.id, "Images", "Primary"), query: [
+            URLQueryItem(name: "tag", value: tag), URLQueryItem(name: "maxWidth", value: String(width)),
+        ])
+    }
+
+    func assetRequest(_ url: URL, account: JellyfinAccount) throws -> URLRequest {
+        guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.queryItems?.contains(where: { $0.name.lowercased() == "api_key" }) != true,
+              let path = scopedPath(parts), !path.isEmpty else { throw JellyfinClientError.invalidAddress }
+        var request = URLRequest(url: url)
+        request.setValue(try authorization(account), forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    private func pathFor(_ parts: String...) throws -> String {
+        guard parts.allSatisfy({ !$0.contains("/") && WebDAVAddress.contains($0, within: "") }) else {
+            throw JellyfinClientError.invalidResponse
+        }
+        return parts.joined(separator: "/")
+    }
+
+    private func scopedPath(_ parts: URLComponents) -> String? {
+        var clean = parts
+        clean.query = nil
+        guard let url = clean.url else { return nil }
+        return address.relativePath(href: url.absoluteString, requested: address.endpoint)
+    }
+
+    private func transcodeURL(_ value: String, itemID: String) throws -> URL {
+        let relative = value.hasPrefix("/Videos/") ? String(value.dropFirst()) : value
+        guard let url = URL(string: relative, relativeTo: address.endpoint)?.absoluteURL,
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let path = scopedPath(parts), path.split(separator: "/").prefix(2).map(String.init) == ["Videos", itemID] else {
+            throw JellyfinClientError.invalidAddress
+        }
+        let parameters = (parts.queryItems ?? []).filter { $0.name.lowercased() != "api_key" }
+        parts.queryItems = parameters.isEmpty ? nil : parameters
+        guard let scoped = parts.url else { throw JellyfinClientError.invalidAddress }
+        return scoped
+    }
+
+    private static func ticks(_ milliseconds: Int64) throws -> Int64 {
+        let (ticks, overflow) = milliseconds.multipliedReportingOverflow(by: 10_000)
+        guard milliseconds >= 0, !overflow else { throw JellyfinClientError.invalidResponse }
+        return ticks
+    }
+
     private static func validHeaderValue(_ value: String) -> Bool {
         (1...128).contains(value.utf8.count) && value.utf8.allSatisfy { byte in
             (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
@@ -178,8 +329,7 @@ struct JellyfinClient: Sendable {
         return account
     }
 
-    private func request(_ path: String, account: JellyfinAccount? = nil, query: [URLQueryItem] = [],
-                         body: [String: String]? = nil) throws -> URLRequest {
+    private func target(_ path: String, query: [URLQueryItem] = []) throws -> URL {
         let url = try address.url(for: path)
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw JellyfinClientError.invalidAddress }
         if !query.isEmpty {
@@ -187,20 +337,34 @@ struct JellyfinClient: Sendable {
             components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         }
         guard let target = components.url else { throw JellyfinClientError.invalidAddress }
-        var request = URLRequest(url: target)
-        var authorization = deviceHeader
-        if let account {
-            _ = try validated(account)
-            authorization += ", Token=\"\(account.token)\""
-        }
-        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        return target
+    }
+
+    private func authorization(_ account: JellyfinAccount?) throws -> String {
+        guard let account else { return deviceHeader }
+        _ = try validated(account)
+        return deviceHeader + ", Token=\"\(account.token)\""
+    }
+
+    private func request(_ path: String, account: JellyfinAccount? = nil, query: [URLQueryItem] = [],
+                         body: [String: String]? = nil) throws -> URLRequest {
+        var request = URLRequest(url: try target(path, query: query))
+        request.setValue(try authorization(account), forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let body {
-            request.httpMethod = "POST"
-            request.httpBody = try JSONEncoder().encode(body)
-            request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        }
+        if let body { setJSON(try JSONEncoder().encode(body), on: &request) }
         return request
+    }
+
+    private func jsonRequest(_ path: String, account: JellyfinAccount, payload: [String: Any]) throws -> URLRequest {
+        var request = try request(path, account: account)
+        setJSON(try JSONSerialization.data(withJSONObject: payload), on: &request)
+        return request
+    }
+
+    private func setJSON(_ body: Data, on request: inout URLRequest) {
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
     }
 
     private func decode<Value: Decodable>(_ request: URLRequest) async throws -> Value {

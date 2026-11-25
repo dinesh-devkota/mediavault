@@ -35,6 +35,36 @@ final class JellyfinClientTests: XCTestCase {
         XCTAssertEqual(items.last?.seasonID, "season")
     }
 
+    func testPlaybackNegotiationKeepsTranscodeOnServerAndReportsSameSession() async throws {
+        let client = try JellyfinClient(endpoint: "https://fixture.example/jellyfin/", deviceID: "device", version: "1.0") { request in
+            switch try XCTUnwrap(request.url?.path) {
+            case "/jellyfin/Users/AuthenticateByName":
+                return (Data(#"{"AccessToken":"fixture-token","User":{"Id":"account","Name":"Viewer"}}"#.utf8), 200)
+            case "/jellyfin/Items/movie/PlaybackInfo":
+                let body = try XCTUnwrap(request.httpBody)
+                let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+                XCTAssertEqual(json["StartTimeTicks"] as? Int, 10_000_000)
+                return (Data(#"{"PlaySessionId":"play","MediaSources":[{"Id":"source","TranscodingUrl":"/Videos/movie/master.m3u8?api_key=hidden&PlaySessionId=play","MediaStreams":[{"Type":"Subtitle","Index":2,"IsTextSubtitleStream":true}]}]}"#.utf8), 200)
+            case "/jellyfin/Sessions/Playing/Stopped":
+                let body = try XCTUnwrap(request.httpBody)
+                let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+                XCTAssertEqual(json["PlaySessionId"] as? String, "play")
+                XCTAssertEqual(json["PositionTicks"] as? Int, 20_000_000)
+                return (Data(), 204)
+            default:
+                XCTFail("Unexpected Jellyfin request")
+                return (Data(), 404)
+            }
+        }
+        let account = try await client.signIn(username: "viewer", password: "sample")
+        let playback = try await client.playback(account, itemID: "movie", startMillis: 1_000, deviceProfile: Data("{}".utf8))
+        XCTAssertEqual(playback.method, .transcode)
+        XCTAssertEqual(playback.url.absoluteString, "https://fixture.example/jellyfin/Videos/movie/master.m3u8?PlaySessionId=play")
+        XCTAssertEqual(playback.subtitles.map(\.index), [2])
+        XCTAssertThrowsError(try client.assetRequest(XCTUnwrap(URL(string: "https://fixture.example/outside/segment.ts")), account: account))
+        try await client.report(account, playback: playback, event: .stopped, positionMillis: 2_000)
+    }
+
     func testHTTPAndHeaderInjectionAreRejected() {
         XCTAssertThrowsError(try JellyfinClient(endpoint: "http://fixture.example/", deviceID: "device", version: "1.0"))
         XCTAssertThrowsError(try JellyfinClient(endpoint: "https://fixture.example/", deviceID: "device\n", version: "1.0"))
