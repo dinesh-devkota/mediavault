@@ -20,6 +20,8 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
 
     fileprivate let config: SourceConfig
     private let reader: Reader
+    private let stillAvailable: (@MainActor () -> Bool)?
+    private let contentPath: String
     private let path: String
     private let household: HouseholdStore
     private let householdSession: UUID
@@ -27,10 +29,13 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var sizeTask: Task<Int64, Error>?
 
-    init(config: SourceConfig, path: String, household: HouseholdStore = .shared, reader: Reader? = nil) {
+    init(config: SourceConfig, path: String, household: HouseholdStore = .shared, reader: Reader? = nil,
+         contentPath: String? = nil, stillAvailable: (@MainActor () -> Bool)? = nil) {
         self.household = household; householdSession = household.sessionToken
         self.config = config
         self.path = path
+        self.contentPath = contentPath ?? path
+        self.stillAvailable = stillAvailable
         self.reader = reader ?? Reader(
             size: { try await SMBService.shared.fileSize(config, path: path) },
             read: { try await SMBService.shared.read(config, path: path, offset: $0, length: $1) }
@@ -58,17 +63,10 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         if let existing = self.sizeTask {
             sizeTask = existing
         } else {
-            let reader = self.reader
-            let household = self.household
-            let session = self.householdSession
-            let config = self.config
-            let path = self.path
-            sizeTask = Task {
-                guard household.sessionIsCurrent(session),
-                      household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else {
-                    throw PlaybackPreparationError.fileUnavailable
-                }
-                return try await reader.size()
+            sizeTask = Task { [weak self] in
+                guard let self else { throw CancellationError() }
+                try await self.verifyAccess()
+                return try await self.reader.size()
             }
             self.sizeTask = sizeTask
         }
@@ -87,12 +85,9 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         do {
             let size = try await sizeTask.value
             try Task.checkCancellation()
-            guard household.sessionIsCurrent(householdSession),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else {
-                throw PlaybackPreparationError.fileUnavailable
-            }
+            try await verifyAccess()
             if let info = request.contentInformationRequest {
-                info.contentType = MediaFile.contentType(path: path)
+                info.contentType = MediaFile.contentType(path: contentPath)
                 info.contentLength = size
                 info.isByteRangeAccessSupported = true
             }
@@ -122,18 +117,27 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         }
     }
 
-    func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
+    fileprivate func verifyAccess() async throws {
         guard household.sessionIsCurrent(householdSession),
-              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else { throw PlaybackPreparationError.fileUnavailable }
+              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin,
+                                   entireSourceOnly: config.isEmby) else { throw PlaybackPreparationError.fileUnavailable }
+        if let stillAvailable {
+            let available = await stillAvailable()
+            guard available, household.sessionIsCurrent(householdSession) else { throw PlaybackPreparationError.fileUnavailable }
+        }
+    }
+
+    func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
+        try await verifyAccess()
         guard start >= 0, end >= start else { throw SMBError.invalidByteRange }
         var offset = start
         while offset < end {
             try Task.checkCancellation()
             let length = Int(min(Self.chunkSize, end - offset))
+            if config.isEmby { try await verifyAccess() }
             let data = try await reader.read(offset, length)
             try Task.checkCancellation()
-            guard household.sessionIsCurrent(householdSession),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else { throw PlaybackPreparationError.fileUnavailable }
+            try await verifyAccess()
             guard !data.isEmpty else { throw SMBError.unexpectedEndOfFile }
             respond(data)
             offset += Int64(data.count)
@@ -171,6 +175,7 @@ final class PlaybackController: ObservableObject {
     private var finishedPlayback = false
     private var stopped = false
     private var jellyfinReporter: JellyfinPlaybackReporter?
+    private var embyReporter: EmbyPlaybackReporter?
     private var jellyfinRelay: JellyfinHLSRelay?
     private var playbackStateObservation: NSKeyValueObservation?
     private var timeObserver: Any?
@@ -199,13 +204,18 @@ final class PlaybackController: ObservableObject {
     /// Check the actual asset before creating a player or changing playback history.
     static func prepare(movie: Movie, resume: Bool, services: PlaybackServices,
                         defaults: UserDefaults = .standard,
-                        sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() },
+                        sourceConfig: @escaping (MediaSource) throws -> SourceConfig = { try $0.config() },
                         loadPlayable: (AVURLAsset) async throws -> Bool = { try await $0.load(.isPlayable) },
                         household: HouseholdStore = .shared) async throws -> PlaybackController? {
         let householdSession = household.sessionToken
         guard let source = try playbackSource(for: movie, household: household) else { return nil }
         let config = try sourceConfig(source)
         let path = movie.filePath
+        if config.isEmby {
+            return try await prepareEmby(movie: movie, resume: resume, services: services, defaults: defaults,
+                                         household: household, householdSession: householdSession, source: source,
+                                         config: config, path: path, sourceConfig: sourceConfig, loadPlayable: loadPlayable)
+        }
         if config.isJellyfin {
             return try await prepareJellyfin(
                 movie: movie, resume: resume, services: services, defaults: defaults, household: household,
@@ -233,6 +243,58 @@ final class PlaybackController: ObservableObject {
         } onCancel: {
             asset.cancelLoading()
         }
+    }
+
+    private static func prepareEmby(
+        movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, household: HouseholdStore,
+        householdSession: UUID, source: MediaSource, config: SourceConfig, path: String,
+        sourceConfig: @escaping (MediaSource) throws -> SourceConfig, loadPlayable: (AVURLAsset) async throws -> Bool
+    ) async throws -> PlaybackController {
+        let connection = try EmbySourceConnection(config: config)
+        let playback = try await connection.directPlayback(path: path)
+        try Task.checkCancellation()
+        let stillAvailable: @MainActor () -> Bool = { [weak movie, weak source] in
+            guard let movie, let source, !source.isDeleted, !movie.isDeleted,
+                  movie.source === source, movie.filePath == path, household.sessionIsCurrent(householdSession) else { return false }
+            return household.allows(movie) && LibrarySearch.isAvailable(movie) && (try? sourceConfig(source)) == config
+        }
+        guard stillAvailable() else { throw PlaybackPreparationError.fileUnavailable }
+        let reader = EmbyByteReader(connection: connection, playback: playback)
+        let loader = SMBResourceLoader(config: config, path: path, household: household,
+                                       reader: .init(size: { try await reader.size() }, read: { try await reader.read($0, $1) }),
+                                       contentPath: "video.\(playback.container.lowercased())", stillAvailable: stillAvailable)
+        let asset = loader.makeAsset()
+        return try await withTaskCancellationHandler {
+            do {
+                let playable = try await loadPlayable(asset)
+                try Task.checkCancellation()
+                guard stillAvailable() else { throw PlaybackPreparationError.fileUnavailable }
+                guard playable else { throw PlaybackPreparationError.unsupportedFormat }
+                let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults,
+                                                    loader: loader, asset: asset, household: household)
+                if household.isAdmin {
+                    controller.attachEmbyReporter(EmbyPlaybackReporter(connection: connection, playback: playback))
+                }
+                let tracks = Dictionary(uniqueKeysWithValues: playback.textSubtitles.map { ("emby-caption-\($0.id)", $0) })
+                let choices = playback.textSubtitles.map {
+                    SubtitleFile(path: "emby-caption-\($0.id)", language: $0.language, forced: $0.forced,
+                                 hearingImpaired: $0.hearingImpaired)
+                }
+                controller.subtitles.providerTracks = .init(files: choices, read: { [weak loader] file in
+                    guard let loader, let track = tracks[file.path] else { throw PlaybackPreparationError.fileUnavailable }
+                    try await loader.verifyAccess()
+                    let data = try await connection.client.textSubtitle(connection.account, playback: playback,
+                                                                         index: track.id, maximumBytes: SubtitleDocument.maximumBytes)
+                    try Task.checkCancellation()
+                    try await loader.verifyAccess()
+                    return try SubtitleDocument.parse(data)
+                })
+                return controller
+            } catch {
+                asset.cancelLoading()
+                throw error
+            }
+        } onCancel: { asset.cancelLoading() }
     }
 
     private static func prepareJellyfin(
@@ -317,7 +379,7 @@ final class PlaybackController: ObservableObject {
           defaults: UserDefaults = .standard,
           sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() }, household: HouseholdStore = .shared) throws {
         guard let source = try Self.playbackSource(for: movie, household: household) else { return nil }
-        guard !source.isJellyfin else { throw PlaybackPreparationError.fileUnavailable }
+        guard !source.isJellyfin, !source.isEmby else { throw PlaybackPreparationError.fileUnavailable }
         let loader = SMBResourceLoader(config: try sourceConfig(source), path: movie.filePath, household: household)
         self.init(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: loader.makeAsset(), household: household)
     }
@@ -432,8 +494,25 @@ final class PlaybackController: ObservableObject {
             }
         }
         movie.recordHouseholdProgress(watched: false, position: position, at: Date(), household: household, session: householdSession)
+        if let embyReporter, household.sessionIsCurrent(householdSession) {
+            let paused = player.rate == 0
+            Task { await embyReporter.progress(position, paused: paused) }
+        }
         if let jellyfinReporter, player.rate > 0, household.sessionIsCurrent(householdSession) {
             Task { await jellyfinReporter.progress(seconds: position) }
+        }
+    }
+
+    private func attachEmbyReporter(_ reporter: EmbyPlaybackReporter) {
+        embyReporter = reporter
+        playbackStateObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.stopped, self.validateAccess() else { return }
+                let state = self.player.timeControlStatus
+                if state == .playing || state == .paused {
+                    await reporter.progress(self.player.currentTime().seconds, paused: state == .paused)
+                }
+            }
         }
     }
 
@@ -488,6 +567,11 @@ final class PlaybackController: ObservableObject {
         #endif
         if saveProgress { record(time: player.currentTime().seconds) }
         stopped = true
+        if let embyReporter {
+            let position = player.currentTime().seconds
+            Task { await embyReporter.stop(position) }
+            self.embyReporter = nil
+        }
         if let jellyfinReporter {
             let position = player.currentTime().seconds
             Task { await jellyfinReporter.stop(seconds: position) }

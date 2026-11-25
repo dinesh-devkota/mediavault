@@ -40,16 +40,17 @@ enum PhotoLibrary {
     static func albums(_ items: [Movie]) -> [PhotoAlbum] {
         let photos = items.filter(isAvailable)
         let groups = Dictionary(grouping: photos) { photo in
-            PhotoAlbum.ID(sourceID: photo.source!.id, folder: parentFolder(photo.filePath))
+            PhotoAlbum.ID(sourceID: photo.source!.id, folder: photo.source?.isEmby == true ? "" : parentFolder(photo.filePath))
         }
-        return groups.compactMap { id, items in
-            guard let source = items.first?.source else { return nil }
-            let sorted = items.sorted {
+        return groups.compactMap { group -> PhotoAlbum? in
+            let (id, photos) = group
+            guard let source = photos.first?.source else { return nil }
+            let sorted = photos.sorted {
                 let order = title($0).localizedStandardCompare(title($1))
                 return order == .orderedSame ? $0.filePath < $1.filePath : order == .orderedAscending
             }
             let folderName = id.folder.split(separator: "/").last.map(String.init)
-            let albumName = source.isJellyfin ? source.name : (folderName ?? (source.isWebDAV ? source.name : source.share))
+            let albumName = (source.isJellyfin || source.isEmby) ? source.name : (folderName ?? (source.isWebDAV ? source.name : source.share))
             return PhotoAlbum(id: id, title: albumName,
                 sourceName: source.name, folder: id.folder, photos: sorted)
         }.sorted {
@@ -62,7 +63,7 @@ enum PhotoLibrary {
 
     static func album(containing photo: Movie, in items: [Movie]) -> [Movie] {
         guard let source = photo.source else { return [] }
-        let key = PhotoAlbum.ID(sourceID: source.id, folder: parentFolder(photo.filePath))
+        let key = PhotoAlbum.ID(sourceID: source.id, folder: source.isEmby ? "" : parentFolder(photo.filePath))
         return albums(items).first { $0.id == key }?.photos ?? []
     }
 

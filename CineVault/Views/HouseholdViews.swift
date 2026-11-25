@@ -308,9 +308,14 @@ private struct HouseholdFolderChooser: View {
     var body: some View {
         List {
             Section {
-                Text("Allow all current and future folders in this source, or browse to choose a smaller folder.").font(.caption)
-                Button("Allow entire source: \(source.name)") { add(source.rootPath) }
-                if let configuration, !source.isJellyfin {
+                if source.isEmby {
+                    Text("Allow access to the selected Emby library. This viewer’s rating limits still apply.").font(.caption)
+                    Button("Allow library: \(source.name)") { add("") }
+                } else {
+                    Text("Allow all current and future folders in this source, or browse to choose a smaller folder.").font(.caption)
+                    Button("Allow entire source: \(source.name)") { add(source.rootPath) }
+                }
+                if let configuration, !source.isJellyfin, !source.isEmby {
                     NavigationLink("Browse folders") {
                         NASPathPicker(configuration: configuration, mode: .household) { path, _ in add(path) }
                     }
@@ -321,12 +326,13 @@ private struct HouseholdFolderChooser: View {
         }.navigationTitle(source.name)
             .onAppear {
                 guard HouseholdStore.shared.isAdmin else { dismiss(); return }
+                guard !source.isEmby else { return }
                 do { configuration = try source.config() } catch { self.error = error.localizedDescription }
             }
     }
     private func add(_ path: String) {
         guard HouseholdStore.shared.isAdmin else { return }
-        let folder = HouseholdFolder(sourceID: source.id, path: path, caseSensitive: (source.isWebDAV || source.isJellyfin) ? true : nil)
+        let folder = HouseholdFolder(sourceID: source.id, path: path, caseSensitive: (source.isWebDAV || source.isJellyfin || source.isEmby) ? true : nil)
         if !allowed.contains(where: { $0.id == folder.id }) { allowed.append(folder) }
         dismiss()
     }

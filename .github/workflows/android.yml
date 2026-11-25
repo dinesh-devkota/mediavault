@@ -152,6 +152,7 @@ jobs:
           required = {"TVNavigationTest", "SecretBoxInstrumentedTest", "LibraryDatabaseTest", "MetadataMutationTest",
                       "LibraryScannerTest", "SmbDataSourceContractTest", "SmbIntegrationTest", "SmbPlaybackTest",
                       "JellyfinAndroidIntegrationTest", "JellyfinSetupNavigationTest",
+                      "EmbyAndroidIntegrationTest", "EmbySetupNavigationTest",
                       "WatchlistMigrationTest", "WatchlistNavigationTest", "NasBrowserIntegrationTest",
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",

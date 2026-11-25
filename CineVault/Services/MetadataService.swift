@@ -242,8 +242,10 @@ final class MetadataService {
         movie.tagline = nil
         movie.runtimeMinutes = episode?.runtime ?? details.episodeRunTime?.first { $0 > 0 }
         movie.rating = episode?.voteAverage ?? details.voteAverage
-        movie.usContentRating = details.contentRatings?.usContentRating
-        movie.usContentRatingFetched = details.contentRatings != nil
+        if movie.source?.isEmby != true {
+            movie.usContentRating = details.contentRatings?.usContentRating
+            movie.usContentRatingFetched = details.contentRatings != nil
+        }
         movie.posterPath = details.posterPath
         movie.backdropPath = episode?.stillPath ?? details.backdropPath
         movie.genres = details.genres?.map(\.name) ?? []
@@ -308,8 +310,10 @@ final class MetadataService {
         movie.tagline = details.tagline
         movie.runtimeMinutes = details.runtime
         movie.rating = details.voteAverage
-        movie.usContentRating = details.releaseDates?.usContentRating
-        movie.usContentRatingFetched = details.releaseDates != nil
+        if movie.source?.isEmby != true {
+            movie.usContentRating = details.releaseDates?.usContentRating
+            movie.usContentRatingFetched = details.releaseDates != nil
+        }
         movie.posterPath = details.posterPath
         movie.backdropPath = details.backdropPath
         movie.genres = details.genres?.map(\.name) ?? []
@@ -320,7 +324,8 @@ final class MetadataService {
 
     /// Auto-match: uses a {tmdb-123} tag if present, otherwise title/year search.
     func match(_ movie: Movie) async throws {
-        guard !movie.isDeleted, !movie.isMissing, movie.source?.isIgnored(filePath: movie.filePath) != true else { return }
+        guard !movie.isDeleted, !movie.isMissing, movie.source?.isEmby != true,
+              movie.source?.isIgnored(filePath: movie.filePath) != true else { return }
         guard !MediaFile.isAudio(path: movie.filePath), !MediaFile.isPhoto(path: movie.filePath) else { movie.metadataFetched = true; return }
         let reference = MovieReference(movie)
         guard let token = beginRequest(for: reference, manual: false) else { return }
@@ -352,7 +357,7 @@ final class MetadataService {
     /// Refresh just the certification of an already matched item. In particular,
     /// upgrading a library must not replace a user's title, artwork or progress.
     func fetchUSContentRating(for movie: Movie) async throws {
-        guard !movie.isDeleted, !movie.isMissing, try hasKey,
+        guard !movie.isDeleted, !movie.isMissing, movie.source?.isEmby != true, try hasKey,
               !MediaFile.isAudio(path: movie.filePath), !MediaFile.isPhoto(path: movie.filePath) else { return }
         let reference = MovieReference(movie)
         guard reference.isAvailable(movie), let token = beginRequest(for: reference, manual: false) else { return }

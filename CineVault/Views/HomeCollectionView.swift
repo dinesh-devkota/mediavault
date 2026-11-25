@@ -227,7 +227,7 @@ struct HomeCollectionView: View {
             NavigationLink(value: SearchShowSelection(show)) {
                 TVShowArtwork(title: show.title,
                               subtitle: "\(show.seasons.count) \(show.seasons.count == 1 ? "season" : "seasons")",
-                              path: show.posterPath, focused: focusedItem == item.id)
+                              path: show.posterPath, embyMovie: show.firstEpisode, embySeries: true, focused: focusedItem == item.id)
             }.accessibilityLabel("\(show.title), \(show.seasons.count) \(show.seasons.count == 1 ? "season" : "seasons")")
         }
     }

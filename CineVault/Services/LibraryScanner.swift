@@ -45,6 +45,10 @@ final class LibraryScanner: ObservableObject {
         status = "Scanning \(source.name)…"
         do {
             let config = try source.config()
+            if config.isEmby {
+                try await scanEmby(source, config: config, context: context)
+                return
+            }
             if config.isJellyfin {
                 try await scanJellyfin(source, config: config, context: context)
                 return
@@ -103,6 +107,89 @@ final class LibraryScanner: ObservableObject {
             let separator = reason.hasSuffix(".") ? " " : ". "
             status = "Scan failed for \(source.name): \(reason)\(separator)Items already found are kept. Retry from Sources."
         }
+    }
+
+    private func scanEmby(_ source: MediaSource, config: SourceConfig, context: ModelContext) async throws {
+        let household = HouseholdStore.shared
+        let session = household.sessionToken
+        guard household.isAdmin, EmbySourceConnection.validID(config.share) else { throw HouseholdError.denied }
+        let connection = try EmbySourceConnection(config: config)
+        var items: [EmbyClient.Item] = []
+        try await connection.client.catalog(connection.account, libraryID: config.share) { page in
+            guard household.sessionIsCurrent(session), household.isAdmin,
+                  !source.isDeleted, source.modelContext != nil, try source.config() == config else {
+                throw SMBError.sourceChanged
+            }
+            items.append(contentsOf: page)
+        }
+        try Task.checkCancellation()
+        guard household.sessionIsCurrent(session), household.isAdmin,
+              !source.isDeleted, source.modelContext != nil, try source.config() == config else {
+            throw SMBError.sourceChanged
+        }
+        let media = EmbyCatalogEntry.media(items)
+        var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { first, _ in first })
+        let previous = existing.values.map {
+            ($0, $0.isMissing, $0.usContentRating, $0.tmdbID, $0.seriesTMDBID,
+             $0.providerSeriesID, $0.seriesTitle, $0.seasonNumber, $0.episodeNumber)
+        }
+        let scanDate = source.lastScanDate
+        var inserted: [Movie] = []
+        for video in media {
+            let path = video.path
+            if let movie = existing.removeValue(forKey: path) {
+                movie.usContentRating = video.rating
+                movie.providerSeriesID = video.seriesID
+                movie.seriesTitle = video.seriesTitle
+                movie.seasonNumber = video.season
+                movie.episodeNumber = video.episode
+                if !movie.isLocked {
+                    movie.tmdbID = video.tmdbID
+                    movie.seriesTMDBID = video.seriesTMDBID
+                }
+                movie.isMissing = false
+                continue
+            }
+            let movie = Movie(filePath: path, fileSize: 0, source: source)
+            movie.fileName = video.title + (video.isPhoto ? ".jpg" : ".mp4")
+            movie.parsedTitle = video.title
+            movie.parsedYear = video.year
+            movie.setTitle(video.title)
+            movie.year = video.year
+            movie.overview = video.overview
+            movie.runtimeMinutes = video.runtimeMinutes
+            movie.seriesTitle = video.seriesTitle
+            movie.providerSeriesID = video.seriesID
+            movie.tmdbID = video.tmdbID
+            movie.seriesTMDBID = video.seriesTMDBID
+            movie.seasonNumber = video.season
+            movie.episodeNumber = video.episode
+            movie.usContentRating = video.rating
+            movie.usContentRatingFetched = true
+            movie.metadataFetched = true
+            context.insert(movie)
+            inserted.append(movie)
+        }
+        for movie in existing.values { movie.isMissing = true }
+        source.lastScanDate = Date()
+        do { try saveContext(context) }
+        catch {
+            for (movie, wasMissing, rating, tmdbID, seriesTMDBID, seriesID, title, season, episode) in previous {
+                movie.isMissing = wasMissing
+                movie.usContentRating = rating
+                movie.tmdbID = tmdbID
+                movie.seriesTMDBID = seriesTMDBID
+                movie.providerSeriesID = seriesID
+                movie.seriesTitle = title
+                movie.seasonNumber = season
+                movie.episodeNumber = episode
+            }
+            source.lastScanDate = scanDate
+            for movie in inserted { context.delete(movie) }
+            throw error
+        }
+        let photos = media.filter(\.isPhoto).count
+        status = "\(source.name): \(media.count - photos) videos, \(photos) photos (\(inserted.count) new)"
     }
 
     private func scanJellyfin(_ source: MediaSource, config: SourceConfig, context: ModelContext) async throws {
