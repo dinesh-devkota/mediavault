@@ -20,7 +20,15 @@ final class LibraryFeaturesNavigationTests: XCTestCase {
         select(app.buttons["Rename"], app)
         let rename = app.textFields["collection-rename-name"]
         select(rename, app)
-        rename.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 7) + "Movie Night")
+        // tvOS can still be applying injected keyboard events when typeText returns.
+        // Observe each edit before dismissing the keyboard or saving a partial name.
+        var previousName = "Weekend"
+        while !previousName.isEmpty {
+            rename.typeText(XCUIKeyboardKey.delete.rawValue)
+            previousName.removeLast()
+            if !previousName.isEmpty { waitForValue(previousName, in: rename, app) }
+        }
+        typeAcknowledged("Movie Night", into: rename, app)
         dismissKeyboard(app)
         select(app.buttons["Save name"], app)
         XCTAssertTrue(app.staticTexts["Movie Night"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
@@ -42,7 +50,18 @@ final class LibraryFeaturesNavigationTests: XCTestCase {
         capture("Selected edition detail and resume action", app)
     }
     @MainActor private func enter(_ text: String, into field: XCUIElement, _ app: XCUIApplication) {
-        select(field, app); field.typeText(text); dismissKeyboard(app)
+        select(field, app); typeAcknowledged(text, into: field, app); dismissKeyboard(app)
+    }
+    @MainActor private func typeAcknowledged(_ text: String, into field: XCUIElement, _ app: XCUIApplication) {
+        var expected = ""
+        for character in text {
+            field.typeText(String(character)); expected.append(character)
+            waitForValue(expected, in: field, app)
+        }
+    }
+    @MainActor private func waitForValue(_ expected: String, in field: XCUIElement, _ app: XCUIApplication) {
+        let applied = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: field)
+        XCTAssertEqual(XCTWaiter.wait(for: [applied], timeout: 5), .completed, app.debugDescription)
     }
     @MainActor private func capture(_ name: String, _ app: XCUIApplication) {
         let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
