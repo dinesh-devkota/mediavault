@@ -206,7 +206,7 @@ private fun HomeTab(
             item {
                 if (container.family.current.enabled && !container.family.current.admin) {
                     Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text("Your library is ready for you", style = MaterialTheme.typography.headlineMedium)
+                        Text("No media available for this profile yet", style = MaterialTheme.typography.headlineMedium)
                         Text("There is no available media for this profile yet. Ask Admin to choose folders and check the rating limits.", color = SecondaryText)
                     }
                 } else loadedSources?.let { EmptyHome(movies, it, openPhotos, openSources) }

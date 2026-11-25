@@ -39,7 +39,7 @@ fun FamilyGate(adminOnly: Boolean = false, content: @Composable () -> Unit) {
     val family = LocalContext.current.container.family
     val session by family.session.collectAsStateWithLifecycle()
     when {
-        !session.unlocked -> ProfilePicker()
+        !session.unlocked -> key(session.generation) { ProfilePicker() }
         adminOnly && !session.admin -> AdminRequired()
         else -> key(session.historyId, session.enabled) { content() }
     }
@@ -62,7 +62,7 @@ fun ProfilePicker() {
     var selected by remember { mutableStateOf<HouseholdProfile?>(null) }
     val profile = selected
     if (profile != null) {
-        PinPrompt("Unlock ${profile.name}", onCancel = { selected = null }) { family.unlock(profile.id, it) }
+        PinPrompt("Unlock ${profile.name}", onCancel = { selected = null }) { pin, epoch -> family.unlock(profile.id, pin, epoch) }
         return
     }
     val scope = rememberCoroutineScope()
@@ -78,9 +78,10 @@ fun ProfilePicker() {
         family.profiles.forEach { entry -> item(key = entry.id) {
             Button(enabled = !busy, onClick = {
                 if (entry.pin != null) selected = entry else {
+                    val epoch = family.authenticationEpoch
                     busy = true
                     scope.launch {
-                        try { error = family.unlock(entry.id, "") }
+                        try { error = family.unlock(entry.id, "", epoch) }
                         catch (cancelled: CancellationException) { throw cancelled }
                         catch (_: Exception) { error = "The profile could not be unlocked. Access remains locked." }
                         finally { busy = false }
@@ -93,10 +94,12 @@ fun ProfilePicker() {
 }
 
 @Composable
-private fun PinPrompt(title: String, onCancel: () -> Unit, verify: suspend (String) -> String?) {
-    var pin by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+private fun PinPrompt(title: String, onCancel: () -> Unit, verify: suspend (String, Long) -> String?) {
+    val family = LocalContext.current.container.family
+    val promptEpoch by family.authenticationEpochs.collectAsState()
+    var pin by remember(promptEpoch) { mutableStateOf("") }
+    var busy by remember(promptEpoch) { mutableStateOf(false) }
+    var error by remember(promptEpoch) { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     BackHandler { if (!busy) onCancel() }
     Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -104,9 +107,9 @@ private fun PinPrompt(title: String, onCancel: () -> Unit, verify: suspend (Stri
         PinField(pin, { pin = it }, "Six-digit PIN", enabled = !busy)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Button(enabled = PinVerifier.valid(pin) && !busy, onClick = {
-                val submitted = pin; pin = ""; busy = true
+                val submitted = pin; val requestEpoch = promptEpoch; pin = ""; busy = true
                 scope.launch {
-                    try { error = verify(submitted) }
+                    try { error = verify(submitted, requestEpoch) }
                     catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) { error = "The PIN could not be checked. Access remains locked." }
                     finally { busy = false }
@@ -154,8 +157,8 @@ private fun FamilySettings(onClose: () -> Unit) {
     if (!session.admin) { AdminRequired(); return }
     // Permission changes require a fresh Admin PIN, even when entering from an existing Admin session.
     if (verifying && !authorized) {
-        PinPrompt("Confirm Admin PIN", onCancel = { verifying = false }) { pin ->
-            family.unlock(HouseholdProfile.ADMIN, pin).also { if (it == null) authorized = true }
+        PinPrompt("Confirm Admin PIN", onCancel = { verifying = false }) { pin, epoch ->
+            family.unlock(HouseholdProfile.ADMIN, pin, epoch).also { if (it == null) authorized = true }
         }
         return
     }
@@ -177,8 +180,9 @@ private fun FamilySettings(onClose: () -> Unit) {
             item {
                 Text("Turning profiles off makes the full library visible. Your profiles, permissions and viewing histories are kept for next time.", color = SecondaryText)
                 OutlinedButton(onClick = {
+                    val authorization = family.current
                     if (!confirmOff) confirmOff = true else scope.launch {
-                        try { family.turnOff() }
+                        try { family.turnOff(authorization) }
                         catch (cancelled: CancellationException) { throw cancelled }
                         catch (failure: Exception) { error = failure.message ?: "Could not turn profiles off." }
                     }
@@ -195,7 +199,7 @@ private fun DisabledHousehold(onClose: () -> Unit) {
     val family = LocalContext.current.container.family
     var verifying by remember { mutableStateOf(false) }
     if (verifying) {
-        PinPrompt("Turn on household profiles", onCancel = { verifying = false }) { family.unlock(HouseholdProfile.ADMIN, it) }
+        PinPrompt("Turn on household profiles", onCancel = { verifying = false }) { pin, epoch -> family.unlock(HouseholdProfile.ADMIN, pin, epoch) }
         return
     }
     Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -209,8 +213,9 @@ private fun DisabledHousehold(onClose: () -> Unit) {
 @Composable
 private fun SetupHousehold(onClose: () -> Unit) {
     val family = LocalContext.current.container.family
-    var pin by remember { mutableStateOf("") }
-    var confirmation by remember { mutableStateOf("") }
+    val setupEpoch by family.authenticationEpochs.collectAsState()
+    var pin by remember(setupEpoch) { mutableStateOf("") }
+    var confirmation by remember(setupEpoch) { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -221,9 +226,9 @@ private fun SetupHousehold(onClose: () -> Unit) {
         item { PinField(pin, { pin = it }, "Create six-digit Admin PIN", !saving) }
         item { PinField(confirmation, { confirmation = it }, "Confirm Admin PIN", !saving) }
         item { Button(enabled = !saving && PinVerifier.valid(pin) && PinVerifier.valid(confirmation), onClick = {
-            val first = pin; val second = confirmation; saving = true
+            val first = pin; val second = confirmation; val requestEpoch = setupEpoch; saving = true
             scope.launch {
-                try { family.setup(first, second); pin = ""; confirmation = "" }
+                try { family.setup(first, second, requestEpoch); pin = ""; confirmation = "" }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (failure: Exception) { error = failure.message ?: "Could not save household profiles." }
                 finally { saving = false }
@@ -273,9 +278,9 @@ private fun ProfileEditor(original: HouseholdProfile, onClose: () -> Unit) {
         if (!original.isAdmin && original.pin != null) item { OutlinedButton(onClick = { removePin = !removePin; pin = "" }) { Text(if (removePin) "PIN will be removed · Keep PIN instead" else "Remove viewer PIN") } }
         item { Button(enabled = !saving && draft.name.isNotBlank(), onClick = {
             if (pin.isNotEmpty() && (pin != confirmation || !PinVerifier.valid(pin))) { message = "Enter the same six-digit PIN twice."; return@Button }
-            val submitted = pin; pin = ""; confirmation = ""; saving = true
+            val submitted = pin; val authorization = family.current; pin = ""; confirmation = ""; saving = true
             scope.launch {
-                try { family.saveProfile(draft, submitted, removePin); onClose() }
+                try { family.saveProfile(draft, submitted, removePin, authorization); onClose() }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (failure: Exception) { message = failure.message ?: "Could not save this profile." }
                 finally { saving = false }
@@ -283,8 +288,9 @@ private fun ProfileEditor(original: HouseholdProfile, onClose: () -> Unit) {
         }) { Text(if (saving) "Saving…" else "Save profile") } }
         if (!original.isAdmin && family.profiles.any { it.id == original.id }) item {
             OutlinedButton(enabled = !saving, onClick = {
+                val authorization = family.current
                 if (!deleting) deleting = true else scope.launch {
-                    try { family.deleteProfile(original.id); container.database.profileHistory().deleteProfile(original.id); onClose() }
+                    try { family.deleteProfile(original.id, authorization); container.database.profileHistory().deleteProfile(original.id); onClose() }
                     catch (failure: Exception) { message = failure.message }
                 }
             }) { Text(if (deleting) "Confirm delete profile and its history" else "Delete profile") }

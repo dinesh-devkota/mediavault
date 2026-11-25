@@ -26,10 +26,10 @@ class FamilyLifecycle(private val family: FamilyStore, scope: CoroutineScope, pr
         activities += activity
         protect(activity, family.current.enabled)
     }
-    override fun onActivityStarted(activity: Activity) { started++ }
+    override fun onActivityStarted(activity: Activity) { started++; family.onForeground() }
     override fun onActivityStopped(activity: Activity) {
         started = (started - 1).coerceAtLeast(0)
-        if (started == 0 && !activity.isChangingConfigurations) { family.lock(); onLock() }
+        if (started == 0 && !activity.isChangingConfigurations) { family.onBackground(); onLock() }
     }
     override fun onActivityResumed(activity: Activity) = Unit
     override fun onActivityPaused(activity: Activity) = Unit

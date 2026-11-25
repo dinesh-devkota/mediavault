@@ -50,7 +50,10 @@ PY
 }
 
 status=0
+# AGP normally uninstalls the app after instrumentation. Keep this disposable
+# installation for the explicit reset between phases and screenshot export.
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
+  -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   "-Pandroid.testInstrumentationRunnerArguments.notClass=$FAMILY_TEST" || status=$?
 archive_results baseline
@@ -64,6 +67,7 @@ if [[ "$(adb -s "$SERIAL" shell pm clear "$APP_ID" | tr -d '\r')" != "Success" ]
 fi
 status=0
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
+  -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   "-Pandroid.testInstrumentationRunnerArguments.class=$FAMILY_TEST" \
   -Pandroid.testInstrumentationRunnerArguments.familyUiFixture=true || status=$?

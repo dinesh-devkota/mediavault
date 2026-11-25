@@ -143,6 +143,18 @@ class FamilyStoreInstrumentedTest {
         assertFalse(store.current.unlocked)
     }
 
+    @Test fun queuedAuthenticationCannotRunInBackgroundOrReuseAnOldPromptAfterReturn() = runBlocking {
+        admin(); store.lock()
+        val prompt = store.authenticationEpoch
+        store.onBackground()
+        assertNotNull(async(Dispatchers.Default) { store.unlock(HouseholdProfile.ADMIN, "123456", prompt) }.await())
+        assertFalse(store.current.unlocked)
+        store.onForeground()
+        assertNotNull(store.unlock(HouseholdProfile.ADMIN, "123456", prompt))
+        assertFalse(store.current.unlocked)
+        assertNull(store.unlock(HouseholdProfile.ADMIN, "123456"))
+    }
+
     @Test fun profileNamesAndPermissionsAreValidatedBeforePersistence() = runBlocking {
         admin(); addViewer()
         for (invalid in listOf(HouseholdProfile("other", " viewer "), HouseholdProfile("other", "ADMIN"),
