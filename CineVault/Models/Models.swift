@@ -123,7 +123,7 @@ final class Movie {
     }
     var episodeInfo: EpisodeInfo? {
         guard !MediaFile.isAudio(path: filePath), !MediaFile.isPhoto(path: filePath) else { return nil }
-        let local = EpisodeParser.parse(path: filePath)
+        let local = source?.isEmby == true ? nil : EpisodeParser.parse(path: filePath)
         guard let name = seriesTitle ?? local?.seriesTitle, !name.isEmpty,
               let season = seasonNumber ?? local?.season, let episode = episodeNumber ?? local?.episode,
               (0...999).contains(season), (0...999).contains(episode) else { return nil }

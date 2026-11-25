@@ -70,6 +70,19 @@ final class EmbyClientTests: XCTestCase {
         XCTAssertThrowsError(try EmbySourceConnection.itemID(for: "emby/a/Video.mp4"))
     }
 
+    func testProviderIdentifierDoesNotDetermineTheAgeRatingCategory() {
+        let source = MediaSource(name: "Emby fixture", host: "https://emby.fixture.invalid",
+                                 share: "library", rootPath: "", username: "fixture")
+        source.sourceProtocol = "emby"
+        let path = EmbySourceConnection.path("Media-S01E03")
+        let movie = Movie(filePath: path, fileSize: 0, source: source)
+        XCTAssertNil(movie.episodeInfo)
+        movie.seriesTitle = "Fixture Show"
+        movie.seasonNumber = 1
+        movie.episodeNumber = 3
+        XCTAssertEqual(movie.episodeInfo?.seriesTitle, "Fixture Show")
+    }
+
     func testEmbyRequiresAnExplicitEntireLibraryGrant() {
         let sourceID = UUID()
         var viewer = HouseholdProfile(name: "Viewer")
