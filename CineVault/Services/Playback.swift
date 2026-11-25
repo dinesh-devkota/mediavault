@@ -204,6 +204,7 @@ final class PlaybackController: ObservableObject {
     private var failureObserver: NSObjectProtocol?
     private var artworkTask: Task<Void, Never>?
     private var itemObservation: NSKeyValueObservation?
+    private var embyStateObservation: NSKeyValueObservation?
     private var householdObserver: NSObjectProtocol?
     private let household: HouseholdStore
     private let householdSession: UUID
@@ -263,7 +264,7 @@ final class PlaybackController: ObservableObject {
                     throw PlaybackPreparationError.fileUnavailable
                 }
                 let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset, household: household)
-                controller.embyReporter = reporter
+                if let reporter { controller.startEmbyReporting(reporter) }
                 return controller
             } catch {
                 asset.cancelLoading()
@@ -385,6 +386,19 @@ final class PlaybackController: ObservableObject {
                 item(.commonIdentifierDescription, movie.overview)].compactMap { $0 }
     }
 
+    private func startEmbyReporting(_ reporter: EmbyPlaybackReporter) {
+        embyReporter = reporter
+        embyStateObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.stopped, self.validateAccess() else { return }
+                let status = self.player.timeControlStatus
+                guard status == .playing || status == .paused else { return }
+                let position = self.player.currentTime().seconds
+                await reporter.progress(position, paused: status == .paused)
+            }
+        }
+    }
+
     func record(time: Double) {
         guard !stopped, validateAccess(), time.isFinite else { return }
         if let embyReporter {
@@ -458,6 +472,8 @@ final class PlaybackController: ObservableObject {
         asset.cancelLoading()
         itemObservation?.invalidate()
         itemObservation = nil
+        embyStateObservation?.invalidate()
+        embyStateObservation = nil
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
