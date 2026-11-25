@@ -21,6 +21,8 @@ struct MovieDetailView: View {
     @State private var preparationTask: Task<Void, Never>?
     @State private var preparationID = UUID()
     @State private var loadingError: String?
+    @State private var addingToCollection = false
+    @Query private var versionLibrary: [Movie]
 
     var body: some View {
         if !HouseholdStore.shared.allows(movie) { HouseholdUnavailableView() }
@@ -64,6 +66,10 @@ struct MovieDetailView: View {
                     Text(MoviePresentation.metadata(for: movie))
                         .font(.title3)
                         .foregroundStyle(CinemaTheme.secondaryText)
+                    if movie.localEdition != nil || versionLibrary.filter({ LibraryCollectionsStore.available($0) && MovieVersions.key($0) == MovieVersions.key(movie) }).count > 1 {
+                        Text(MovieVersions.label(movie)).font(.callout.bold())
+                        Text(movie.fileName).font(.caption).foregroundStyle(CinemaTheme.secondaryText)
+                    }
 
                     if let tagline = movie.tagline, !tagline.isEmpty {
                         Text(tagline)
@@ -85,7 +91,7 @@ struct MovieDetailView: View {
                     playbackControls
                         .padding(.top, 16)
                     if !movie.isMissing, movie.source?.isIgnored(filePath: movie.filePath) != true,
-                       PlaybackController.isNativeCandidate(movie), playbackServices.canResume(movie),
+                       PlaybackController.isPlaybackCandidate(movie), playbackServices.canResume(movie),
                        let remaining = PlaybackTimeSummary.remaining(duration: movie.duration,
                            runtimeMinutes: movie.runtimeMinutes, position: playbackServices.resumePosition(movie)) {
                         Text(remaining)
@@ -97,6 +103,11 @@ struct MovieDetailView: View {
                         NextEpisodeLink(episode: movie)
                     }
                     personalActions
+                    if versionLibrary.filter({ LibraryCollectionsStore.available($0) && MovieVersions.key($0) == MovieVersions.key(movie) }).count > 1 {
+                        NavigationLink { MovieVersionsView(groupKey: MovieVersions.key(movie)) } label: {
+                            Label("Choose another version", systemImage: "square.stack")
+                        }.buttonStyle(.bordered).accessibilityIdentifier("detail-choose-version")
+                    }
                     fileDetails
                         .padding(.top, 24)
                 }
@@ -107,6 +118,7 @@ struct MovieDetailView: View {
             }
         }
         .sheet(isPresented: $editing) { NavigationStack { EditMovieView(movie: movie) } }
+        .sheet(isPresented: $addingToCollection) { CollectionPickerSheet(movieIDs: [movie.id]) }
         .fullScreenCover(item: $playback) { controller in
             PlaybackScreen(controller: controller, services: playbackServices,
                            library: { (try? modelContext.fetch(FetchDescriptor<Movie>())) ?? [] })
@@ -138,7 +150,7 @@ struct MovieDetailView: View {
             if movie.isMissing || movie.source?.isIgnored(filePath: movie.filePath) == true {
                 Text("File unavailable. Include it again and rescan before playing.")
                     .font(.callout).foregroundStyle(CinemaTheme.secondaryText)
-            } else if !PlaybackController.isNativeCandidate(movie) {
+            } else if !PlaybackController.isPlaybackCandidate(movie) {
                 Button("Format information") { unsupported = true }.buttonStyle(.bordered)
             } else if isPreparing {
                 ProgressView("Checking media…")
@@ -181,6 +193,8 @@ struct MovieDetailView: View {
 
     private var personalActions: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Button { addingToCollection = true } label: { Label("Add to collection", systemImage: "rectangle.stack.badge.plus") }
+                .buttonStyle(.bordered).accessibilityIdentifier("detail-add-collection")
             Button {
                 let wasWatchlisted = movie.householdWatchlisted
                 movie.householdWatchlisted.toggle()
@@ -236,7 +250,7 @@ struct MovieDetailView: View {
     }
 
     private func play(resume: Bool) {
-        guard PlaybackController.isNativeCandidate(movie) else {
+        guard PlaybackController.isPlaybackCandidate(movie) else {
             unsupported = true
             return
         }

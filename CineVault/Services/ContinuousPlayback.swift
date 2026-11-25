@@ -46,7 +46,9 @@ final class ContinuousPlayback: ObservableObject {
             if error != nil { self?.cancel() }
         }
         #if CINEVAULT_COMMERCIAL
-        commercialObservation = controller.commercialSession.$endedSuccessfully.removeDuplicates().sink { [weak self] ended in
+        let outcome = controller.externalCommercialSession?.$endedSuccessfully.eraseToAnyPublisher()
+            ?? controller.commercialSession.$endedSuccessfully.eraseToAnyPublisher()
+        commercialObservation = outcome.removeDuplicates().sink { [weak self] ended in
             guard ended else { return }
             Task { @MainActor [weak self] in self?.offerNext() }
         }

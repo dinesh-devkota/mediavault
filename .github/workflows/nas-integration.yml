@@ -22,9 +22,14 @@ jobs:
   nas-integration:
     name: ${{ inputs.ui_only && 'Test Apple TV remote navigation' || 'Test SMB on Apple TV simulator' }}
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Cache pinned Apple playback dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/apple-packages
+          key: apple-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('project.yml', 'project.ios.yml') }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -58,6 +63,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
@@ -97,6 +103,7 @@ jobs:
           # Bash 3.2 treats an empty array as unset under nounset. Keep the full
           # invocation nonempty, then append the optional focused-test filters.
           TEST_ARGS=(-project CineVault.xcodeproj -scheme CineVault
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages"
             -destination "id=$DEVICE" -configuration Debug
             -derivedDataPath "$RUNNER_TEMP/cinevault-tests"
             -resultBundlePath "$RUNNER_TEMP/nas-results.xcresult"

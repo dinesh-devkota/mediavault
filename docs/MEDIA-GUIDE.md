@@ -10,9 +10,85 @@ Documentaries, TV Shows, or Music, when you return or reopen the app.
 Use **Section** to switch categories. **Clear filters** resets the filters
 within that section. Photos have their own tab.
 
-Open **Settings** to check your installed version and build (under **About** on Apple TV).
-The household profiles update is version **1.4.0**, build **6**, including the
-subtitles and continuous viewing features introduced in 1.3.0.
+Open **Settings** to check your installed version and build (under **About** on Apple devices).
+The library/playback feature branch is version **1.5.0**, build **7**. This guide
+applies to Apple TV, iPhone, Android TV, and Android phones; tap on a phone or
+select with the remote on a TV. On iPhone, Sources and Settings are under **Manage**.
+
+## Use local artwork and details
+
+Put artwork and an NFO/XML details file beside a movie, then rescan its source.
+This works with SMB and WebDAV without a TMDB key. Jellyfin items use the
+metadata and artwork supplied by their server.
+
+For example:
+
+```text
+Movies/
+  Example Movie (2020)/
+    Example Movie (2020).mkv
+    Example Movie (2020).nfo
+    Example Movie (2020)-poster.jpg
+    Example Movie (2020)-fanart.jpg
+```
+
+Matching `.xml` files are also accepted. A folder containing just one video can
+use `movie.nfo`, `poster.jpg`, and `fanart.jpg`. When a folder has several
+videos, use each video's exact basename to avoid assigning the same details to
+unrelated titles. JPG, JPEG, PNG, and WebP artwork names are supported.
+
+A minimal movie NFO looks like this:
+
+```xml
+<movie>
+  <title>Example Movie</title>
+  <year>2020</year>
+  <plot>A description of the movie.</plot>
+  <genre>Adventure</genre>
+  <mpaa>PG</mpaa>
+  <set><name>Example Movie Series</name></set>
+  <edition>Theatrical</edition>
+</movie>
+```
+
+Use the movie's actual certification. With an age limit enabled, unknown or
+unrated video remains hidden. NFO files may also supply a TMDB identifier,
+runtime in minutes, and tagline. They must be valid UTF-8 XML under 1 MB.
+Remote image links, external XML entities, and commands are never followed.
+
+For shows, use `Show Name/tvshow.nfo` and `Show Name/poster.jpg`, then place
+episodes in `Season 01/`. An episode can have a matching `.nfo` with an
+`episodedetails` root, `title`, `showtitle`, `season`, and `episode`. Use a
+matching JPG for the episode image and `season01-poster.jpg` in the show folder
+or `poster.jpg` inside its season folder for season artwork.
+
+Local details take precedence over online fields; optional TMDB fetching can
+fill missing details. Manual title/match corrections remain protected during
+rescans. Local artwork is read from the source and does not need an online
+account. Recognized companion artwork is kept out of photo albums; a standalone
+photo named `poster.jpg` remains a photo when it is not attached to a video.
+
+## Organize collections and movie versions
+
+Open **Library → Collections** to browse your personal collections and movie
+series. Movie series appear automatically when NFO or TMDB details identify at
+least two different movies in the same collection. Two cuts of one movie do not
+make a movie series.
+
+Open a title's details and choose **Add to collection** on Apple or
+**Collections** on Android. Create a named collection or choose an existing
+one. You can also select several library titles and add them together.
+Collections belong to the active household profile and only show media it can
+access. Rename or delete a collection from its page; deleting a collection
+keeps your files and viewing history.
+
+Movies with the same TMDB identifier, or the same normalized title and known
+year, share one library poster. Choose that poster to select a version, or
+open the version picker from its details. The picker shows the edition, format,
+source and filename so you can identify the copy you want. Each file retains
+its own resume position and watched status. Files are never moved or merged.
+Movies without enough identifying details remain separate; use a matching NFO
+or correct their online match if they should be grouped.
 
 ### Browse a complete Home collection
 
@@ -360,22 +436,26 @@ before completion; they do not mean every folder has finished. Check the status
 and the last successful scan time. If a scan fails, correct the connection or
 credentials and retry.
 
-MediaVault does not transcode. A filename extension identifies a candidate
+MediaVault does not transcode files on your device; a linked Jellyfin server can
+provide a compatible stream. A filename extension identifies a candidate
 format; the file must contain real media, and the device must support the
 audio/video codecs inside it. Unsupported formats show an explanation instead
-of Play controls. Apple TV also checks the actual asset before starting playback.
+of Play controls. Apple devices check the actual asset before starting playback
+and use the additional VideoLAN player when a supported direct file needs it.
 
 | Platform | Video candidates | Audio candidates |
 | --- | --- | --- |
-| Android TV | MP4, M4V, MOV, MKV, WebM, AVI, MPEG-TS, MPEG-PS, FLV | MP3, M4A, AAC, FLAC, WAV, Ogg, Opus |
-| Apple TV | MP4, M4V, MOV | MP3, M4A, AAC, FLAC, WAV, AIFF/AIF |
+| Android TV and phones | MP4, M4V, MOV, MKV, WebM, AVI, MPEG-TS, MPEG-PS, FLV | MP3, M4A, AAC, FLAC, WAV, Ogg, Opus |
+| Apple TV and iPhone | MP4, M4V, MOV; additional engine: MKV, WebM, AVI, WMV, MPEG-TS/M2TS, MPEG-PS, FLV | MP3, M4A, AAC, FLAC, WAV, AIFF/AIF, Ogg, Opus, WMA |
 
 This table describes the current app's file playback, not every format supported
 by other players. Android's AVI support depends on its extractor and device
-codecs; FLV seeking is limited. WMV, ISO, and M2TS are cataloged but cannot be
-played by these built-in players. WMA cannot play on either platform, and AIFF/AIF
-cannot play in this Android build. Unsupported real media can remain in the
-library for organization.
+codecs; FLV seeking is limited. WMV, M2TS, WMA, and AIFF/AIF cannot play in this
+Android build. Disc-image playback and disc menus are not implemented. Unsupported
+real media can remain in the library for organization. The Apple engine is a
+pinned official VideoLAN 4.0 prerelease; see [its implementation and validation
+limits](PLAYBACK-ENGINE.md). Candidate support does not promise HDR/Dolby Vision,
+audio passthrough, or reliable playback at every bitrate on every device.
 
 The `.ts` suffix is shared by MPEG transport-stream video and TypeScript source
 code. `.d.ts` is a TypeScript declaration file and is never media. Scanning checks
@@ -383,7 +463,7 @@ the packet structure of ambiguous `.ts` files; Android repeats that check before
 playing an existing entry. Android's TS player requires standard 188-byte packets;
 192-byte M2TS and 204-byte variants are not enabled for playback. The player then
 checks whether it can decode its tracks.
-Standalone TS files are not enabled for playback in the current Apple TV app.
+Apple devices also probe ambiguous TS files before passing them to VideoLAN.
 
 Format references: [Android Media3 progressive formats](https://developer.android.com/media/media3/exoplayer/progressive),
 [Media3 codec support](https://developer.android.com/media/media3/exoplayer/supported-formats),

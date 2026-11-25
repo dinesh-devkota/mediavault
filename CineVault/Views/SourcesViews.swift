@@ -450,8 +450,9 @@ struct SettingsView: View {
                 Text(appVersion).font(.caption).foregroundStyle(.secondary)
                     .focusable()
                     .accessibilityIdentifier("app-version")
-                Text("MediaVault plays MP4/M4V/MOV directly from your NAS over SMB. Other video containers require conversion to a supported container and compatible codecs.")
+                Text("Play movies, shows, music and photos from your connected sources. Format support varies by device.")
                     .font(.caption)
+                NavigationLink("Playback library & license") { PlaybackAcknowledgementsView() }
                 #if os(iOS)
                 PhonePrivacyPolicyLink()
                 #endif

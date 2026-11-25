@@ -11,14 +11,19 @@ final class LibraryScanner: ObservableObject {
     private let scanWithProgress: ((SourceConfig, MediaScanReporter) async throws -> [RemoteFile])?
     private let saveContext: (ModelContext) throws -> Void
     private let fetchMetadata: (ModelContext) async throws -> MetadataFetchSummary?
+    private let importLocalMetadata: ((MediaSource, ModelContext, SourceConfig) async throws -> Void)?
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     init(fetchMetadata: ((ModelContext) async throws -> MetadataFetchSummary?)? = nil,
          scanVideos: ((SourceConfig) async throws -> [RemoteFile])? = nil,
          scanWithProgress: ((SourceConfig, MediaScanReporter) async throws -> [RemoteFile])? = nil,
-         saveContext: @escaping (ModelContext) throws -> Void = { try $0.save() }) {
+         saveContext: @escaping (ModelContext) throws -> Void = { try $0.save() },
+         importLocalMetadata: ((MediaSource, ModelContext, SourceConfig) async throws -> Void)? = nil) {
         self.saveContext = saveContext
         self.fetchMetadata = fetchMetadata ?? { try await MetadataService.shared.fetchMissing(in: $0) }
+        self.importLocalMetadata = importLocalMetadata ?? (scanVideos == nil && scanWithProgress == nil ? { source, context, config in
+            _ = try await LocalMetadataService.shared.importFiles(source: source, context: context, config: config)
+        } : nil)
         self.scanVideos = scanVideos ?? { try await SMBService.shared.scanVideos($0) }
         if let scanWithProgress { self.scanWithProgress = scanWithProgress }
         else if scanVideos == nil {
@@ -87,6 +92,7 @@ final class LibraryScanner: ObservableObject {
             }
             status = scanSummary()
             do {
+                if let importLocalMetadata { try await importLocalMetadata(source, context, config) }
                 let result = try await fetchMetadata(context)
                 let complete = scanSummary()
                 status = complete

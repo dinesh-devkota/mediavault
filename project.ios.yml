@@ -7,9 +7,12 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.4.0"
-    CURRENT_PROJECT_VERSION: "6"
+    MARKETING_VERSION: 1.5.0
+    CURRENT_PROJECT_VERSION: 7
 packages:
+  VLCKit:
+    url: https://github.com/videolan/vlckit
+    revision: 7f98c70f9f0c11fbdf828220890bd6280361ae99
   AMSMB2:
     url: https://github.com/amosavian/AMSMB2
     from: 3.0.0
@@ -27,6 +30,7 @@ targets:
       - path: CineVaultiOS/Assets.xcassets
     dependencies:
       - package: CineVaultCore
+      - package: VLCKit
       # The LGPL SMB library remains an embedded dynamic framework.
       - package: AMSMB2
     settings:

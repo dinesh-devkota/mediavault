@@ -24,9 +24,14 @@ jobs:
   simulator:
     name: Build and test iPhone app
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Cache pinned Apple playback dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/apple-packages
+          key: apple-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('project.yml', 'project.ios.yml') }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -63,6 +68,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-phone" \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
@@ -96,6 +102,7 @@ jobs:
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/jellyfin-fixture/fixture.cer"
           xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
             -destination "id=$DEVICE" -configuration Debug \
             -derivedDataPath "$RUNNER_TEMP/cinevault-phone" \
             -resultBundlePath "$RUNNER_TEMP/iphone-results.xcresult" \
@@ -128,12 +135,33 @@ jobs:
               "testWebDAVAuthenticationScanPlaybackAndSeek",
               "testSignInImportDirectPlayAndSeekOverHTTPS",
               "testNegotiatesAuthenticatedHLSWhenDirectPlayIsUnavailable",
+              "testCommonContainersDecodeAndSeekOverGuardedSMB",
+              "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey",
+              "testCreateEditCollectionAndChooseAlternateVersion",
           }
           missing = sorted(required - tests)
           if missing:
               sys.exit("Required iPhone cases did not pass: " + ", ".join(missing))
           print("All required iPhone UI and fixture cases passed.")
           PY
+      - name: Export phone test screenshots
+        if: always()
+        run: |
+          if [[ -d "$RUNNER_TEMP/iphone-results.xcresult" ]]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/iphone-results.xcresult" \
+              --output-path "$RUNNER_TEMP/iphone-test-screenshots"
+          fi
+      - name: Retain phone test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-test-evidence
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/iphone-test-screenshots
+            ${{ runner.temp }}/iphone-summary.json
+            ${{ runner.temp }}/iphone-tests.json
       - name: Build unsigned iPhone release
         if: always() && steps.project.outcome == 'success'
         run: |
@@ -146,6 +174,7 @@ jobs:
             exit 1
           fi
           xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
             -destination 'generic/platform=iOS' -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/cinevault-phone-release" \
             CODE_SIGNING_ALLOWED=NO build | tail -n 160
