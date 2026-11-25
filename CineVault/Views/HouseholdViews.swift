@@ -345,6 +345,7 @@ struct HouseholdViewerSettings: View {
                 Text("Admin manages NAS sources, subtitles, metadata and household permissions.").foregroundStyle(.secondary)
                 Button("Enter Admin") { household.lock() }
                 NavigationLink("Media Guide & Help") { MediaGuideView() }
+                NavigationLink("Privacy policy") { MediaPrivacyPolicyView() }
             }
         }.navigationTitle("Your profile")
     }

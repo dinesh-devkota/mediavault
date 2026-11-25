@@ -382,6 +382,7 @@ struct SettingsView: View {
                 NavigationLink("Media Guide & Help") {
                     MediaGuideView()
                 }
+                NavigationLink("Privacy policy") { MediaPrivacyPolicyView() }
             }
             Section {
                 SecureField("TMDB API key or read access token", text: $apiKey)

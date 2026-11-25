@@ -21,6 +21,8 @@ targets:
     platform: tvOS
     sources:
       - path: CineVault
+      - path: docs/PRIVACY.md
+        buildPhase: resources
     dependencies:
       - package: CineVaultCore
       # AMSMB2 is LGPL (libsmb2); its product is declared .dynamic, so it is

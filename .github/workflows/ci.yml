@@ -41,4 +41,10 @@ jobs:
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
             -destination 'generic/platform=tvOS' \
             -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/cinevault-release" \
             CODE_SIGNING_ALLOWED=NO build | tail -n 200
+      - name: Verify privacy resources in the release app
+        run: |
+          APP="$RUNNER_TEMP/cinevault-release/Build/Products/Release-appletvos/CineVault.app"
+          plutil -lint "$APP/PrivacyInfo.xcprivacy"
+          cmp docs/PRIVACY.md "$APP/PRIVACY.md"

@@ -1,7 +1,7 @@
 # Additional media sources
 
-MediaVault currently connects to SMB shares. This document assesses additional
-sources; it does not announce working connectors. Estimates cover Android TV and
+The MediaVault development branch supports SMB and verified HTTPS WebDAV.
+Other provider work is tracked in separate drafts in the cloud handoff. Estimates cover Android TV and
 tvOS together and are engineering effort, not delivery dates. They include browsing,
 playback, seeking, reconnects, errors and tests, but exclude provider review delays.
 
@@ -75,7 +75,7 @@ is a multi-month project.
   [Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
 
 Assessment reviewed on **2026-11-24**. [Infuse connections](https://firecore.com/infuse)
-provide the comparison point; MediaVault has not implemented these additional sources.
+provide the comparison point. See the cloud handoff for implementation and test status.
 
 ## Registration and Apple TV sign-in research
 
