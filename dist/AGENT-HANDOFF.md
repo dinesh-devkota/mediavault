@@ -16,33 +16,56 @@ integration branch at `3becf4e` (which includes development's WebDAV, Jellyfin,
 and Android phone work). Do not reset the owner's original checkouts.
 
 Public worktree: `D:\CineVault\.worktrees\mediavault-library-playback`.
-Implementation checkpoint: `777ea11`. Version **1.5.0, build 7**. This adds
+Public checkpoint: `9bf7d62`. Version **1.5.0, build 7**. This adds
 local NFO/XML and companion artwork, profile-specific custom collections,
 NFO/TMDB franchise groups, conservative alternate-version grouping, and an
 official pinned VideoLAN fallback on both Apple platforms. Files retain their
 individual histories; metadata import is read-only. See `docs/PLAYBACK-ENGINE.md`
 and `docs/TESTING.md` for dependency and fixture details.
 
-Hosted validation is in progress, and this PR remains a draft. Checkpoint
-`ac0c150` compiled both Apple test targets and the unsigned Apple TV app. iPhone
-passed 215/220 cases; Apple TV passed 226/230. The failures exposed an unfinished
-TCP send in the playback relay and nested version-picker navigation. Both are
-corrected in the current changes, with a multi-chunk relay regression. A photo
-assertion now compares canonical SMB paths. The phone collection screen also
-uses a compact native heading and an options menu. The WebDAV source-setup timeout was independently reproduced: an idle TCP
-connection blocked TLS handshaking in the fixture listener. Its handshake now
-runs in a bounded worker; three authentication/range/concurrency regressions pass.
+The same Apple implementation passed on the Fire branch at `2d1ffac`: Apple TV
+233/233 (run `45709711906`) and iPhone 223/223 plus unsigned release build (run
+`45709712002`). These include real MKV/AVI/WebM decoding, seeking, pause/resume,
+local subtitles, audio selection, revoked streams and collection/version journeys.
+Screenshots were inspected. Original `ee00db6` iPhone also passed 223/223 and the
+release build. Its duplicate Apple TV run had one keyboard-injection failure:
+the test saved `Movie N` before all of `Movie Night` had arrived. `9bf7d62` waits
+for each field edit before keyboard dismissal; its hosted check is pending.
 
-Checkpoint `8fdb8a7` also corrects hosted media fixture generation: the original
-sample has no audio, so generated format fixtures now include explicitly bounded
-synthetic audio tracks. MKV, AVI, WebM and the dual-audio MKV were generated and
-fully decoded locally. That checkpoint passed core/unsigned tvOS CI; hosted phone
-and TV runtime checks must be inspected before declaring the features verified.
+Earlier actual defects are corrected: TCP send completion, VLC parser timeout
+units, pending-pause acknowledgement, synchronous stream revocation, nested
+version navigation, phone collection sizing, focused button contrast and the
+bounded TLS fixture accept loop. Do not reintroduce those old approaches.
 
-Android local core/app tests, debug lint, app APK and instrumentation APK passed:
-101 core and 136 app cases (237 total), including malformed episode-rating
-protection. Hosted runtime and visual checks remain required. Never run the
-disposable test fixture against the owner's installed emulator.
+Android core/app tests, debug lint and APK builds passed. The Fire branch has
+101 core and 137 app tests passing, with two existing Jellyfin tests skipped
+without their server. Hosted modern Android TV passed 110/110 (run `45709711876`)
+and phone passed 7/7 (run `45709711901`). Never run disposable test fixtures
+against the owner's installed emulator or real NAS.
+
+## Amazon Fire TV work — November 25, 2026
+
+The owner answered **Do it for all**, including both Fire OS and Vega OS.
+Worktree `D:\CineVault\.worktrees\mediavault-fire-tv`, branch
+`codex/mediavault-fire-tv`, draft PR [20](https://github.com/dinesh-devkota/mediavault/pull/20)
+is based on PR 19. Fire OS uses the Android APK with minimum API 22. The API
+22/25/28 compatibility matrix passed 13 tests per version (run `45709712064`),
+including encrypted secrets, PINs, photos, remote controls and MKV playback.
+Physical Fire TV compatibility and codec/memory performance are not certified.
+
+The separate `vega/` app uses actual Amazon SDK 2.0.15159, React Native 0.83 and
+Vega OS 2 (rolled out across current Vega devices). Visible name MediaVault;
+internal ID matches Android's `com.dineshdevkota.cinevault`. Type checking and
+22 app/contract tests pass. The actual SDK native module compiles; 27 host
+path/relay/key-policy tests pass. Native integration tests, all-architecture
+packages and VVD journeys are in progress. No Vega runtime success or Appstore
+release has been claimed. Keep PR 20 draft until its evidence is reviewed.
+
+`tools/vega/Dockerfile` provides a pinned Linux compiler host. VVD is unsupported
+inside Docker, so `.github/workflows/vega.yml` runs it directly on Ubuntu with
+KVM and a disposable synthetic NAS. See `docs/FIRE-TV.md` for reproducible commands,
+license sources and current Vega parity gaps (TMDB/SubDL settings, NAS discovery,
+editing existing profiles). Native host tests do not verify the device keystore.
 
 The private companion branch is `codex/mediavault-playback-engines` at
 `5cd626eba6ce3b534ec1f0b3e74cc7cbfe0bb6c0`, in

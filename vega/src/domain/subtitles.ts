@@ -1,0 +1,38 @@
+import {MediaItem} from './model';
+import {baseName, parentPath, stem} from './paths';
+import {utf8Length} from './metadata';
+
+export interface SubtitleCue { start: number; end: number; text: string }
+export interface SubtitleFile { path: string; language?: string; forced: boolean; hearingImpaired: boolean }
+export function matchingSubtitles(item: MediaItem, paths: string[]): SubtitleFile[] {
+  const mediaStem = stem(baseName(item.path)).toLowerCase();
+  return paths.filter(path => parentPath(path) === parentPath(item.path) && /\.(srt|vtt)$/i.test(path))
+    .flatMap(path => {
+      const name = stem(baseName(path)).toLowerCase();
+      if (name !== mediaStem && !name.startsWith(mediaStem + '.') && !name.startsWith(mediaStem + ' ')) { return []; }
+      const suffix = name.slice(mediaStem.length).replace(/^[. ]+/, '').split(/[. ]+/).filter(Boolean);
+      if (suffix.some(part => !['forced', 'sdh', 'hi', 'cc'].includes(part) && !/^[a-z]{2,3}(?:-[a-z]{2})?$/.test(part))) { return []; }
+      return [{path, language: suffix.find(part => /^[a-z]{2,3}(?:-[a-z]{2})?$/.test(part) && !['sdh', 'hi', 'cc'].includes(part)), forced: suffix.includes('forced'), hearingImpaired: suffix.includes('sdh') || suffix.includes('hi') || suffix.includes('cc')}];
+    });
+}
+function timestamp(value: string): number | undefined {
+  const match = value.trim().match(/^(?:(\d{1,3}):)?(\d{2}):(\d{2})[.,](\d{3})$/);
+  if (!match || Number(match[2]) >= 60 || Number(match[3]) >= 60) { return undefined; }
+  return Number(match[1] ?? 0) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number(match[4]) / 1000;
+}
+export function parseSubtitles(value: string): SubtitleCue[] {
+  if (utf8Length(value) > 2 * 1024 * 1024) { throw new Error('The subtitle file is too large.'); }
+  const cues: SubtitleCue[] = [];
+  for (const block of value.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split(/\n\s*\n/)) {
+    const lines = block.split('\n');
+    const index = lines.findIndex(line => line.includes('-->'));
+    if (index < 0) { continue; }
+    const [from, to] = lines[index]!.split('-->');
+    const start = timestamp(from ?? ''), end = timestamp((to ?? '').trim().split(/\s/)[0] ?? '');
+    if (start === undefined || end === undefined || end <= start) { continue; }
+    const text = lines.slice(index + 1).join('\n').replace(/<[^>]*>/g, '').replace(/\{\\[^}]*\}/g, '').slice(0, 4096).trim();
+    if (text) { cues.push({start, end, text}); }
+    if (cues.length > 20_000) { throw new Error('The subtitle file contains too many cues.'); }
+  }
+  return cues.sort((a, b) => a.start - b.start);
+}

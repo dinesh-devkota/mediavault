@@ -1,0 +1,32 @@
+schema-version = 1
+
+[package]
+title = "MediaVault"
+version = "1.5.0"
+# Floor so local builds pass vpt validate; pass an increasing --build-number for every Appstore upload.
+build-number = 7
+id = "com.dineshdevkota.cinevault"
+
+[os.version]
+min = "2.0"
+target = "2.0"
+
+[needs]
+[wants]
+[[wants.module]]
+id = "/com.amazon.kepler.crypto@ICrypto"
+[[wants.module]]
+id = "/com.amazon.kepler.keystore@IKeystoreModule"
+[[wants.module]]
+id = "/com.amazon.kepler.security@IKeplerSecurityModule"
+[[wants.module]]
+id = "/com.amazon.kepler.file_system@IFileSystems"
+[[wants.service]]
+id = "com.amazon.inputmethod.service"
+
+[components]
+[[components.interactive]]
+id = "com.dineshdevkota.cinevault.main"
+runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]

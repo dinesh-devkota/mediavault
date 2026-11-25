@@ -1,0 +1,127 @@
+name: Vega TV
+
+on:
+  pull_request:
+    paths: ["vega/**", "tools/vega/**", ".github/workflows/vega.yml"]
+  push:
+    branches: [main, dinesh-devkota-sonepar-build-cinevault-tvos-app]
+    paths: ["vega/**", "tools/vega/**", ".github/workflows/vega.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vega-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  native-tests:
+    name: Native source and stream regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install fixture dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential ffmpeg openssl
+          python -m pip install -r scripts/nas-test-requirements.txt
+      - name: Compile production network code and run regressions
+        run: |
+          cmake -S vega/native/tests -B .artifacts/native-host-tests -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMEDIAVAULT_NATIVE_INTEGRATION=ON
+          cmake --build .artifacts/native-host-tests --parallel 3
+          python3 vega/native/tests/integration_fixture.py run "$PWD/.artifacts/native-host-tests"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vega-native-tests
+          path: |
+            .artifacts/native-host-tests/integration-results.xml
+            .artifacts/native-host-tests/fixture/nas.log
+            .artifacts/native-host-tests/fixture/http-audit.jsonl
+  package:
+    name: Vega package (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [armv7, aarch64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.5"
+          cache: npm
+          cache-dependency-path: vega/package-lock.json
+      - name: Install Linux build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl tar jq build-essential cmake ninja-build pkg-config python3-dev unzip xz-utils lz4 libssl-dev
+      - name: Install pinned Amazon SDK
+        run: bash tools/vega/install-sdk.sh
+      - name: Build and validate application
+        run: bash tools/vega/build.sh '${{ matrix.target }}' Release
+      - name: Retain package and validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vega-${{ matrix.target }}
+          path: |
+            vega/build/**/*.vpkg
+            vega/build/evidence/
+            vega/THIRD-PARTY-NOTICES.md
+            vega/licenses/
+            vega/native/CMakeLists.txt
+          if-no-files-found: warn
+  runtime:
+    name: Vega virtual-device journeys
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.5"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: vega-x86_64
+          path: .artifacts/vega-package
+      - name: Install native Linux virtual-device dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl tar jq build-essential ffmpeg openssl unzip xz-utils lz4 xvfb libgtk-3-0 libgbm1 libnss3 libxkbcommon0 libpulse0 libsdl2-2.0-0
+          python -m pip install -r scripts/nas-test-requirements.txt
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle --timeout=30
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Install SDK including the virtual device
+        env:
+          SKIP_VVD_INSTALL: "false"
+        run: bash tools/vega/install-sdk.sh
+      - name: Install Amazon's documented automation driver
+        run: |
+          npm install -g appium@2.2.2
+          appium driver install --source=npm @amazon-devices/appium-kepler-driver@3.30.0
+      - name: Exercise real remote, library and playback flows
+        run: |
+          mapfile -t packages < <(find .artifacts/vega-package -type f -name '*x86_64*.vpkg')
+          test "${#packages[@]}" -eq 1
+          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' bash tools/vega/runtime.sh "${packages[0]}"
+      - name: Retain virtual-device screenshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vega-virtual-device-evidence
+          path: .artifacts/vega-ui/
+          if-no-files-found: warn
