@@ -2,7 +2,9 @@ package com.dineshdevkota.cinevault.jellyfin
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import com.dineshdevkota.cinevault.playback.jellyfinAndroidProfile
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -25,15 +27,8 @@ class JellyfinServerTest {
             val imported = requireNotNull(jellyfinMovie("fixture", movie, null))
             assertEquals(9997001, imported.tmdbId)
             assertEquals("Fixture Film (2026).mp4", imported.fileName)
-            val profile = Json.parseToJsonElement("""
-                {
-                  "Name": "MediaVault fixture",
-                  "MaxStreamingBitrate": 20000000,
-                  "DirectPlayProfiles": [{"Type":"Video","Container":"mp4","VideoCodec":"h264","AudioCodec":"aac"}]
-                }
-                """.trimIndent()).jsonObject
             val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).build()
-            val playback = client.playback(session, movie.id, profile)
+            val playback = client.playback(session, movie.id, jellyfinAndroidProfile)
             assertEquals("DirectPlay", playback.method)
             val sidecar = playback.subtitles.single { !it.forced }
             http.newCall(client.playbackAssetRequest(session, playback, sidecar.url)).execute().use { response ->
@@ -52,17 +47,10 @@ class JellyfinServerTest {
             } finally {
                 client.report(session, playback, JellyfinPlaybackEvent.STOPPED, 1_000)
             }
-            val transcodeProfile = Json.parseToJsonElement("""
-                {
-                  "Name": "MediaVault HLS fixture",
-                  "MaxStreamingBitrate": 20000000,
-                  "DirectPlayProfiles": [],
-                  "TranscodingProfiles": [
-                    {"Type":"Video","Context":"Streaming","Protocol":"hls","Container":"ts",
-                     "VideoCodec":"h264","AudioCodec":"aac","MaxAudioChannels":"2"}
-                  ]
-                }
-                """.trimIndent()).jsonObject
+            val transcodeProfile = buildJsonObject {
+                jellyfinAndroidProfile.forEach { (key, value) -> put(key, value) }
+                put("DirectPlayProfiles", Json.parseToJsonElement("[]"))
+            }
             val hls = client.playback(session, movie.id, transcodeProfile)
             assertEquals("Transcode", hls.method)
             assertTrue("api_key" !in hls.url.queryParameterNames)

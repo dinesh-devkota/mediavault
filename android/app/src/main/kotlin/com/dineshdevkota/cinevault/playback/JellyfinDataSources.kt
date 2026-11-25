@@ -20,6 +20,10 @@ internal val jellyfinAndroidProfile = Json.parseToJsonElement("""
       "Name": "MediaVault Android TV",
       "MaxStreamingBitrate": 20000000,
       "DirectPlayProfiles": [{"Type":"Video","Container":"mp4","VideoCodec":"h264","AudioCodec":"aac"}],
+      "SubtitleProfiles": [
+        {"Format":"srt","Method":"External"}, {"Format":"subrip","Method":"External"},
+        {"Format":"vtt","Method":"External"}
+      ],
       "TranscodingProfiles": [
         {"Type":"Video","Context":"Streaming","Protocol":"hls","Container":"ts",
          "VideoCodec":"h264","AudioCodec":"aac","MaxAudioChannels":"2"}
