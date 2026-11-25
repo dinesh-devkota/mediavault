@@ -74,8 +74,11 @@ class SecretBox {
 }
 
 /** Small app preferences; secrets inside are sealed with [SecretBox]. */
-class Settings(context: Context, private val secrets: SecretBox) {
+class Settings(private val context: Context, private val secrets: SecretBox,
+    private val profileId: () -> String = { "admin" }) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val libraryPrefs get() = if (profileId() == "admin") prefs else
+        context.getSharedPreferences("library-profile-${profileId()}", Context.MODE_PRIVATE)
 
     var tmdbApiKey: String
         get() = secrets.decrypt(prefs.getString(TMDB_KEY, "").orEmpty())
@@ -123,24 +126,24 @@ class Settings(context: Context, private val secrets: SecretBox) {
     /** Photos have their own tab; stale or unknown sections open Movies. */
     var librarySection: MediaKind
         get() = enumValue(SECTION_KEY, MediaKind.MOVIE).takeUnless { it == MediaKind.PHOTO } ?: MediaKind.MOVIE
-        set(value) = prefs.edit { putString(SECTION_KEY, (value.takeUnless { it == MediaKind.PHOTO } ?: MediaKind.MOVIE).name) }
+        set(value) = libraryPrefs.edit { putString(SECTION_KEY, (value.takeUnless { it == MediaKind.PHOTO } ?: MediaKind.MOVIE).name) }
 
     var librarySort: LibrarySort
         get() = enumValue(SORT_KEY, LibrarySort.TITLE)
-        set(value) = prefs.edit { putString(SORT_KEY, value.name) }
+        set(value) = libraryPrefs.edit { putString(SORT_KEY, value.name) }
 
     var libraryFilter: LibraryFilter
         get() = enumValue(FILTER_KEY, LibraryFilter.ALL)
-        set(value) = prefs.edit { putString(FILTER_KEY, value.name) }
+        set(value) = libraryPrefs.edit { putString(FILTER_KEY, value.name) }
 
     var libraryFacets: LibraryFacets
         get() = LibraryFacets(
-            genres = prefs.getStringSet(GENRES_KEY, null)?.toSet() ?: setOfNotNull(prefs.getString(GENRE_KEY, null)),
-            sourceIds = prefs.getStringSet(SOURCES_KEY, null)?.toSet() ?: setOfNotNull(prefs.getString(SOURCE_KEY, null)),
-            decades = prefs.getStringSet(DECADES_KEY, null)?.mapNotNull { it.toIntOrNull() }?.toSet()
-                ?: setOfNotNull(prefs.getInt(DECADE_KEY, -1).takeIf { it > 0 && it % 10 == 0 }),
+            genres = libraryPrefs.getStringSet(GENRES_KEY, null)?.toSet() ?: setOfNotNull(libraryPrefs.getString(GENRE_KEY, null)),
+            sourceIds = libraryPrefs.getStringSet(SOURCES_KEY, null)?.toSet() ?: setOfNotNull(libraryPrefs.getString(SOURCE_KEY, null)),
+            decades = libraryPrefs.getStringSet(DECADES_KEY, null)?.mapNotNull { it.toIntOrNull() }?.toSet()
+                ?: setOfNotNull(libraryPrefs.getInt(DECADE_KEY, -1).takeIf { it > 0 && it % 10 == 0 }),
         )
-        set(value) = prefs.edit {
+        set(value) = libraryPrefs.edit {
             putStringSet(GENRES_KEY, value.genres.toSet())
             putStringSet(SOURCES_KEY, value.sourceIds.toSet())
             putStringSet(DECADES_KEY, value.decades.map { it.toString() }.toSet())
@@ -150,7 +153,7 @@ class Settings(context: Context, private val secrets: SecretBox) {
         }
 
     private inline fun <reified T : Enum<T>> enumValue(key: String, default: T): T =
-        prefs.getString(key, null)?.let { name -> enumValues<T>().firstOrNull { it.name == name } } ?: default
+        libraryPrefs.getString(key, null)?.let { name -> enumValues<T>().firstOrNull { it.name == name } } ?: default
 
     private companion object {
         const val TMDB_KEY = "tmdb_api_key"

@@ -35,6 +35,7 @@ import com.dineshdevkota.cinevault.BuildConfig
 import com.dineshdevkota.cinevault.core.NasAddress
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,9 +43,10 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun SourcesTab(movies: List<MovieEntity>) {
+    if (!LocalContext.current.container.family.current.admin) { AdminRequired(); return }
     val context = LocalContext.current
     val container = context.container
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(emptyList())
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(emptyList())
     val scanning by container.scanner.isScanning.collectAsStateWithLifecycle()
     val status by container.scanner.status.collectAsStateWithLifecycle()
     val counts = remember(movies) { movies.filter { !it.isMissing }.groupingBy { it.sourceId }.eachCount() }
@@ -53,10 +55,11 @@ fun SourcesTab(movies: List<MovieEntity>) {
         contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { ScreenHeader("Sources", kicker = "YOUR NAS") }
+        item { ScreenHeader("Sources", kicker = "YOUR LIBRARY") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Button(onClick = { NasSetupActivity.start(context) }) { Text("Add NAS Source") }
+                Button(onClick = { EmbySetupActivity.start(context) }) { Text("Connect Emby") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
                     enabled = !scanning && sources.isNotEmpty(),
@@ -75,7 +78,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
             }
         }
         if (sources.isEmpty()) {
-            item { EmptyState("No NAS sources yet", "Find your NAS, sign in if needed, then choose your movie folder.") }
+            item { EmptyState("No media sources yet", "Connect a NAS or Emby server, then choose a folder or library to import.") }
         }
         items(sources, key = { it.id }) { source ->
             SourceRow(
@@ -83,7 +86,10 @@ fun SourcesTab(movies: List<MovieEntity>) {
                 count = counts[source.id] ?: 0,
                 scanning = scanning,
                 onScan = { container.scope.launch { container.scanner.scan(source.id) } },
-                onEdit = { SourceEditorActivity.start(context, source.id) },
+                onEdit = {
+                    if (source.sourceType == EMBY) EmbySetupActivity.start(context, source.id)
+                    else SourceEditorActivity.start(context, source.id)
+                },
             )
         }
     }
@@ -105,18 +111,28 @@ private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onSca
                 color = SecondaryText,
             )
         }
-        OutlinedButton(onClick = onScan, enabled = !scanning) { Text("Scan") }
-        OutlinedButton(onClick = onEdit) { Text("Edit") }
+        val supported = source.sourceType == "smb" || source.sourceType == EMBY
+        OutlinedButton(onClick = onScan, enabled = supported && !scanning) { Text("Scan") }
+        OutlinedButton(onClick = onEdit, enabled = supported) { Text("Edit") }
     }
 }
 
 fun sourceUrl(source: SourceEntity): String {
+    if (source.sourceType == EMBY) return "Emby · ${source.host}"
+    if (source.sourceType != "smb") return "Unavailable source type"
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
     return "smb://" + listOf(address.authority, source.share, source.rootPath).filter { it.isNotEmpty() }.joinToString("/")
 }
 
 @Composable
 fun SettingsTab() {
+    if (!LocalContext.current.container.family.current.admin) {
+        Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            HouseholdButton()
+            Text("Shared settings are managed by Admin.", color = SecondaryText)
+        }
+        return
+    }
     val context = LocalContext.current
     val container = context.container
     val settings = container.settings
@@ -147,6 +163,7 @@ fun SettingsTab() {
     ) {
         item { ScreenHeader("Settings", kicker = "MEDIAVAULT",
             trailing = "Version ${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}") }
+        item { HouseholdButton() }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 OutlinedButton(onClick = { MediaGuideActivity.start(context) }) { Text("Media Guide & Help") }

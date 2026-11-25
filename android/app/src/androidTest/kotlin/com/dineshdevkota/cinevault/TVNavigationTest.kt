@@ -36,7 +36,7 @@ class TVNavigationTest {
             device.pressDPadRight()
             visible("Search your collection")
             device.pressDPadRight()
-            visible("No NAS sources yet")
+            visible("No media sources yet")
             device.pressDPadRight()
             visible("Metadata (themoviedb.org)")
             device.pressBack()
@@ -50,9 +50,9 @@ class TVNavigationTest {
             scenario = activity
             visible("Connect your first shared folder")
             repeat(4) { device.pressDPadRight() }
-            visible("No NAS sources yet")
+            visible("No media sources yet")
             activity.recreate()
-            visible("No NAS sources yet")
+            visible("No media sources yet")
             device.pressDPadRight()
             visible("Metadata (themoviedb.org)")
         }

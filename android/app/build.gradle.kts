@@ -24,8 +24,8 @@ android {
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 5
-        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.3.0"
+        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 6
+        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.4.0"
     }
 
     if (releaseSigningEnabled) {
@@ -114,11 +114,16 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     testImplementation(libs.junit)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    androidTestImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
     androidTestImplementation(libs.androidx.test.uiautomator)
 }
+
+android.sourceSets.getByName("androidTest").assets.srcDir("../../CineVaultTests/Fixtures")

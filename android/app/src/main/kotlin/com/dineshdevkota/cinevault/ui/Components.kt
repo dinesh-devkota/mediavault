@@ -281,7 +281,7 @@ fun TvTextField(
         label = { MobileText(label) },
         visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(
-            keyboardType = if (isPassword) KeyboardType.Password else keyboardType,
+            keyboardType = if (isPassword && keyboardType != KeyboardType.NumberPassword) KeyboardType.Password else keyboardType,
             imeAction = imeAction,
             autoCorrectEnabled = false,
             showKeyboardOnFocus = false,
