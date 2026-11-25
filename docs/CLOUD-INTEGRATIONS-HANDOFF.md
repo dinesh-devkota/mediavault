@@ -190,3 +190,21 @@ decision. This work does not include signing, submission, TestFlight or release.
 [App Review guidelines](https://developer.apple.com/app-store/review/guidelines/)
 [App privacy details](https://developer.apple.com/app-store/app-privacy-details/)
 [Export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/)
+
+## iPhone
+
+The separate iPhone application draft is on `codex/mediavault-ios`. It starts
+from WebDAV checkpoint `1cbd479` and shares the public app’s network source
+setup, household rules, database, and native playback code. The iPhone target
+uses iOS 17 and later, with touch navigation for administrative settings and
+subtitle controls. The app treats each device’s household and library as local.
+It does not sync profiles or progress across devices.
+
+Generate the iPhone Xcode project with `xcodegen generate --spec project.ios.yml`.
+The `CineVaultPhone` scheme builds the app and runs shared tests and iPhone UI
+tests. The hosted `iPhone simulator` workflow verifies an unsigned release plus
+simulator setup and playback against temporary local WebDAV and SMB fixtures.
+This app branch needs a green simulator run before merge. Physical iPhone testing,
+signing, App Store Connect setup, and App Review are separate release steps.
+
+[iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)

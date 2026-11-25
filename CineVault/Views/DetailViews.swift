@@ -110,7 +110,7 @@ struct MovieDetailView: View {
         .fullScreenCover(item: $playback) { controller in
             PlaybackScreen(controller: controller, services: playbackServices,
                            library: { (try? modelContext.fetch(FetchDescriptor<Movie>())) ?? [] })
-                .ignoresSafeArea()
+                .playbackScreenEdges()
         }
         .onDisappear { cancelPreparation() }
         .alert("Format not supported", isPresented: $unsupported) {
@@ -134,7 +134,7 @@ struct MovieDetailView: View {
     }
 
     private var playbackControls: some View {
-        HStack(spacing: 24) {
+        CinemaTheme.actionLayout {
             if movie.isMissing || movie.source?.isIgnored(filePath: movie.filePath) == true {
                 Text("File unavailable. Include it again and rescan before playing.")
                     .font(.callout).foregroundStyle(CinemaTheme.secondaryText)

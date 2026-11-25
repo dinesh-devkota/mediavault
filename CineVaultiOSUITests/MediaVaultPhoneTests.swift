@@ -6,7 +6,7 @@ final class MediaVaultPhoneTests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testOpenRealMediaSourceSetup() {
+    func testConnectAndImportWebDAVFromSources() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test-empty-library"]
         app.launch()
@@ -19,8 +19,31 @@ final class MediaVaultPhoneTests: XCTestCase {
         let connect = app.buttons["Connect WebDAV"]
         XCTAssertTrue(connect.waitForExistence(timeout: 10))
         connect.tap()
-        XCTAssertTrue(app.textFields["HTTPS WebDAV address"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.switches["Guest access"].exists)
+        let address = app.textFields["HTTPS WebDAV address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        let name = app.textFields["Library name"]
+        name.tap()
+        name.typeText("Fixture media")
+        address.tap()
+        address.typeText("https://127.0.0.1:15443/dav/")
+
+        app.switches["Guest access"].tap()
+        let username = app.textFields["Username"]
+        username.tap()
+        username.typeText("cinevault")
+        let password = app.secureTextFields["Password"]
+        password.tap()
+        password.typeText("fixture-only")
+
+        let save = app.buttons["Save & scan"]
+        for _ in 0..<5 where !save.isHittable { app.swipeUp() }
+        XCTAssertTrue(save.isHittable)
+        save.tap()
+        XCTAssertTrue(app.staticTexts["Fixture media"].waitForExistence(timeout: 25), "Expected the authenticated source to be saved.")
+
+        app.tabBars.buttons["Library"].tap()
+        let film = app.staticTexts["Film"].firstMatch
+        XCTAssertTrue(film.waitForExistence(timeout: 25), "Expected the scan to import the fixture movie.")
     }
 
     func testNativePlaybackAndSubtitleControls() {

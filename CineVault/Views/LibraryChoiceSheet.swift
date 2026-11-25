@@ -69,7 +69,11 @@ struct LibraryChoiceSheet<Value: Hashable>: View {
                 }
             }
         }
+        #if os(iOS)
+        .padding()
+        #else
         .padding(56)
+        #endif
         .frame(maxWidth: 1150)
         .onChange(of: focus) { _, current in
             if let current, current != .apply { lastChoice = current }

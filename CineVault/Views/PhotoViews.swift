@@ -17,7 +17,7 @@ struct PhotosView: View {
     @Query private var items: [Movie]
     private var albums: [PhotoAlbum] { PhotoLibrary.albums(items) }
     @FocusState private var focusedAlbum: PhotoAlbum.ID?
-    private let columns = [GridItem(.adaptive(minimum: 380, maximum: 380), spacing: 42)]
+    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.photoAlbumWidth, maximum: CinemaTheme.photoAlbumWidth), spacing: CinemaTheme.photoAlbumSpacing)]
 
     var body: some View {
         let visibleAlbums = albums
@@ -27,7 +27,7 @@ struct PhotosView: View {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("YOUR MEMORIES").font(.system(size: 18, weight: .semibold)).tracking(3).foregroundStyle(CinemaTheme.accent)
-                        Text("Photos").font(.system(size: 62, weight: .bold))
+                        Text("Photos").font(.system(size: CinemaTheme.titleSize(tvOS: 62), weight: .bold))
                     }
                     Spacer()
                     Text("\(visibleAlbums.count) \(visibleAlbums.count == 1 ? "album" : "albums") · \(photoCount) \(photoCount == 1 ? "photo" : "photos")")
@@ -45,7 +45,7 @@ struct PhotosView: View {
                             } label: {
                                 VStack(alignment: .leading, spacing: 10) {
                                     if let photo = album.photos.first {
-                                        PhotoThumbnail(photo: photo, width: 380, height: 230, focused: focusedAlbum == album.id)
+                                        PhotoThumbnail(photo: photo, width: CinemaTheme.photoAlbumWidth, height: CinemaTheme.photoAlbumWidth * 230 / 380, focused: focusedAlbum == album.id)
                                     }
                                     Text(album.title).font(.system(size: 26, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                                     Text("\(album.sourceName) · \(album.photos.count) \(album.photos.count == 1 ? "photo" : "photos")")
@@ -55,7 +55,7 @@ struct PhotosView: View {
                                     }
                                 }
                                 .foregroundStyle(.white)
-                                .frame(width: 380, alignment: .leading)
+                                .frame(width: CinemaTheme.photoAlbumWidth, alignment: .leading)
                             }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedAlbum, equals: album.id)
                         }
                     }.padding(.vertical, 24)
@@ -78,7 +78,7 @@ struct PhotoAlbumView: View {
                 VStack(alignment: .leading, spacing: 28) {
                     HStack {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(album?.title ?? "Album").font(.system(size: 54, weight: .bold))
+                            Text(album?.title ?? "Album").font(.system(size: CinemaTheme.titleSize(tvOS: 54), weight: .bold))
                             if let album {
                                 Text("\(album.sourceName) · \(album.photos.count) \(album.photos.count == 1 ? "photo" : "photos")")
                                     .foregroundStyle(CinemaTheme.secondaryText)
@@ -110,7 +110,7 @@ struct PhotoGrid: View {
     @FocusState private var focusedPhoto: UUID?
     @State private var selected: Movie?
     @State private var openedPhotoID: UUID?
-    private let columns = [GridItem(.adaptive(minimum: 350, maximum: 350), spacing: 38)]
+    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.photoGridWidth, maximum: CinemaTheme.photoGridWidth), spacing: CinemaTheme.photoGridSpacing)]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 38) {
@@ -121,12 +121,12 @@ struct PhotoGrid: View {
                     selected = photo
                 } label: {
                     VStack(alignment: .leading, spacing: 10) {
-                        PhotoThumbnail(photo: photo, width: 350, height: 220, focused: focusedPhoto == photo.id)
+                        PhotoThumbnail(photo: photo, width: CinemaTheme.photoGridWidth, height: CinemaTheme.photoGridWidth * 220 / 350, focused: focusedPhoto == photo.id)
                         Text(PhotoLibrary.title(photo)).font(.system(size: 22, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                         if showsSourceName {
                             Text(photo.source?.name ?? "NAS").font(.caption).foregroundStyle(CinemaTheme.secondaryText).lineLimit(1)
                         }
-                    }.foregroundStyle(.white).frame(width: 350, alignment: .leading)
+                    }.foregroundStyle(.white).frame(width: CinemaTheme.photoGridWidth, alignment: .leading)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedPhoto, equals: photo.id).id(photo.id)
             }
         }.padding(.vertical, 24)
@@ -277,7 +277,12 @@ struct PhotoViewer: View {
                         .focused($focus, equals: .next).disabled(index.map { $0 + 1 >= available.count } ?? true)
                     Button { dismiss() } label: { Label("Back", systemImage: "xmark") }.focused($focus, equals: .back)
                 }
-            }.padding(.horizontal, 60).padding(.vertical, 36)
+            }
+            #if os(iOS)
+            .padding()
+            #else
+            .padding(.horizontal, 60).padding(.vertical, 36)
+            #endif
         }
         .onTVExit { dismiss() }
         .onReceive(NotificationCenter.default.publisher(for: HouseholdStore.willLock)) { _ in image = nil; selectedID = nil; error = nil }

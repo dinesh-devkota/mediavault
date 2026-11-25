@@ -150,7 +150,7 @@ struct LibraryView: View {
                             .font(.system(size: 18, weight: .semibold))
                             .tracking(3)
                             .foregroundStyle(CinemaTheme.accent)
-                        Text(kind.label).font(.system(size: 62, weight: .bold))
+                        Text(kind.label).font(.system(size: CinemaTheme.titleSize(tvOS: 62), weight: .bold))
                     }
                     Spacer()
                     Button("Clear filters") { preferences.clearFilters() }
@@ -164,13 +164,13 @@ struct LibraryView: View {
                     filterButton(.sort, value: preferences.sort.rawValue)
                     filterButton(.show, value: preferences.filter.rawValue)
                     filterButton(.genre, value: selectionLabel(preferences.genres.sorted(), all: "All Genres"))
-                }
+                }.horizontalControlsOnPhone()
 
                 HStack(spacing: 24) {
                     filterButton(.source, value: selectionLabel(sources.filter { preferences.sourceIDs.contains($0.id) }.map(\.name), all: "All Sources"))
                     filterButton(.decade, value: selectionLabel(preferences.decades.sorted().map { "\($0)s" }, all: "All Decades"))
                     filterButton(.section, value: kind.label)
-                }
+                }.horizontalControlsOnPhone()
 
                 BulkWatchControl(title: "Select", scope: "\(kind.label) · current results", movies: results,
                                  startsSelected: false, groupShows: true, includeHidden: preferences.filter == .hidden)
@@ -313,7 +313,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 48) {
                 HStack(alignment: .bottom) {
                     Text("Welcome to MediaVault")
-                        .font(.system(size: 54, weight: .bold))
+                        .font(.system(size: CinemaTheme.titleSize(tvOS: 54), weight: .bold))
                     Spacer()
                     if HouseholdStore.shared.configured {
                         Button(HouseholdStore.shared.current?.name ?? "Switch profile") { HouseholdStore.shared.lock() }
@@ -622,7 +622,7 @@ struct FeaturedMovieCard: View {
                         .tracking(3)
                         .foregroundStyle(CinemaTheme.accent)
                     Text(movie.title)
-                        .font(.system(size: 52, weight: .bold))
+                        .font(.system(size: CinemaTheme.titleSize(tvOS: 52), weight: .bold))
                         .lineLimit(2)
                     Text(MoviePresentation.metadata(for: movie))
                         .font(.callout)
@@ -642,7 +642,7 @@ struct FeaturedMovieCard: View {
                     .padding(.top, 8)
                 }
                 .frame(maxWidth: 720, alignment: .leading)
-                .padding(48)
+                .padding(CinemaTheme.featuredInset)
             }
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .overlay {
@@ -650,7 +650,7 @@ struct FeaturedMovieCard: View {
                     .strokeBorder(.white.opacity(0.10), lineWidth: 1)
             }
         }
-        .frame(height: 500)
+        .frame(height: CinemaTheme.featuredHeight)
     }
 }
 

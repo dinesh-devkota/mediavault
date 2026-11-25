@@ -14,6 +14,12 @@ enum CinemaTheme {
     static let episodeWidth: CGFloat = 154
     static let detailInset: CGFloat = 16
     static let detailTitleSize: CGFloat = 34
+    static let featuredInset: CGFloat = 18
+    static let featuredHeight: CGFloat = 288
+    static let photoAlbumWidth: CGFloat = 152
+    static let photoGridWidth: CGFloat = 148
+    static let photoAlbumSpacing: CGFloat = 16
+    static let photoGridSpacing: CGFloat = 16
     #else
     static let posterWidth: CGFloat = 240
     static let posterHeight: CGFloat = 360
@@ -22,7 +28,29 @@ enum CinemaTheme {
     static let episodeWidth: CGFloat = 400
     static let detailInset: CGFloat = 90
     static let detailTitleSize: CGFloat = 72
+    static let featuredInset: CGFloat = 48
+    static let featuredHeight: CGFloat = 500
+    static let photoAlbumWidth: CGFloat = 380
+    static let photoGridWidth: CGFloat = 350
+    static let photoAlbumSpacing: CGFloat = 42
+    static let photoGridSpacing: CGFloat = 38
     #endif
+
+    static func titleSize(tvOS: CGFloat) -> CGFloat {
+        #if os(iOS)
+        32
+        #else
+        tvOS
+        #endif
+    }
+
+    static var actionLayout: AnyLayout {
+        #if os(iOS)
+        AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+        #else
+        AnyLayout(HStackLayout(spacing: 24))
+        #endif
+    }
 
     static func artworkColors(for title: String) -> [Color] {
         let palette = [
@@ -35,6 +63,17 @@ enum CinemaTheme {
         ]
         let index = title.unicodeScalars.reduce(0) { ($0 + Int($1.value)) % palette.count }
         return [palette[index], background]
+    }
+}
+
+extension View {
+    @ViewBuilder func horizontalControlsOnPhone() -> some View {
+        #if os(iOS)
+        ScrollView(.horizontal) { self }
+            .scrollIndicators(.hidden)
+        #else
+        self
+        #endif
     }
 }
 

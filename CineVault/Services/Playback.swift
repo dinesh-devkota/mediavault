@@ -390,6 +390,16 @@ final class PlaybackController: ObservableObject {
     }
 }
 
+extension View {
+    @ViewBuilder func playbackScreenEdges() -> some View {
+        #if os(tvOS)
+        ignoresSafeArea()
+        #else
+        self
+        #endif
+    }
+}
+
 struct PlaybackScreen: View {
     @StateObject private var session: ContinuousPlayback
     @Environment(\.dismiss) private var dismiss
@@ -470,6 +480,9 @@ private struct ActivePlaybackView: View {
             CommercialPlayerView(session: controller.commercialSession, stopsSessionOnDisappear: false)
         #else
             PlayerView(controller: controller, close: close)
+                #if os(iOS)
+                .ignoresSafeArea()
+                #endif
         #endif
             LocalCaptionOverlay(subtitles: subtitles)
             #if CINEVAULT_COMMERCIAL || os(iOS)

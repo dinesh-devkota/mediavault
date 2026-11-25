@@ -42,6 +42,9 @@ struct SourcesView: View {
                             .disabled(scanner.isScanning)
                         Button { editing = source } label: { Label("Edit", systemImage: "slider.horizontal.3") }
                     }
+                    #if os(iOS)
+                    .buttonStyle(.bordered)
+                    #endif
                 }
             }
             if !sources.isEmpty {
@@ -129,6 +132,11 @@ struct SourceEditorView: View {
                 TextField(isWebDAV ? "HTTPS WebDAV address" : "NAS name or IP address", text: Binding(get: { host }, set: { value in
                     if host != value { clearExclusionsForChangedRoot(); shares = []; message = nil }; host = value
                 }))
+                #if os(iOS)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
                 if !isWebDAV { Toggle("Advanced", isOn: $advanced) }
                 if !isWebDAV && advanced {
                     TextField("Port (default 445)", text: Binding(get: { port }, set: { value in
@@ -142,6 +150,10 @@ struct SourceEditorView: View {
                 }))
                 if !guestAccess {
                     TextField("Username", text: Binding(get: { username }, set: { username = $0; shares = []; message = nil }))
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    #endif
                     SecureField("Password", text: Binding(get: { password }, set: { password = $0; shares = []; message = nil }))
                 }
                 if credentialReadFailed {
@@ -192,6 +204,9 @@ struct SourceEditorView: View {
                 }
             }
         }
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        #endif
         .navigationTitle(isWebDAV ? (source == nil ? "Connect WebDAV" : "Edit WebDAV") : (source == nil ? "Add NAS" : "Edit NAS"))
         .confirmationDialog("Remove this source from MediaVault? Your NAS files will be kept.", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Remove source", role: .destructive) { delete() }
@@ -345,6 +360,9 @@ struct SourceEditorView: View {
 }
 
 struct SettingsView: View {
+    #if os(iOS)
+    private static let privacyPolicy = URL(string: "https://github.com/dinesh-devkota/mediavault/blob/main/docs/PRIVACY.md")!
+    #endif
     @AppStorage(ContinuousPlayback.enabledKey) private var continuousTV = false
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var playbackServices: PlaybackServices
@@ -415,6 +433,9 @@ struct SettingsView: View {
                     .accessibilityIdentifier("app-version")
                 Text("MediaVault plays MP4/M4V/MOV directly from your NAS over SMB. Other video containers require conversion to a supported container and compatible codecs.")
                     .font(.caption)
+                #if os(iOS)
+                Link("Privacy policy", destination: Self.privacyPolicy)
+                #endif
                 Text("This product uses the TMDB API but is not endorsed or certified by TMDB.").font(.caption)
             }
         }

@@ -50,7 +50,7 @@ struct HouseholdPickerView: View {
                         }.padding(40).frame(minWidth: geometry.size.width)
                     }
                     }.frame(height: 320)
-                    Text("Profiles and permissions stay on this TV. Admin manages access in Settings.")
+                    Text("Profiles and permissions stay on this device. Admin manages access in Settings.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }.padding(50).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -108,7 +108,7 @@ struct HouseholdSettingsView: View {
             if !household.configured {
                 Section {
                     Text("Give everyone their own library, Watchlist and viewing progress. Choose exactly which folders and US ratings each viewer can see.")
-                    Text("Admin keeps your current library and history. New viewers see nothing until you allow folders. Profiles stay on this TV.")
+                    Text("Admin keeps your current library and history. New viewers see nothing until you allow folders. Profiles stay on this device.")
                         .font(.caption).foregroundStyle(.secondary)
                     SecureField(household.hasSavedProfiles ? "Existing Admin PIN" : "Create six-digit Admin PIN", text: $pin).keyboardType(.numberPad)
                         .accessibilityIdentifier("household-setup-pin")

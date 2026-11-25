@@ -370,8 +370,8 @@ struct TVShowArtwork: View {
     let path: String?
     var wide = false
     var focused = false
-    private var width: CGFloat { wide ? 400 : CinemaTheme.posterWidth }
-    private var height: CGFloat { wide ? 225 : CinemaTheme.posterHeight }
+    private var width: CGFloat { wide ? CinemaTheme.episodeWidth : CinemaTheme.posterWidth }
+    private var height: CGFloat { wide ? CinemaTheme.episodeWidth * 9 / 16 : CinemaTheme.posterHeight }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack {
