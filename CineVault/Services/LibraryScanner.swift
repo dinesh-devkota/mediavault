@@ -111,9 +111,11 @@ final class LibraryScanner: ObservableObject {
         guard household.isAdmin, JellyfinSourceConnection.validItemID(config.share) else { throw HouseholdError.denied }
         let connection = try JellyfinSourceConnection(config: config)
         var catalog: [(String, JellyfinCatalogItem)] = []
+        var seriesTMDBIDs: [String: Int] = [:]
         try await connection.client.catalog(connection.account, libraryID: config.share) { items in
             guard household.sessionIsCurrent(session), household.isAdmin else { throw HouseholdError.denied }
             for item in items {
+                if item.type == "Series", let id = item.tmdbID { seriesTMDBIDs[item.id] = id }
                 if let path = JellyfinSourceConnection.mediaPath(item) { catalog.append((path, item)) }
             }
             self.status = "Scanning \(source.name): \(catalog.count) items…"
@@ -135,11 +137,11 @@ final class LibraryScanner: ObservableObject {
             if let current = existing.removeValue(forKey: item.id) {
                 let previous = (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
                                 current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
-                                current.providerImageTag)
+                                current.providerImageTag, current.tmdbID, current.seriesTMDBID)
                 undo.append {
                     (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
                      current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
-                     current.providerImageTag) = previous
+                     current.providerImageTag, current.tmdbID, current.seriesTMDBID) = previous
                 }
                 movie = current
             } else {
@@ -163,6 +165,12 @@ final class LibraryScanner: ObservableObject {
             movie.usContentRating = item.rating
             movie.usContentRatingFetched = true
             movie.providerImageTag = item.primaryImage?["Primary"]
+            if item.type == "Movie", movie.tmdbID == nil {
+                movie.tmdbID = item.tmdbID
+            }
+            if item.type == "Episode", movie.seriesTMDBID == nil, let seriesID = item.seriesID {
+                movie.seriesTMDBID = seriesTMDBIDs[seriesID]
+            }
         }
         for movie in existing.values where !movie.isMissing {
             undo.append { movie.isMissing = false }

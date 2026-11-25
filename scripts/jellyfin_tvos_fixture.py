@@ -12,8 +12,13 @@ from urllib.parse import parse_qs, urlsplit
 
 ACCOUNT = {"AccessToken": "fixture-jellyfin-token", "User": {"Id": "fixture-user", "Name": "Fixture"}}
 LIBRARY = {"Id": "fixture-library", "Name": "Fixture Movies", "Type": "CollectionFolder"}
-MOVIE = {"Id": "fixture-movie", "Name": "Fixture Film", "Type": "Movie", "OfficialRating": "G", "ImageTags": {"Primary": "fixture-poster"}}
+MOVIE = {"Id": "fixture-movie", "Name": "Fixture Film", "Type": "Movie", "OfficialRating": "G",
+         "ImageTags": {"Primary": "fixture-poster"}, "ProviderIds": {"Tmdb": "27182"}}
 PHOTO = {"Id": "fixture-photo", "Name": "Fixture Photo", "Type": "Photo"}
+SERIES = {"Id": "fixture-series", "Name": "Fixture Series", "Type": "Series", "ProviderIds": {"Tmdb": "31415"}}
+EPISODE = {"Id": "fixture-episode", "Name": "Fixture Episode", "Type": "Episode", "SeriesName": "Fixture Series",
+           "SeriesId": "fixture-series", "SeasonId": "fixture-season", "ParentIndexNumber": 1, "IndexNumber": 2,
+           "ProviderIds": {"Tmdb": "99000"}}
 SAMPLES = Path(__file__).resolve().parents[1] / "CineVaultTests" / "Fixtures"
 MEDIA = SAMPLES / "playback.mp4"
 IMAGE = SAMPLES / "Photos" / "01.jpg"
@@ -80,7 +85,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"Items": [LIBRARY], "StartIndex": 0, "TotalRecordCount": 1})
         elif (parts.path == "/jellyfin/Items" and query.get("parentId") == ["fixture-library"]
               and query.get("enableUserData") == ["false"]):
-            self.send_json({"Items": [MOVIE, PHOTO], "StartIndex": 0, "TotalRecordCount": 2})
+            catalog = [MOVIE, EPISODE, PHOTO, SERIES]
+            self.send_json({"Items": catalog, "StartIndex": 0, "TotalRecordCount": len(catalog)})
         elif (parts.path == "/jellyfin/Videos/fixture-movie/stream" and query.get("static") == ["true"]
               and query.get("playSessionId") == ["fixture-playback"]):
             self.send_range()
