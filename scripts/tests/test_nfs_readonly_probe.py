@@ -4,6 +4,7 @@ Usage: NFS_PROBE=/path/to/nfs_readonly_probe python3 -m unittest discover \
        -s scripts/tests -p test_nfs_readonly_probe.py
 """
 
+import argparse
 import os
 import socketserver
 import struct
@@ -80,8 +81,8 @@ class Node:
 class ReadOnlyExport(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
-    def __init__(self):
-        super().__init__(("127.0.0.1", 0), RPCHandler)
+    def __init__(self, port=0):
+        super().__init__(("127.0.0.1", port), RPCHandler)
         self.nodes = {
             b"root": Node(DIR, 1),
             b"folder": Node(DIR, 2),
@@ -90,6 +91,7 @@ class ReadOnlyExport(socketserver.ThreadingTCPServer):
             b"link": Node(LINK, 5, b"Movie.mp4"),
             b"truncated": Node(FILE, 6, b"head", declared_size=12),
             b"control": Node(FILE, 7),
+            b"directoryLink": Node(LINK, 8, b"Photos"),
         }
         self.children = {
             b"root": {
@@ -98,6 +100,7 @@ class ReadOnlyExport(socketserver.ThreadingTCPServer):
                 b"link.mp4": b"link",
                 b"truncated.mp4": b"truncated",
                 b"escape\x1b.mp4": b"control",
+                b"PhotoAlias": b"directoryLink",
             },
             b"folder": {b"photo.jpg": b"nested"},
         }
@@ -257,3 +260,12 @@ class NFSProbeTests(unittest.TestCase):
         self.assertEqual(beyond.stdout, b"")
         self.assertEqual(truncated.stdout, b"")
         self.assertEqual(self.fixture.calls[NFS, 6], 1)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Serve the synthetic NFSv3 export on loopback.")
+    parser.add_argument("--serve-port", type=int, required=True)
+    args = parser.parse_args()
+    with ReadOnlyExport(port=args.serve_port) as server:
+        print(f"NFS fixture listening on loopback port {server.server_address[1]}", flush=True)
+        server.serve_forever()

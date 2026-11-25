@@ -19,6 +19,14 @@ android {
     namespace = "com.dineshdevkota.cinevault"
     compileSdk = 36
 
+    // Supply the locally rebuilt libraries only to an explicit debug test build.
+    providers.gradleProperty("cinevault.nfsDevelopmentLibs").orNull?.let { nativeLibraries ->
+        val directory = file(nativeLibraries)
+        require(directory.isDirectory) { "Provide the jniLibs directory from build_android_nfs.py." }
+        sourceSets.getByName("debug").jniLibs.srcDir(directory)
+        sourceSets.getByName("androidTest").java.srcDir("src/nfsDevelopmentTest/kotlin")
+    }
+
     defaultConfig {
         applicationId = "com.dineshdevkota.cinevault"
         minSdk = 26
