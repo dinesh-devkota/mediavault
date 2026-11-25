@@ -1,13 +1,15 @@
 import Foundation
 
 enum EmbyError: LocalizedError {
-    case invalidEndpoint, invalidResponse, invalidCatalog, http(Int)
+    case invalidEndpoint, invalidResponse, invalidCatalog, unsupportedPlayback, invalidRange, http(Int)
 
     var errorDescription: String? {
         switch self {
         case .invalidEndpoint: return "Enter the complete HTTPS address for your Emby server."
         case .invalidResponse: return "The Emby server returned an invalid response."
         case .invalidCatalog: return "The Emby catalog changed during the scan. Try again."
+        case .unsupportedPlayback: return "Emby did not offer a compatible direct-play source."
+        case .invalidRange: return "Emby did not return the requested byte range."
         case .http(401): return "Emby rejected the credentials or the session expired."
         case .http(403): return "This Emby account cannot access the requested library."
         case .http(let status): return "The Emby server returned HTTP \(status)."
@@ -55,7 +57,54 @@ struct EmbyClient: Sendable {
         let TotalRecordCount: Int?
     }
 
-    private static let session: URLSession = {
+    struct DirectPlayback: Sendable {
+        fileprivate let owner: UUID
+        fileprivate let accountToken: String
+        fileprivate let accountID: String
+        fileprivate let itemID: String
+        fileprivate let mediaSourceID: String
+        fileprivate let sessionID: String
+        let container: String
+    }
+
+    struct ByteRange: Sendable {
+        let bytes: Data
+        let totalLength: Int64
+    }
+
+    enum PlaybackEvent: Equatable {
+        case started, progress, stopped
+
+        fileprivate var path: [String] {
+            switch self {
+            case .started: return ["Sessions", "Playing"]
+            case .progress: return ["Sessions", "Playing", "Progress"]
+            case .stopped: return ["Sessions", "Playing", "Stopped"]
+            }
+        }
+    }
+
+    private struct PlaybackInfo: Decodable {
+        struct Source: Decodable {
+            let Id: String?
+            let Container: String?
+            let SupportsDirectPlay: Bool?
+        }
+        let MediaSources: [Source]?
+        let PlaySessionId: String?
+    }
+
+    private struct PlayState: Encodable {
+        let ItemId: String
+        let MediaSourceId: String
+        let PlaySessionId: String
+        let PositionTicks: Int64
+        let PlayMethod: String?
+        let CanSeek: Bool?
+        let IsPaused: Bool?
+    }
+
+    private static let defaultSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.urlCredentialStorage = nil
@@ -67,8 +116,11 @@ struct EmbyClient: Sendable {
     private static let maximumBody = 8 * 1024 * 1024
     private let endpoint: URL
     private let identity: String
+    private let deviceID: String
+    private let playbackOwner = UUID()
+    private let session: URLSession
 
-    init(endpoint: String, deviceID: String, appVersion: String) throws {
+    init(endpoint: String, deviceID: String, appVersion: String, session: URLSession? = nil) throws {
         guard let components = URLComponents(string: endpoint.trimmingCharacters(in: .whitespacesAndNewlines)),
               components.scheme?.lowercased() == "https", let host = components.host, !host.isEmpty,
               components.user == nil, components.password == nil, components.query == nil, components.fragment == nil,
@@ -76,6 +128,8 @@ struct EmbyClient: Sendable {
             throw EmbyError.invalidEndpoint
         }
         self.endpoint = address
+        self.deviceID = deviceID
+        self.session = session ?? Self.defaultSession
         identity = "Emby Client=\"MediaVault\", Device=\"Apple TV\", DeviceId=\"\(deviceID)\", Version=\"\(appVersion)\""
     }
 
@@ -127,8 +181,74 @@ struct EmbyClient: Sendable {
         _ = try await send(["Sessions", "Logout"], account: account, body: Data())
     }
 
-    private func send(_ path: [String], account: Account? = nil, query: [URLQueryItem] = [],
-                      body: Data? = nil) async throws -> Data {
+    func directPlayback(_ account: Account, itemID: String, containers: Set<String>) async throws -> DirectPlayback {
+        let data = try await send(["Items", itemID, "PlaybackInfo"], account: account,
+                                  query: [URLQueryItem(name: "UserId", value: account.User.Id)])
+        let info = try JSONDecoder().decode(PlaybackInfo.self, from: data)
+        guard let sessionID = info.PlaySessionId, Self.headerValue(sessionID) else {
+            throw EmbyError.invalidResponse
+        }
+        for source in info.MediaSources ?? [] where source.SupportsDirectPlay == true {
+            if let sourceID = source.Id, Self.headerValue(sourceID),
+               let container = source.Container, containers.contains(container.lowercased()) {
+                return DirectPlayback(owner: playbackOwner, accountToken: account.AccessToken,
+                                      accountID: account.User.Id, itemID: itemID, mediaSourceID: sourceID,
+                                      sessionID: sessionID, container: container)
+            }
+        }
+        throw EmbyError.unsupportedPlayback
+    }
+
+    func read(_ account: Account, playback: DirectPlayback, offset: Int64, length: Int) async throws -> ByteRange {
+        guard playback.owner == playbackOwner, playback.accountToken == account.AccessToken,
+              playback.accountID == account.User.Id, offset >= 0, (1...Self.maximumBody).contains(length),
+              offset <= Int64.max - Int64(length) else { throw EmbyError.invalidRange }
+        let end = offset + Int64(length) - 1
+        var request = try makeRequest(["Videos", playback.itemID, "stream"], account: account, query: [
+            URLQueryItem(name: "Static", value: "true"),
+            URLQueryItem(name: "MediaSourceId", value: playback.mediaSourceID),
+            URLQueryItem(name: "PlaySessionId", value: playback.sessionID),
+            URLQueryItem(name: "DeviceId", value: deviceID),
+        ])
+        request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw EmbyError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else { throw EmbyError.http(http.statusCode) }
+        let prefix = "bytes \(offset)-\(end)/"
+        guard http.statusCode == 206, let range = http.value(forHTTPHeaderField: "Content-Range"),
+              range.hasPrefix(prefix), let total = Int64(range.dropFirst(prefix.count)), total > end,
+              range == prefix + String(total),
+              http.value(forHTTPHeaderField: "Content-Encoding").map({ $0.lowercased() == "identity" }) ?? true,
+              response.expectedContentLength < 0 || response.expectedContentLength == Int64(length) else {
+            throw EmbyError.invalidRange
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < length else { throw EmbyError.invalidRange }
+            data.append(byte)
+        }
+        guard data.count == length else { throw EmbyError.invalidRange }
+        return ByteRange(bytes: data, totalLength: total)
+    }
+
+    func report(_ account: Account, playback: DirectPlayback, event: PlaybackEvent, positionMillis: Int64,
+                paused: Bool = false) async throws {
+        guard playback.owner == playbackOwner, playback.accountToken == account.AccessToken,
+              playback.accountID == account.User.Id, (0...Int64.max / 10_000).contains(positionMillis) else {
+            throw EmbyError.invalidResponse
+        }
+        let body = try JSONEncoder().encode(PlayState(
+            ItemId: playback.itemID, MediaSourceId: playback.mediaSourceID, PlaySessionId: playback.sessionID,
+            PositionTicks: positionMillis * 10_000, PlayMethod: event == .stopped ? nil : "DirectPlay",
+            CanSeek: event == .stopped ? nil : true, IsPaused: event == .stopped ? nil : paused
+        ))
+        _ = try await send(event.path, account: account, body: body)
+    }
+
+    private func makeRequest(_ path: [String], account: Account? = nil, query: [URLQueryItem] = [],
+                      body: Data? = nil) throws -> URLRequest {
         guard path.allSatisfy(Self.headerValue) else { throw EmbyError.invalidResponse }
         let url = path.reduce(endpoint) { $0.appendingPathComponent($1, isDirectory: false) }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw EmbyError.invalidEndpoint }
@@ -146,7 +266,13 @@ struct EmbyClient: Sendable {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (bytes, response) = try await Self.session.bytes(for: request)
+        return request
+    }
+
+    private func send(_ path: [String], account: Account? = nil, query: [URLQueryItem] = [],
+                      body: Data? = nil) async throws -> Data {
+        let request = try makeRequest(path, account: account, query: query, body: body)
+        let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw EmbyError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw EmbyError.http(http.statusCode) }
