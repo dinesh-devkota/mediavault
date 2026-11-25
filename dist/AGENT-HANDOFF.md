@@ -16,7 +16,7 @@ integration branch at `3becf4e` (which includes development's WebDAV, Jellyfin,
 and Android phone work). Do not reset the owner's original checkouts.
 
 Public worktree: `D:\CineVault\.worktrees\mediavault-library-playback`.
-Public checkpoint: `9bf7d62`. Version **1.5.0, build 7**. This adds
+Public implementation includes `f8282b4`. Version **1.5.0, build 7**. This adds
 local NFO/XML and companion artwork, profile-specific custom collections,
 NFO/TMDB franchise groups, conservative alternate-version grouping, and an
 official pinned VideoLAN fallback on both Apple platforms. Files retain their
@@ -30,7 +30,13 @@ local subtitles, audio selection, revoked streams and collection/version journey
 Screenshots were inspected. Original `ee00db6` iPhone also passed 223/223 and the
 release build. Its duplicate Apple TV run had one keyboard-injection failure:
 the test saved `Movie N` before all of `Movie Night` had arrived. `9bf7d62` waits
-for each field edit before keyboard dismissal; its hosted check is pending.
+for each field edit before keyboard dismissal; its Apple TV run passed 233/233
+(`45713647345`). Repeated iPhone runs exposed an intermittent fixture TLS failure
+and controls remaining in the accessibility tree after hiding. `f8282b4` hides
+inactive controls from accessibility and keeps controls visible for VoiceOver;
+its rerun is pending. Four fixture tests pass, with explicit TLS-stage diagnostics.
+The phone connection journey also resumes a Library tap only when an observed
+system Save Password sheet actually interrupted it.
 
 Earlier actual defects are corrected: TCP send completion, VLC parser timeout
 units, pending-pause acknowledgement, synchronous stream revocation, nested
@@ -56,10 +62,16 @@ Physical Fire TV compatibility and codec/memory performance are not certified.
 The separate `vega/` app uses actual Amazon SDK 2.0.15159, React Native 0.83 and
 Vega OS 2 (rolled out across current Vega devices). Visible name MediaVault;
 internal ID matches Android's `com.dineshdevkota.cinevault`. Type checking and
-22 app/contract tests pass. The actual SDK native module compiles; 27 host
-path/relay/key-policy tests pass. Native integration tests, all-architecture
-packages and VVD journeys are in progress. No Vega runtime success or Appstore
-release has been claimed. Keep PR 20 draft until its evidence is reviewed.
+25 app/contract tests pass. The actual SDK native module compiles; all three
+release architectures and 49 real native transport tests passed in cloud run
+`45718538147` at `67deed4`. A follow-up expands the host suite to 52 passing cases
+so oversized/non-UTF8 server errors cannot be confused with corrupt metadata.
+VVD journeys are in progress. No Vega runtime success or Appstore release has
+been claimed. Keep PR 20 draft until its evidence is reviewed.
+
+Rejected SMB sign-ins now have bounded socket/authentication negotiation and
+can be cancelled. System hostname resolution still precedes that loop and can
+wait for the system resolver; do not describe the deadline as covering DNS.
 
 `tools/vega/Dockerfile` provides a pinned Linux compiler host. VVD is unsupported
 inside Docker, so `.github/workflows/vega.yml` runs it directly on Ubuntu with
