@@ -41,6 +41,22 @@ class EmbyLiveServerTest {
             } finally {
                 client.report(account, playback, EmbyClient.PlaybackEvent.STOPPED, 500)
             }
+            val transcodeItem = catalog.single { it.Type == "Movie" && it.Name.startsWith("Fixture Transcode") }
+            assertEquals(null, client.directPlaybackIfSupported(account, transcodeItem.Id, setOf("mkv"), setOf("h264")))
+            val hls = client.transcode(account, transcodeItem.Id)
+            try {
+                assertTrue(hls.manifest.queryParameter("api_key") == null)
+                val (masterUrl, master) = client.readHls(account, hls, hls.manifest.toString())
+                val variant = master.toString(Charsets.UTF_8).lineSequence().first { it.isNotBlank() && !it.startsWith("#") }
+                val (playlistUrl, playlist) = client.readHls(account, hls, requireNotNull(masterUrl.resolve(variant)).toString())
+                val chunks = playlist.toString(Charsets.UTF_8).lineSequence().filter { it.isNotBlank() && !it.startsWith("#") }.take(2).toList()
+                assertEquals(2, chunks.size)
+                for (chunk in chunks) {
+                    assertTrue(client.readHls(account, hls, requireNotNull(playlistUrl.resolve(chunk)).toString()).second.size > 1024)
+                }
+            } finally {
+                client.stopTranscode(account, hls)
+            }
         } finally {
             client.signOut(account)
         }

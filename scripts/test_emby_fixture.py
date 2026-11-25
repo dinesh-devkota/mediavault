@@ -100,6 +100,13 @@ def main():
             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "4", "-c:v", "libx264",
             "-c:a", "aac", "-movflags", "+faststart", str(movie),
         ], check=True)
+        transcode = movies / "Fixture Transcode (2026)"
+        transcode.mkdir()
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "8", "-c:v", "mpeg2video",
+            "-c:a", "mp2", str(transcode / "Fixture Transcode (2026).mkv"),
+        ], check=True)
         photos = Path(temp) / "photos"
         photos.mkdir()
         subprocess.run([

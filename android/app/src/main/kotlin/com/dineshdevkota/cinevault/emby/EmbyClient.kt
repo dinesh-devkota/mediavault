@@ -11,6 +11,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -63,6 +64,7 @@ class EmbyClient internal constructor(
         @SerialName("Id") val id: String? = null,
         @SerialName("SupportsDirectPlay") val supportsDirectPlay: Boolean = false,
         @SerialName("Container") val container: String? = null,
+        @SerialName("TranscodingUrl") val transcodingUrl: String? = null,
         @SerialName("MediaStreams") val streams: List<MediaStream>? = null,
     )
 
@@ -74,6 +76,7 @@ class EmbyClient internal constructor(
         val IsExternal: Boolean? = null,
         val Language: String? = null,
         val DisplayTitle: String? = null,
+        val Codec: String? = null,
         val IsForced: Boolean? = null,
         val IsHearingImpaired: Boolean? = null,
     )
@@ -86,15 +89,24 @@ class EmbyClient internal constructor(
         val hearingImpaired: Boolean,
     )
 
-    class DirectPlayback internal constructor(
+    sealed class Playback protected constructor(
         internal val owner: EmbyClient,
         internal val account: Account,
         internal val itemId: String,
         internal val mediaSourceId: String,
         internal val sessionId: String,
-        val container: String,
-        val textSubtitles: List<TextSubtitle> = emptyList(),
+        val textSubtitles: List<TextSubtitle>,
     )
+
+    class DirectPlayback internal constructor(
+        owner: EmbyClient, account: Account, itemId: String, mediaSourceId: String, sessionId: String,
+        val container: String, textSubtitles: List<TextSubtitle> = emptyList(),
+    ) : Playback(owner, account, itemId, mediaSourceId, sessionId, textSubtitles)
+
+    class TranscodedPlayback internal constructor(
+        owner: EmbyClient, account: Account, itemId: String, mediaSourceId: String, sessionId: String,
+        val manifest: HttpUrl, internal val encodingDeviceId: String, textSubtitles: List<TextSubtitle>,
+    ) : Playback(owner, account, itemId, mediaSourceId, sessionId, textSubtitles)
 
     data class ByteRange(val bytes: ByteArray, val totalLength: Long)
 
@@ -150,7 +162,11 @@ class EmbyClient internal constructor(
         send(listOf("Sessions", "Logout"), account, body = "")
     }
 
-    suspend fun directPlayback(account: Account, itemId: String, containers: Set<String>): DirectPlayback {
+    suspend fun directPlayback(account: Account, itemId: String, containers: Set<String>): DirectPlayback =
+        directPlaybackIfSupported(account, itemId, containers) ?: throw EmbyException("Emby did not offer a compatible direct-play source.")
+
+    internal suspend fun directPlaybackIfSupported(account: Account, itemId: String, containers: Set<String>,
+                                                  directVideoCodecs: Set<String>? = null): DirectPlayback? {
         require(headerValue(itemId))
         val info = json.decodeFromString<PlaybackInfo>(send(
             path = listOf("Items", itemId, "PlaybackInfo"),
@@ -160,10 +176,17 @@ class EmbyClient internal constructor(
         val sessionId = info.sessionId?.takeIf(::headerValue)
             ?: throw EmbyException("Emby did not return a playback session.")
         val media = info.sources.firstOrNull { source ->
+            val codec = source.streams?.firstOrNull { it.Type == "Video" }?.Codec?.lowercase()
             source.supportsDirectPlay && source.container?.lowercase() in containers &&
-                source.id?.let(::headerValue) == true
-        } ?: throw EmbyException("Emby did not offer a compatible direct-play source.")
-        val subtitles = media.streams.orEmpty().take(128).mapNotNull { stream ->
+                source.id?.let(::headerValue) == true &&
+                (codec == null || directVideoCodecs == null || codec in directVideoCodecs)
+        } ?: return null
+        return DirectPlayback(this, account, itemId, requireNotNull(media.id), sessionId,
+            requireNotNull(media.container), textSubtitles(media))
+    }
+
+    private fun textSubtitles(media: MediaSource): List<TextSubtitle> =
+        media.streams.orEmpty().take(128).mapNotNull { stream ->
             val index = stream.Index?.takeIf { it >= 0 } ?: return@mapNotNull null
             if (stream.Type != "Subtitle" || stream.IsTextSubtitleStream != true || stream.IsExternal != true) {
                 return@mapNotNull null
@@ -171,8 +194,111 @@ class EmbyClient internal constructor(
             TextSubtitle(index, stream.Language?.take(16), stream.DisplayTitle?.take(100),
                 stream.IsForced == true, stream.IsHearingImpaired == true)
         }.distinctBy(TextSubtitle::index)
-        return DirectPlayback(this, account, itemId, requireNotNull(media.id), sessionId,
-            requireNotNull(media.container), subtitles)
+    suspend fun transcode(account: Account, itemId: String): TranscodedPlayback {
+        require(headerValue(itemId))
+        // A fresh encoding device key makes DELETE safe even when another video opens immediately.
+        val encodingDevice = java.util.UUID.randomUUID().toString()
+        val profile = buildJsonObject {
+            put("UserId", account.User.Id)
+            put("EnableDirectPlay", false)
+            put("EnableDirectStream", false)
+            put("EnableTranscoding", true)
+            put("DeviceProfile", kotlinx.serialization.json.buildJsonObject {
+                put("Name", "MediaVault Android TV")
+                put("MaxStreamingBitrate", 10_000_000)
+                put("TranscodingProfiles", kotlinx.serialization.json.buildJsonArray {
+                    add(buildJsonObject {
+                        put("Container", "ts"); put("Type", "Video"); put("Protocol", "hls")
+                        put("Context", "Streaming"); put("VideoCodec", "h264"); put("AudioCodec", "aac")
+                        put("MaxAudioChannels", "2")
+                    })
+                })
+            })
+        }
+        val info = json.decodeFromString<PlaybackInfo>(send(
+            listOf("Items", itemId, "PlaybackInfo"), account,
+            mapOf("UserId" to account.User.Id, "DeviceId" to encodingDevice), profile.toString(),
+        ))
+        val session = info.sessionId?.takeIf(::headerValue) ?: throw EmbyException("Emby did not return a playback session.")
+        val source = info.sources.firstOrNull { it.id?.let(::headerValue) == true && !it.transcodingUrl.isNullOrBlank() }
+            ?: throw EmbyException("Emby did not offer a compatible transcode.")
+        val mediaSource = requireNotNull(source.id)
+        val entry = base.resolve(requireNotNull(source.transcodingUrl))
+            ?: throw EmbyException("Invalid Emby manifest address.")
+        val endpoint = hlsUrl(entry, itemId, mediaSource, session, encodingDevice, account)
+        return TranscodedPlayback(this, account, itemId, mediaSource, session, endpoint, encodingDevice, textSubtitles(source))
+    }
+
+    internal fun readHls(account: Account, playback: TranscodedPlayback, raw: String): Pair<HttpUrl, ByteArray> {
+        require(playback.owner === this && playback.account === account)
+        val target = raw.toHttpUrlOrNull() ?: throw EmbyException("Invalid Emby HLS address.")
+        val url = hlsUrl(target, playback.itemId, playback.mediaSourceId, playback.sessionId, playback.encodingDeviceId, account)
+        val manifest = url.encodedPath.endsWith(".m3u8")
+        val request = authenticatedRequest(url, account)
+            .header("Accept", if (manifest) "application/vnd.apple.mpegurl" else "video/mp2t")
+            .build()
+        return http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw EmbyException("Emby returned HTTP ${response.code}.", response.code)
+            val stream = response.body?.source() ?: throw EmbyException("Missing Emby HLS resource.")
+            val maximum = if (manifest) 2 * 1024 * 1024L else 16 * 1024 * 1024L
+            if (stream.request(maximum + 1)) throw EmbyException("Emby HLS resource exceeds the size limit.")
+            val body = stream.readByteArray()
+            if (manifest) {
+                val text = body.toString(Charsets.UTF_8)
+                if (!text.startsWith("#EXTM3U") || text.contains(account.AccessToken)) {
+                    throw EmbyException("Unsafe Emby HLS playlist.")
+                }
+                text.lineSequence().map(String::trim).filter { it.isNotEmpty() }.forEach { line ->
+                    val references = if (line.startsWith("#")) hlsURI.findAll(line).map { it.groupValues[1] }
+                        else sequenceOf(line)
+                    references.forEach { reference ->
+                        val resolved = url.resolve(reference) ?: throw EmbyException("Invalid Emby HLS reference.")
+                        hlsUrl(resolved, playback.itemId, playback.mediaSourceId, playback.sessionId, playback.encodingDeviceId, account)
+                    }
+                }
+            }
+            url to body
+        }
+    }
+
+    private fun hlsUrl(url: HttpUrl, itemId: String, mediaSource: String, session: String,
+                       encodingDevice: String, account: Account): HttpUrl {
+        if (url.scheme != base.scheme || url.host != base.host || url.port != base.port ||
+            url.username.isNotEmpty() || url.password.isNotEmpty() || url.fragment != null) {
+            throw EmbyException("Emby HLS resources must stay on the configured server.")
+        }
+        val path = url.pathSegments
+        val prefix = base.pathSegments.filter(String::isNotEmpty)
+        val media = if (path.take(prefix.size) == prefix) path.drop(prefix.size)
+            else if (path.firstOrNull()?.equals("emby", ignoreCase = true) == true) path.drop(1) else path
+        if (media.size < 3 || !media[0].equals("videos", ignoreCase = true) || media[1] != itemId ||
+            !media.all(::headerValue) || !hlsResource.matches(media.last())) {
+            throw EmbyException("Emby HLS resource is outside the selected video.")
+        }
+        val safe = base.newBuilder()
+        if (base.encodedPath.endsWith("/")) safe.removePathSegment(base.pathSize - 1)
+        media.forEach(safe::addPathSegment)
+        for (index in 0 until url.querySize) {
+            val key = url.queryParameterName(index)
+            val value = url.queryParameterValue(index)
+            when (key.lowercase()) {
+                "api_key", "apikey", "token", "x-emby-token", "access_token", "authorization",
+                "deviceid", "mediasourceid", "playsessionid" -> continue
+                else -> if (value?.contains(account.AccessToken) != true) safe.addQueryParameter(key, value)
+            }
+        }
+        return safe.addQueryParameter("DeviceId", encodingDevice).addQueryParameter("MediaSourceId", mediaSource)
+            .addQueryParameter("PlaySessionId", session).build()
+    }
+
+    suspend fun stopTranscode(account: Account, playback: TranscodedPlayback) {
+        require(playback.owner === this && playback.account === account)
+        val request = request(listOf("Videos", "ActiveEncodings"), account, mapOf(
+            "DeviceId" to playback.encodingDeviceId, "PlaySessionId" to playback.sessionId,
+        )).delete().build()
+        execute(request) { response ->
+            if (!response.isSuccessful) throw EmbyException("Emby returned HTTP ${response.code}.", response.code)
+        }
     }
 
     suspend fun read(account: Account, playback: DirectPlayback, offset: Long, length: Int): ByteRange =
@@ -224,7 +350,7 @@ class EmbyClient internal constructor(
         }
     }
 
-    suspend fun textSubtitle(account: Account, playback: DirectPlayback, track: TextSubtitle): ByteArray {
+    suspend fun textSubtitle(account: Account, playback: Playback, track: TextSubtitle): ByteArray {
         require(playback.owner === this && playback.account === account && track in playback.textSubtitles)
         val request = request(
             listOf("Videos", playback.itemId, playback.mediaSourceId, "Subtitles", track.index.toString(), "Stream.srt"),
@@ -238,7 +364,7 @@ class EmbyClient internal constructor(
         }
     }
 
-    suspend fun report(account: Account, playback: DirectPlayback, event: PlaybackEvent, positionMillis: Long,
+    suspend fun report(account: Account, playback: Playback, event: PlaybackEvent, positionMillis: Long,
                        paused: Boolean = false) {
         require(playback.owner === this && playback.account === account)
         require(positionMillis in 0..Long.MAX_VALUE / 10_000)
@@ -248,7 +374,7 @@ class EmbyClient internal constructor(
             put("PlaySessionId", playback.sessionId)
             put("PositionTicks", positionMillis * 10_000)
             if (event != PlaybackEvent.STOPPED) {
-                put("PlayMethod", "DirectPlay")
+                put("PlayMethod", if (playback is TranscodedPlayback) "Transcode" else "DirectPlay")
                 put("CanSeek", true)
                 put("IsPaused", paused)
             }
@@ -264,13 +390,18 @@ class EmbyClient internal constructor(
             path.forEach { addPathSegment(it) }
             query.forEach { (name, value) -> addQueryParameter(name, value) }
         }.build()
+        val request = authenticatedRequest(url, account)
+        if (body != null) request.post(body.toRequestBody("application/json".toMediaType()))
+        return request
+    }
+
+    private fun authenticatedRequest(url: HttpUrl, account: Account?): Request.Builder {
         val request = Request.Builder().url(url).header("Accept", "application/json")
             .header("Authorization", authorization)
         if (account != null) {
             require(headerValue(account.AccessToken))
             request.header("X-Emby-Token", account.AccessToken)
         }
-        if (body != null) request.post(body.toRequestBody("application/json".toMediaType()))
         return request
     }
 
@@ -291,6 +422,8 @@ class EmbyClient internal constructor(
 
     private companion object {
         val json = Json { ignoreUnknownKeys = true }
+        val hlsResource = Regex("[A-Za-z0-9_.-]+[.](m3u8|ts|mp4|m4s|aac|vtt)")
+        val hlsURI = Regex("""URI="([^"]+)"""")
         const val maximumBytes = 8 * 1024 * 1024
         val defaultClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .callTimeout(30, TimeUnit.SECONDS).build()
