@@ -197,6 +197,7 @@ import SwiftUI
 
 @MainActor private struct CollectionMembershipView: View {
     let collectionID: UUID
+    @ObservedObject private var household = HouseholdStore.shared
     @Query private var library: [Movie]
     @ObservedObject private var store = LibraryCollectionsStore.shared
     @Environment(\.dismiss) private var dismiss

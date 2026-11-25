@@ -61,12 +61,22 @@ final class MediaVaultPhoneTests: XCTestCase {
         library.tap()
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: library)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed, app.debugDescription)
+        capture("Library after authenticated WebDAV import", app)
         let poster = app.buttons["Film"]
-        for _ in 0..<3 where !poster.isHittable { app.swipeUp() }
-        XCTAssertTrue(poster.isHittable, app.debugDescription)
+        XCTAssertTrue(poster.waitForExistence(timeout: 10), app.debugDescription)
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: poster)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, app.debugDescription)
         poster.tap()
         XCTAssertTrue(app.staticTexts["Film"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.buttons["Play"].exists, app.debugDescription)
+        capture("Imported WebDAV movie opens its playback details", app)
+    }
+
+    @MainActor private func capture(_ name: String, _ app: XCUIApplication) {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = name; screenshot.lifetime = .keepAlways; add(screenshot)
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = name + " accessibility"; hierarchy.lifetime = .keepAlways; add(hierarchy)
     }
 
     @MainActor

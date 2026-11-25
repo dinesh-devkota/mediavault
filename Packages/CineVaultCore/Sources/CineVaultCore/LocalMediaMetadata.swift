@@ -83,6 +83,9 @@ public enum LocalMetadataParser {
         func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
             guard let name = stack.last, let text = contents.last, let attribute = attributes.last else { invalid = true; return }
             let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if stack.count == 2, ["mpaa", "certification"].contains(name) {
+                metadata?.certificationPresent = true; metadata?.certification = certification(value)
+            }
             if !value.isEmpty {
                 if stack.count == 2 {
                     switch name {
@@ -93,8 +96,8 @@ public enum LocalMetadataParser {
                     case "year": metadata?.year = Int(value).flatMap { (1800...2200).contains($0) ? $0 : nil }
                     case "premiered", "aired": if metadata?.year == nil { metadata?.year = Int(value.prefix(4)).flatMap { (1800...2200).contains($0) ? $0 : nil } }
                     case "genre":
-                        for genre in value.components(separatedBy: " / ").map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !genre.isEmpty {
-                            if (metadata?.genres.count ?? 0) < 50, metadata?.genres.contains(genre) != true { metadata?.genres.append(String(genre.prefix(100))) }
+                        for genre in value.components(separatedBy: CharacterSet(charactersIn: "/|")).map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !genre.isEmpty {
+                            if (metadata?.genres.count ?? 0) < 30, metadata?.genres.contains(genre) != true { metadata?.genres.append(String(genre.prefix(100))) }
                         }
                     case "runtime": metadata?.runtime = Int(value).flatMap { (1...10_000).contains($0) ? $0 : nil }
                     case "mpaa", "certification": metadata?.certificationPresent = true; metadata?.certification = certification(value)

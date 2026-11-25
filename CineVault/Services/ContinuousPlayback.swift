@@ -57,7 +57,7 @@ final class ContinuousPlayback: ObservableObject {
 
     /// Public to tests so countdown eligibility can be exercised without a ten-second wall-clock wait.
     func offerNext(startTimer: Bool = true) {
-        guard !stopped, active, !controller.subtitles.presented, controller.permitsContinuation, defaults.bool(forKey: Self.enabledKey),
+        guard !stopped, active, !controller.isPresentingPlaybackOptions, controller.permitsContinuation, defaults.bool(forKey: Self.enabledKey),
               !handled.contains(controller.movie.id),
               let suggestion = ContinueWatching.next(after: controller.movie, in: library()),
               !visited.contains(suggestion.movie.id) else { return }
@@ -77,7 +77,7 @@ final class ContinuousPlayback: ObservableObject {
 
     func tick() {
         guard next != nil, !preparing else { return }
-        guard !stopped, active, !controller.subtitles.presented, defaults.bool(forKey: Self.enabledKey), controller.permitsContinuation else { cancel(); return }
+        guard !stopped, active, !controller.isPresentingPlaybackOptions, defaults.bool(forKey: Self.enabledKey), controller.permitsContinuation else { cancel(); return }
         secondsRemaining = max(0, secondsRemaining - 1)
         if secondsRemaining == 0 { playNow() }
     }
@@ -88,7 +88,7 @@ final class ContinuousPlayback: ObservableObject {
     }
 
     func playNow() {
-        guard !stopped, active, !controller.subtitles.presented, !preparing, let expected = next else { return }
+        guard !stopped, active, !controller.isPresentingPlaybackOptions, !preparing, let expected = next else { return }
         guard defaults.bool(forKey: Self.enabledKey), controller.permitsContinuation,
               let fresh = ContinueWatching.next(after: controller.movie, in: library()),
               fresh.movie.id == expected.movie.id, !visited.contains(fresh.movie.id) else { cancel(); return }
@@ -100,7 +100,7 @@ final class ContinuousPlayback: ObservableObject {
                 // prepare() checks live availability/source identity. A new commercial session performs
                 // its own verified entitlement check before playing or consuming a trial play.
                 guard let candidate = try await self.prepare(fresh.movie, fresh.movie.isInProgress, self.services) else { throw PlaybackPreparationError.fileUnavailable }
-                guard !Task.isCancelled, !self.stopped, self.active, !self.controller.subtitles.presented, self.generation == token,
+                guard !Task.isCancelled, !self.stopped, self.active, !self.controller.isPresentingPlaybackOptions, self.generation == token,
                       self.defaults.bool(forKey: Self.enabledKey),
                       self.controller.permitsContinuation,
                       ContinueWatching.next(after: self.controller.movie, in: self.library())?.movie.id == fresh.movie.id else {
@@ -133,9 +133,9 @@ final class ContinuousPlayback: ObservableObject {
             print("Playback fixture disappeared; subtitle sheet=\(controller.subtitles.presented)")
         }
         #endif
-        // tvOS presents sheets fullscreen. Covering the player with its subtitle
+        // tvOS presents sheets fullscreen. Covering the player with its subtitle/audio
         // choices must not end the playback session that those choices control.
-        guard !controller.subtitles.presented else { return }
+        guard !controller.isPresentingPlaybackOptions else { return }
         stop()
     }
 

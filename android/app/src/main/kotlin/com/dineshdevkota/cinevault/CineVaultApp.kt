@@ -43,6 +43,7 @@ class AppContainer(context: Context) {
     val settings = Settings(context, secrets) { family.current.historyId }
     val database = CineVaultDatabase.create(context)
     val library = com.dineshdevkota.cinevault.family.FamilyLibrary(database, family)
+    val collections = com.dineshdevkota.cinevault.library.MediaCollections(context, family, library)
     val smb = SmbService()
     val photos = NasPhotoLoader(context, database, secrets, family = family)
     val playbackProgress = PlaybackProgressWriter(scope)
@@ -51,8 +52,9 @@ class AppContainer(context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
     val metadata = MetadataService(database, TmdbClient(http) { settings.tmdbApiKey })
+    val localMetadata = com.dineshdevkota.cinevault.metadata.LocalMetadataImporter(database, secrets)
     val scanner = LibraryScanner(database, secrets, smb::scanVideos,
-        afterScan = { metadata.fetchMissing()?.failureMessage }, scanWithProgress = smb::scanMedia)
+        afterScan = { metadata.fetchMissing()?.failureMessage }, importLocalMetadata = localMetadata::importSource, scanWithProgress = smb::scanMedia)
     val editor = LibraryEditor(database, metadata, playbackProgress, library)
 }
 

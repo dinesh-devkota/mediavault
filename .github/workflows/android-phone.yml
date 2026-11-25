@@ -7,6 +7,7 @@ on:
       - ".github/workflows/android-phone.yml"
       - "scripts/test_android_phone.sh"
       - "scripts/nas_fixture.py"
+      - "scripts/media_library_fixture.py"
       - "scripts/nas-test-requirements.txt"
       - "CineVaultTests/Fixtures/**"
   pull_request:
@@ -15,6 +16,7 @@ on:
       - ".github/workflows/android-phone.yml"
       - "scripts/test_android_phone.sh"
       - "scripts/nas_fixture.py"
+      - "scripts/media_library_fixture.py"
       - "scripts/nas-test-requirements.txt"
       - "CineVaultTests/Fixtures/**"
 
@@ -22,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-phone-${{ github.ref }}
+  group: android-phone-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -82,6 +84,7 @@ jobs:
           path: |
             android/app/build/outputs/androidTest-results/
             android/app/build/reports/androidTests/
+            android/app/build/phone-screenshots/
           if-no-files-found: warn
       - name: Stop synthetic SMB fixture
         if: always()

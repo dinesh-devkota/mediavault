@@ -42,7 +42,7 @@ final class LocalMetadataService {
             guard directory == config.rootPath || allowed(directory, directory: true) else { return [] }
             let result = try await list(config, directory)
             try verify()
-            guard result.count <= 25_000 else { return [] }
+            guard result.count <= 25_000 else { throw LocalMetadataError.tooLarge }
             let paths = result.filter { !$0.isDirectory && !$0.name.isEmpty && !$0.name.contains("/") && !$0.name.contains("\\") }
                 .map { LocalMediaSidecars.join(directory, $0.name) }.filter { allowed($0) }
             entries[directory] = paths
@@ -50,6 +50,10 @@ final class LocalMetadataService {
         }
         func find(_ candidates: [String], in values: [String]) -> String? {
             candidates.lazy.compactMap { wanted in values.first { config.isWebDAV ? Data($0.utf8) == Data(wanted.utf8) : $0.caseInsensitiveCompare(wanted) == .orderedSame } }.first
+        }
+        func recognized(_ candidates: [String], in values: [String]) -> [String] {
+            let lookup = Dictionary(values.map { (Data((config.isWebDAV ? $0 : $0.lowercased()).utf8), $0) }, uniquingKeysWith: { first, _ in first })
+            return candidates.compactMap { lookup[Data((config.isWebDAV ? $0 : $0.lowercased()).utf8)] }
         }
         func metadata(_ path: String?) async throws -> LocalMediaMetadata? {
             guard let path else { return nil }
@@ -112,17 +116,26 @@ final class LocalMetadataService {
                         }
                     }
                 }
-                let poster = find(LocalMediaSidecars.artworkCandidates(video: path, backdrop: false, singleVideo: single && !isEpisode), in: names)
-                let fanart = find(LocalMediaSidecars.artworkCandidates(video: path, backdrop: true, singleVideo: single && !isEpisode), in: names)
-                let showPoster = isEpisode ? find(["poster.jpg", "poster.png", "poster.jpeg", "poster.webp", "folder.jpg", "folder.png", "folder.jpeg", "folder.webp"].map { LocalMediaSidecars.join(showDirectory, $0) }, in: showNames) : nil
-                let showFanart = isEpisode ? find(["fanart.jpg", "fanart.png", "fanart.jpeg", "fanart.webp"].map { LocalMediaSidecars.join(showDirectory, $0) }, in: showNames) : nil
+                let posterCandidates = LocalMediaSidecars.artworkCandidates(video: path, backdrop: false, singleVideo: single && !isEpisode)
+                let fanartCandidates = LocalMediaSidecars.artworkCandidates(video: path, backdrop: true, singleVideo: single && !isEpisode)
+                let extensions = ["jpg", "png", "jpeg", "webp"]
+                let showPosterCandidates = isEpisode ? ["poster", "folder"].flatMap { stem in extensions.map { LocalMediaSidecars.join(showDirectory, stem + "." + $0) } } : []
+                let showFanartCandidates = isEpisode ? extensions.map { LocalMediaSidecars.join(showDirectory, "fanart." + $0) } : []
                 let season = info?.season ?? seasonInfo?.season ?? movie.episodeInfo?.season
-                let seasonPoster = season.flatMap { number in
-                    let stems = [LocalMediaSidecars.join(directory, "poster"), LocalMediaSidecars.join(directory, "folder"),
-                        LocalMediaSidecars.join(showDirectory, String(format: "season%02d-poster", number)),
-                        LocalMediaSidecars.join(showDirectory, "season \(number)-poster")]
-                    return find(stems.flatMap { stem in ["jpg", "png", "jpeg", "webp"].map { stem + "." + $0 } }, in: names + showNames)
-                }
+                let seasonCandidates = season.map { number in
+                    [LocalMediaSidecars.join(directory, "poster"), LocalMediaSidecars.join(directory, "folder"),
+                     LocalMediaSidecars.join(showDirectory, String(format: "season%02d-poster", number)),
+                     LocalMediaSidecars.join(showDirectory, "season \(number)-poster")].flatMap { stem in extensions.map { stem + "." + $0 } }
+                } ?? []
+                let poster = find(posterCandidates, in: names)
+                let fanart = find(fanartCandidates, in: names)
+                let showPoster = find(showPosterCandidates, in: showNames)
+                let showFanart = find(showFanartCandidates, in: showNames)
+                let seasonPoster = find(seasonCandidates, in: names + showNames)
+                // Every recognized companion variant is artwork, including alternatives to the chosen image.
+                artwork.formUnion(recognized(posterCandidates + fanartCandidates, in: names))
+                artwork.formUnion(recognized(showPosterCandidates + showFanartCandidates, in: showNames))
+                artwork.formUnion(recognized(seasonCandidates, in: names + showNames))
                 try verify()
                 guard !movie.isDeleted, movie.filePath == path, movie.source?.id == source.id else { continue }
                 movie.localPosterPath = isEpisode ? (showPoster ?? poster) : poster

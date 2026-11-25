@@ -53,4 +53,10 @@ final class LocalMediaMetadataTests: XCTestCase {
         XCTAssertEqual(details.belongsToCollection?.id, 12)
         XCTAssertEqual(details.belongsToCollection?.name, "Film Collection")
     }
+    func testEmptyCertificationRemainsExplicitlyUnratedAndGenreSeparatorsAgree() throws {
+        let value = try parse("<movie><genre>Drama/Documentary | Music</genre><genre>Drama</genre><mpaa/></movie>")
+        XCTAssertTrue(value.certificationPresent); XCTAssertNil(value.certification)
+        XCTAssertEqual(value.genres, ["Drama", "Documentary", "Music"])
+    }
+
 }

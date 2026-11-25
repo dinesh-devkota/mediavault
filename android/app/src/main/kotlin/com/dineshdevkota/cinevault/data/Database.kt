@@ -41,6 +41,8 @@ interface SourceDao {
 
 @Dao
 interface MovieDao {
+    @Query("UPDATE movies SET franchiseId = :id, franchiseName = :name WHERE id = :movieId")
+    suspend fun setFranchise(movieId: String, id: Int?, name: String?)
     @Query("UPDATE movies SET ageCertification = :rating, certificationFetched = 1 WHERE id = :id")
     suspend fun setCertification(id: String, rating: String?)
     @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND filePath IN (:paths)")
@@ -172,7 +174,8 @@ interface MovieDao {
         "UPDATE movies SET title = :title, sortTitle = :sortTitle, year = :year, tmdbId = :tmdbId, isLocked = 0, " +
             "metadataFetched = 0, ageCertification = NULL, certificationFetched = 0, overview = NULL, tagline = NULL, runtimeMinutes = NULL, rating = NULL, " +
             "posterPath = NULL, backdropPath = NULL, genres = :noGenresJson, seriesTitle = NULL, seriesTmdbId = NULL, " +
-            "seasonNumber = NULL, episodeNumber = NULL, seasonPosterPath = NULL WHERE id = :id",
+            "seasonNumber = NULL, episodeNumber = NULL, seasonPosterPath = NULL, hasLocalMetadata = 0, localMetadataJson = NULL, " +
+            "edition = NULL, franchiseId = NULL, franchiseName = NULL WHERE id = :id",
     )
     suspend fun resetToFile(id: String, title: String, sortTitle: String, year: Int?, tmdbId: Int?, noGenresJson: String)
 }
@@ -195,7 +198,7 @@ interface ProfileHistoryDao {
     @Query("DELETE FROM profile_history WHERE profileId = :profileId") suspend fun deleteProfile(profileId: String)
 }
 
-@Database(entities = [SourceEntity::class, MovieEntity::class, ProfileHistory::class], version = 6, exportSchema = false)
+@Database(entities = [SourceEntity::class, MovieEntity::class, ProfileHistory::class], version = 7, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class CineVaultDatabase : RoomDatabase() {
     abstract fun sources(): SourceDao
@@ -203,6 +206,18 @@ abstract class CineVaultDatabase : RoomDatabase() {
     abstract fun profileHistory(): ProfileHistoryDao
 
     companion object {
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE movies ADD COLUMN localPosterPath TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN localMetadataJson TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN edition TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN localBackdropPath TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN localSeasonPosterPath TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN hasLocalMetadata INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE movies ADD COLUMN franchiseId INTEGER")
+                db.execSQL("ALTER TABLE movies ADD COLUMN franchiseName TEXT")
+            }
+        }
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE sources ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'smb'")
@@ -242,7 +257,7 @@ abstract class CineVaultDatabase : RoomDatabase() {
 
         fun create(context: Context, name: String = "cinevault.db"): CineVaultDatabase =
             Room.databaseBuilder(context, CineVaultDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
     }
 }

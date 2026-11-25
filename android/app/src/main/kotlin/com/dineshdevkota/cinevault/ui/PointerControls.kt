@@ -57,8 +57,8 @@ fun OutlinedButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: 
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun AdaptiveActions(gap: Dp = 16.dp, content: @Composable () -> Unit) {
+internal fun AdaptiveActions(gap: Dp = 16.dp, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val spacing = Arrangement.spacedBy(gap)
-    if (LocalTvLayout.current) Row(horizontalArrangement = spacing) { content() }
-    else FlowRow(horizontalArrangement = spacing, verticalArrangement = Arrangement.spacedBy(4.dp)) { content() }
+    if (LocalTvLayout.current) Row(modifier, horizontalArrangement = spacing) { content() }
+    else FlowRow(modifier, horizontalArrangement = spacing, verticalArrangement = Arrangement.spacedBy(4.dp)) { content() }
 }

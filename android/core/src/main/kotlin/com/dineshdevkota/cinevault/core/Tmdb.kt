@@ -29,6 +29,9 @@ data class TmdbSearchResponse(val results: List<TmdbMovieSummary> = emptyList())
 data class TmdbGenre(val name: String = "")
 
 @Serializable
+data class TmdbCollection(val id: Int, val name: String = "")
+
+@Serializable
 data class TmdbMovieDetails(
     val id: Int,
     val title: String = "",
@@ -41,6 +44,7 @@ data class TmdbMovieDetails(
     @SerialName("backdrop_path") val backdropPath: String? = null,
     val genres: List<TmdbGenre>? = null,
     @SerialName("release_dates") val releaseDates: TmdbReleaseDates? = null,
+    @SerialName("belongs_to_collection") val collection: TmdbCollection? = null,
 ) {
     val year: Int? get() = releaseDate?.take(4)?.toIntOrNull()
 }

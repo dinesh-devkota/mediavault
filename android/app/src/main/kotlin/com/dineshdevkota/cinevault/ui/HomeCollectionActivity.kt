@@ -123,7 +123,7 @@ private fun HomeCollectionScreen(collection: HomeCollection) {
                         contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, top = 8.dp, bottom = 48.dp),
                         horizontalArrangement = Arrangement.spacedBy(28.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
                         if (collection == HomeCollection.CONTINUE) items(continuing, key = { it.id }) { item ->
-                            TVArtworkCard(item.title, item.label, item.movie.backdropPath ?: item.movie.posterPath, wide = true,
+                            TVArtworkCard(item.title, item.label, item.movie.backdropPath ?: item.movie.posterPath, wide = true, artworkMovie = item.movie,
                                 cardModifier = Modifier.testTag("collection-continue:${item.id}").then(if (item.id == returnId)
                                     Modifier.focusRequester(resultFocus).onGloballyPositioned { resultReady = true } else Modifier),
                                 onClick = { originId = item.id; originEpisode = null; MovieDetailActivity.start(context, item.movie.id) })
@@ -135,7 +135,7 @@ private fun HomeCollectionScreen(collection: HomeCollection) {
                                     onClick = { originId = item.id; originEpisode = null; MovieDetailActivity.start(context, item.movie.id) })
                                 is CollectionItem.Show -> TVArtworkCard(item.show.title,
                                     "${item.show.seasons.size} ${if (item.show.seasons.size == 1) "season" else "seasons"}", item.show.posterPath,
-                                    cardModifier = modifier, onClick = {
+                                    artworkMovie = item.show.episodes.firstOrNull(), cardModifier = modifier, onClick = {
                                         originId = item.id; originEpisode = item.show.episodes.firstOrNull()?.id
                                         holdFocus(); selectedShow = item.show.id
                                     })

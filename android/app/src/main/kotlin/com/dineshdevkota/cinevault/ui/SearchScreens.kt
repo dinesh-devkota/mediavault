@@ -186,13 +186,13 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
                             }
                         }
                         when (result) {
-                            is LibrarySearchResult.Show -> TVArtworkCard(result.title, result.subtitle, result.show.posterPath,
+                            is LibrarySearchResult.Show -> TVArtworkCard(result.title, result.subtitle, result.show.posterPath, artworkMovie = result.show.episodes.firstOrNull(),
                                 cardModifier = cardModifier, onClick = open)
                             is LibrarySearchResult.Media -> if (result.item.isPhoto) PhotoTile(result.item, cardModifier, onClick = open)
                             else TVArtworkCard(result.title, result.item.episodeInfo?.let {
                                 "${result.item.seriesTitle ?: it.seriesTitle} · S${it.season} E${it.episode}"
                             } ?: result.item.year?.toString() ?: result.item.mediaKind.label, result.item.posterPath,
-                                cardModifier = cardModifier, onClick = open)
+                                artworkMovie = result.item, cardModifier = cardModifier, onClick = open)
                         }
                     }
                 }

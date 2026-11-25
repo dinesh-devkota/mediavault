@@ -117,8 +117,10 @@ internal fun MediaArtwork(
     modifier: Modifier,
     width: Int,
     kind: JellyfinImage = JellyfinImage.Primary,
+    seasonArtwork: Boolean = false,
 ) {
-    if (jellyfinItemID(movie.filePath) == null || movie.isHidden || movie.isMissing) {
+    val localPath = if (kind == JellyfinImage.Backdrop) movie.localBackdropPath ?: movie.localPosterPath else if (seasonArtwork) movie.localSeasonPosterPath ?: movie.localPosterPath else movie.localPosterPath
+    if ((jellyfinItemID(movie.filePath) == null && localPath == null) || movie.isHidden || movie.isMissing) {
         Artwork(url, title, modifier)
         return
     }
@@ -127,15 +129,15 @@ internal fun MediaArtwork(
         .collectAsStateWithLifecycle(null)
     val session by container.family.session.collectAsStateWithLifecycle()
     val activeSource = source
-    if (activeSource?.sourceType != JELLYFIN) {
+    if (activeSource == null || (activeSource.sourceType != JELLYFIN && localPath == null)) {
         Artwork(url, title, modifier)
         return
     }
-    val bitmap by key(session, activeSource, movie.id, movie.filePath, movie.ageCertification, kind, width) {
+    val bitmap by key(session, activeSource, movie.id, movie.filePath, movie.ageCertification, localPath, kind, width) {
         produceState<Bitmap?>(null) {
             if (!container.family.isCurrent(session) || !container.family.permits(movie)) return@produceState
             try {
-                value = container.photos.loadArtwork(movie.id, width, kind)
+                value = container.photos.loadArtwork(movie.id, width, kind, seasonArtwork)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -162,7 +164,7 @@ private fun WatchedBadge(modifier: Modifier = Modifier) {
 
 @Composable
 fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean? = null,
-    cardModifier: Modifier = Modifier) {
+    cardModifier: Modifier = Modifier, versionCount: Int = 1) {
     Column(modifier) {
         Card(
             onClick = onClick,
@@ -186,7 +188,7 @@ fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Mod
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 10.dp),
         )
-        Text(movie.year?.toString() ?: " ", style = MaterialTheme.typography.labelMedium, color = SecondaryText)
+        Text(listOfNotNull(movie.year?.toString(), "$versionCount versions".takeIf { versionCount > 1 }).joinToString(" · ").ifEmpty { " " }, style = MaterialTheme.typography.labelMedium, color = SecondaryText)
     }
 }
 
@@ -233,8 +235,9 @@ private fun ContinueCard(item: ContinueWatchingItem, onClick: () -> Unit) {
 @Composable
 fun MovieRow(title: String, movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, onSeeAll: (() -> Unit)? = null) {
     MediaRow(title, onSeeAll) {
-        items(movies, key = { it.id }) { movie ->
-            PosterCard(movie, onClick = { onOpen(movie) }, modifier = Modifier.width(PosterWidth))
+        items(com.dineshdevkota.cinevault.library.groupMovieVersions(movies), key = { it.id }) { group ->
+            val movie = group.representative
+            PosterCard(movie, onClick = { onOpen(movie) }, modifier = Modifier.width(PosterWidth), versionCount = group.versions.size)
         }
     }
 }

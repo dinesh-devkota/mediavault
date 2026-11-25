@@ -16,7 +16,8 @@ import XCTest
     private func nfo(_ xml: String) throws -> LocalMediaMetadata { try LocalMetadataParser.parse(Data(xml.utf8)) }
 
     func testLocalMetadataClassifiesWithoutTMDBAndNeverChangesViewingHistory() throws {
-        let (_, _, movie) = try fixture()
+        let (container, _, movie) = try fixture()
+        defer { withExtendedLifetime(container) {} }
         movie.playbackPosition = 73; movie.isWatched = true; movie.isWatchlisted = true
         LocalMetadataService.apply(try nfo("<movie><title>Local Documentary</title><genre>Documentary</genre><mpaa>PG</mpaa><set>Home Set</set></movie>"), to: movie)
         XCTAssertEqual(movie.title, "Local Documentary"); XCTAssertEqual(movie.mediaKind, .documentary)
@@ -26,7 +27,8 @@ import XCTest
     }
 
     func testChangedOrRemovedLocalRatingFailsClosedAndManualEditsWin() throws {
-        let (_, _, movie) = try fixture()
+        let (container, _, movie) = try fixture()
+        defer { withExtendedLifetime(container) {} }
         LocalMetadataService.apply(try nfo("<movie><title>Local title</title><mpaa>PG</mpaa><edition>Extended</edition></movie>"), to: movie)
         XCTAssertEqual(movie.usContentRating, "PG")
         LocalMetadataService.apply(try nfo("<movie><title>New title</title></movie>"), to: movie)
@@ -39,7 +41,8 @@ import XCTest
     }
 
     func testPartialNFOAllowsMissingOnlineDetailsWithoutOverwritingLocalFields() async throws {
-        let (_, _, movie) = try fixture()
+        let (container, _, movie) = try fixture()
+        defer { withExtendedLifetime(container) {} }
         LocalMetadataService.apply(try nfo("<movie><title>My local title</title><mpaa>Not Rated</mpaa><set>Local Saga</set></movie>"), to: movie)
         let service = MetadataService(requestData: { request in
             let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!
@@ -86,4 +89,52 @@ import XCTest
         catch { XCTAssertEqual(error as? SMBError, .sourceChanged) }
         XCTAssertNotEqual(movie.title, "Wrong source")
     }
+    func testConfirmedSidecarRemovalReevaluatesRatingAndOutageDoesNotEraseMetadata() async throws {
+        let (container, source, movie) = try fixture()
+        LocalMetadataService.apply(try nfo("<movie><title>Local title</title><mpaa>PG</mpaa><edition>Extended</edition></movie>"), to: movie)
+        let suite = "MediaVault.LocalRatingTests.\(UUID())", defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var credentials: String?
+        let household = HouseholdStore(defaults: defaults, read: { credentials }, write: { credentials = $0 })
+        try await household.setupAsync(pin: "328614", confirmation: "328614", intent: household.authenticationToken)
+        let admin = try XCTUnwrap(household.profiles.first(where: \.isAdmin)?.id)
+        try await household.unlockAsync(admin, pin: "328614", intent: household.authenticationToken)
+        var viewer = HouseholdProfile(name: "Child")
+        viewer.allowedFolders = [HouseholdFolder(sourceID: source.id, path: "Movies")]; viewer.maximumMovieRating = "PG"
+        try await household.saveViewer(viewer, newPIN: nil, confirmation: "", adminPIN: "328614", intent: household.authenticationToken)
+        try await household.unlockAsync(viewer.id, pin: "", intent: household.authenticationToken)
+        XCTAssertTrue(household.allows(movie))
+        let offline = LocalMetadataService(list: { _, _ in throw URLError(.notConnectedToInternet) })
+        _ = try await offline.importFiles(source: source, context: container.mainContext, config: source.config())
+        XCTAssertEqual(movie.title, "Local title"); XCTAssertEqual(movie.usContentRating, "PG")
+        let removed = LocalMetadataService(list: { _, _ in [] })
+        _ = try await removed.importFiles(source: source, context: container.mainContext, config: source.config())
+        XCTAssertNil(movie.usContentRating); XCTAssertNil(movie.usContentRatingFetched); XCTAssertNil(movie.localEdition)
+        XCTAssertNil(movie.localMetadataSignature); XCTAssertNil(movie.localMetadataFields)
+        XCTAssertFalse(household.allows(movie), "A deleted rating sidecar cannot leave an old child-safe rating authoritative")
+    }
+
+    func testTVParentMetadataAndAllSeasonArtworkVariantsStayOutOfPhotoLibrary() async throws {
+        let (container, source, movie) = try fixture()
+        movie.filePath = "TV/Show/Season 01/Show.S01E01.mp4"; movie.fileName = "Show.S01E01.mp4"; movie.resetToFileName()
+        let episodePath = "TV/Show/Season 01/Show.S01E01.nfo", showPath = "TV/Show/tvshow.nfo"
+        let data = [episodePath: Data("<episodedetails><title>Local Pilot</title><season>1</season><episode>1</episode></episodedetails>".utf8),
+                    showPath: Data("<tvshow><title>My Show</title><genre>Drama</genre><mpaa>TV-PG</mpaa><uniqueid type='tmdb'>44</uniqueid></tvshow>".utf8)]
+        let art = ["TV/Show/poster.jpg", "TV/Show/poster.png", "TV/Show/season01-poster.jpg", "TV/Show/season01-poster.png", "TV/Show/Season 01/poster.png"]
+        let photoRows = art.map { Movie(filePath: $0, fileSize: 10, source: source) }
+        photoRows.forEach { container.mainContext.insert($0) }
+        let standalone = Movie(filePath: "Photos/poster.png", fileSize: 10, source: source); container.mainContext.insert(standalone)
+        try container.mainContext.save()
+        let allPaths = Array(data.keys) + art
+        let importer = LocalMetadataService(list: { _, directory in
+            allPaths.filter { ($0 as NSString).deletingLastPathComponent == directory }
+                .map { NASDirectoryEntry(name: ($0 as NSString).lastPathComponent, isDirectory: false) }
+        }, size: { _, path in Int64(try XCTUnwrap(data[path]).count) }, read: { _, path, _ in try XCTUnwrap(data[path]) })
+        let artwork = try await importer.importFiles(source: source, context: container.mainContext, config: source.config())
+        XCTAssertEqual(movie.title, "Local Pilot"); XCTAssertEqual(movie.seriesTitle, "My Show")
+        XCTAssertEqual(movie.seriesTMDBID, 44); XCTAssertEqual(movie.usContentRating, "TV-PG")
+        XCTAssertEqual(movie.localPosterPath, "TV/Show/poster.jpg"); XCTAssertEqual(movie.localSeasonPosterPath, "TV/Show/Season 01/poster.png")
+        XCTAssertEqual(artwork, Set(art)); XCTAssertTrue(photoRows.allSatisfy(\.isMissing)); XCTAssertFalse(standalone.isMissing)
+    }
+
 }

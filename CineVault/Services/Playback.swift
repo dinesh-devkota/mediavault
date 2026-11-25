@@ -161,6 +161,7 @@ final class PlaybackController: ObservableObject {
     let player: AVPlayer
     @Published private(set) var playbackError: String?
     @Published private(set) var didEndNaturally = false
+    @Published var audioSelectionPresented = false
     let subtitles: PlaybackSubtitles
     let alternative: AlternativePlayback?
     #if CINEVAULT_COMMERCIAL
@@ -185,6 +186,8 @@ final class PlaybackController: ObservableObject {
     private let householdSession: UUID
     private let sourceIsCurrent: (() -> Bool)?
     private var lastAlternativeCheckpoint = 0.0
+
+    var isPresentingPlaybackOptions: Bool { subtitles.presented || audioSelectionPresented }
 
     static func isNativeCandidate(_ movie: Movie) -> Bool {
         MediaFile.isPlayable(path: movie.filePath)
@@ -776,6 +779,7 @@ private struct ActivePlaybackView: View {
         .task { subtitles.start() }
         .sheet(isPresented: $subtitles.presented) { SubtitleSelectionView(subtitles: subtitles) }
         .onChange(of: subtitles.presented) { _, shown in if shown { interacting() } }
+        .onChange(of: controller.audioSelectionPresented) { _, shown in if shown { interacting() } }
         .alert("Playback unavailable", isPresented: Binding(get: { controller.playbackError != nil }, set: { _ in })) {
             Button("Back", action: close)
         } message: { Text(controller.playbackError ?? "This file could not be played.") }

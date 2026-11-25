@@ -156,7 +156,6 @@ struct AlternativePlayerView: View {
     @ObservedObject private var subtitles: PlaybackSubtitles
     let close: () -> Void
     @State private var started = false
-    @State private var showAudio = false
     @State private var seekValue = 0.0
     @State private var scrubbing = false
     @FocusState private var playFocused: Bool
@@ -180,7 +179,7 @@ struct AlternativePlayerView: View {
                     Spacer()
                     Button { revealControls(); controller.subtitles.presented = true } label: { Label("Subtitles", systemImage: "captions.bubble") }
                         .accessibilityIdentifier("playback-subtitles")
-                    if playback.audioTracks.count > 1 { Button { revealControls(); showAudio = true } label: { Label("Audio", systemImage: "waveform") } }
+                    if playback.audioTracks.count > 1 { Button { revealControls(); controller.audioSelectionPresented = true } label: { Label("Audio", systemImage: "waveform") } }
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: 12) {
@@ -232,14 +231,14 @@ struct AlternativePlayerView: View {
         .onChange(of: playback.position) { _, value in if !scrubbing { seekValue = value } }
         .onChange(of: playback.playing) { _, _ in revealControls() }
         .onChange(of: subtitles.presented) { _, _ in revealControls() }
-        .onChange(of: showAudio) { _, _ in revealControls() }
+        .onChange(of: controller.audioSelectionPresented) { _, _ in revealControls() }
         .onDisappear { controlsTask?.cancel() }
-        .sheet(isPresented: $showAudio) {
+        .sheet(isPresented: $controller.audioSelectionPresented) {
             NavigationStack {
                 List {
-                    Button("Done") { showAudio = false }
+                    Button("Done") { controller.audioSelectionPresented = false }
                     ForEach(playback.audioTracks) { track in
-                        Button { playback.selectAudio(track.id); showAudio = false } label: {
+                        Button { playback.selectAudio(track.id); controller.audioSelectionPresented = false } label: {
                             HStack { Text(track.label); Spacer(); if playback.selectedAudio == track.id { Image(systemName: "checkmark") } }
                         }
                     }
@@ -260,10 +259,10 @@ struct AlternativePlayerView: View {
         let wasHidden = !controlsVisible
         controlsVisible = true; videoFocused = false
         if wasHidden { playFocused = true }
-        guard playback.playing, !subtitles.presented, !showAudio, !scrubbing else { return }
+        guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing else { return }
         controlsTask = Task { @MainActor in
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            guard playback.playing, !subtitles.presented, !showAudio, !scrubbing else { return }
+            guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing else { return }
             withAnimation(.easeOut(duration: 0.2)) { controlsVisible = false }; playFocused = false; videoFocused = true
         }
     }

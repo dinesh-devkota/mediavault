@@ -128,7 +128,7 @@ struct BulkWatchSheet: View {
                 Button("Clear") { selected.removeAll() }.disabled(selected.isEmpty)
                     .focused($focus, equals: "clear")
                 Button("Add to collection") { addingToCollection = true }
-                    .disabled(selectedMovies.isEmpty).accessibilityIdentifier("bulk-add-collection")
+                    .disabled(!selectedMovies.contains(where: { LibraryCollectionsStore.available($0) })).accessibilityIdentifier("bulk-add-collection")
                 Button("Mark watched (\(selectedMovies.count))") { apply(watched: true) }
                     .disabled(selectedMovies.isEmpty).focused($focus, equals: "watched")
                     .accessibilityIdentifier("bulk-watch-watched")
