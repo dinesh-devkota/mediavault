@@ -56,12 +56,12 @@ final class LibraryScanner: ObservableObject {
             try Task.checkCancellation()
             try state.verifySource()
             let files = scannedFiles.filter { !config.excludesFile($0.path) && MediaFile.shouldIndex(path: $0.path, size: $0.size) }
-            var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { a, _ in a })
+            var existing = Dictionary(source.movies.map { (Data($0.filePath.utf8), $0) }, uniquingKeysWith: { a, _ in a })
             let previous = existing.values.map { ($0, $0.isMissing, $0.fileSize) }
             let previousScanDate = source.lastScanDate
             var finalInsertions: [Movie] = []
             for file in files {
-                if let movie = existing.removeValue(forKey: file.path) {
+                if let movie = existing.removeValue(forKey: Data(file.path.utf8)) {
                     movie.isMissing = false
                     movie.fileSize = file.size
                     continue
@@ -118,15 +118,15 @@ private final class LibraryScanState {
     let context: ModelContext
     let config: SourceConfig
     private(set) var added = 0
-    private var foundPaths: Set<String> = []
+    private var foundPaths: Set<Data> = []
     var foundCount: Int { foundPaths.count }
-    private var indexed: [String: Movie]
+    private var indexed: [Data: Movie]
     private let saveContext: (ModelContext) throws -> Void
     init(source: MediaSource, context: ModelContext, config: SourceConfig,
          saveContext: @escaping (ModelContext) throws -> Void) {
         self.source = source; self.context = context; self.config = config
         self.saveContext = saveContext
-        indexed = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { a, _ in a })
+        indexed = Dictionary(source.movies.map { (Data($0.filePath.utf8), $0) }, uniquingKeysWith: { a, _ in a })
     }
     func verifySource() throws {
         try Task.checkCancellation()
@@ -140,7 +140,7 @@ private final class LibraryScanState {
         var previous: [(Movie, Bool, Int64)] = []
         var inserted: [Movie] = []
         for file in files {
-            if let movie = indexed[file.path], !movie.isDeleted {
+            if let movie = indexed[Data(file.path.utf8)], !movie.isDeleted {
                 previous.append((movie, movie.isMissing, movie.fileSize))
                 movie.isMissing = false; movie.fileSize = file.size
             } else { inserted.append(insert(file)) }
@@ -148,11 +148,11 @@ private final class LibraryScanState {
         do { try saveContext(context) }
         catch {
             for (movie, missing, size) in previous.reversed() { movie.isMissing = missing; movie.fileSize = size }
-            for movie in inserted { indexed.removeValue(forKey: movie.filePath); context.delete(movie) }
+            for movie in inserted { indexed.removeValue(forKey: Data(movie.filePath.utf8)); context.delete(movie) }
             added -= inserted.count
             throw error
         }
-        foundPaths.formUnion(files.map(\.path))
+        foundPaths.formUnion(files.map { Data($0.path.utf8) })
     }
     @discardableResult
     func insert(_ file: RemoteFile) -> Movie {
@@ -167,7 +167,7 @@ private final class LibraryScanState {
         movie.year = localOnly ? nil : parsed.year
         movie.metadataFetched = localOnly
         context.insert(movie)
-        indexed[file.path] = movie
+        indexed[Data(file.path.utf8)] = movie
         added += 1
         return movie
     }

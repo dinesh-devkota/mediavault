@@ -42,9 +42,10 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun SourcesTab(movies: List<MovieEntity>) {
+    if (!LocalContext.current.container.family.current.admin) { AdminRequired(); return }
     val context = LocalContext.current
     val container = context.container
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(emptyList())
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(emptyList())
     val scanning by container.scanner.isScanning.collectAsStateWithLifecycle()
     val status by container.scanner.status.collectAsStateWithLifecycle()
     val counts = remember(movies) { movies.filter { !it.isMissing }.groupingBy { it.sourceId }.eachCount() }
@@ -111,12 +112,20 @@ private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onSca
 }
 
 fun sourceUrl(source: SourceEntity): String {
+    if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
     return "smb://" + listOf(address.authority, source.share, source.rootPath).filter { it.isNotEmpty() }.joinToString("/")
 }
 
 @Composable
 fun SettingsTab() {
+    if (!LocalContext.current.container.family.current.admin) {
+        Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            HouseholdButton()
+            Text("Shared settings are managed by Admin.", color = SecondaryText)
+        }
+        return
+    }
     val context = LocalContext.current
     val container = context.container
     val settings = container.settings
@@ -147,6 +156,7 @@ fun SettingsTab() {
     ) {
         item { ScreenHeader("Settings", kicker = "MEDIAVAULT",
             trailing = "Version ${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}") }
+        item { HouseholdButton() }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 OutlinedButton(onClick = { MediaGuideActivity.start(context) }) { Text("Media Guide & Help") }

@@ -36,23 +36,27 @@ final class MetadataService {
     static let apiKeyAccount = "tmdb-api-key"
     private let requestData: (URLRequest) async throws -> (Data, URLResponse)
     private let readAPIKey: () throws -> String
+    private let household: HouseholdStore
     private struct RequestIntent {
         let token: UUID
         let manual: Bool
+        let adminSession: UUID?
     }
     private var requests: [UUID: RequestIntent] = [:]
     private var tvCacheKey: String?
     private var tvSearchCache: [String: [TMDBMovieSummary]] = [:]
     private var tvDetailsCache: [Int: TMDBTVDetails] = [:]
     private var tvSeasonCache: [String: TMDBTVSeason] = [:]
+    private var tvContentRatingsCache: [Int: TMDBTVContentRatings] = [:]
 
     private func clearTVCache() {
         tvCacheKey = nil
         tvSearchCache.removeAll(); tvDetailsCache.removeAll(); tvSeasonCache.removeAll()
+        tvContentRatingsCache.removeAll()
     }
 
     private func prepareTVCache(key: String) {
-        if tvCacheKey != key || tvSearchCache.count + tvDetailsCache.count + tvSeasonCache.count >= 512 { clearTVCache() }
+        if tvCacheKey != key || tvSearchCache.count + tvDetailsCache.count + tvSeasonCache.count + tvContentRatingsCache.count >= 512 { clearTVCache() }
         tvCacheKey = key
     }
 
@@ -60,9 +64,10 @@ final class MetadataService {
         try await URLSession.shared.data(for: $0)
     }, readAPIKey: @escaping () throws -> String = {
         try Keychain.get(MetadataService.apiKeyAccount) ?? ""
-    }) {
+    }, household: HouseholdStore = .shared) {
         self.requestData = requestData
         self.readAPIKey = readAPIKey
+        self.household = household
     }
 
     /// A response may outlive a rename, reset, or manual re-match.
@@ -73,6 +78,7 @@ final class MetadataService {
         let locked: Bool
         let seriesID: Int?
         let episode: EpisodeInfo?
+        let filePath: String
 
         init(_ movie: Movie) {
             id = movie.tmdbID
@@ -81,6 +87,7 @@ final class MetadataService {
             locked = movie.isLocked
             seriesID = movie.seriesTMDBID
             episode = movie.episodeInfo
+            filePath = movie.filePath
         }
     }
 
@@ -89,24 +96,38 @@ final class MetadataService {
     private struct MovieReference {
         let id: UUID
         let context: ModelContext?
+        let sourceID: UUID?
 
         init(_ movie: Movie) {
             id = movie.id
             context = movie.modelContext
+            sourceID = movie.source?.id
         }
 
         func isAvailable(_ movie: Movie) -> Bool {
             if let context, movie.modelContext !== context { return false }
-            return !movie.isDeleted && movie.source?.isIgnored(filePath: movie.filePath) != true
+            guard !movie.isDeleted, let sourceID, let source = movie.source,
+                  source.id == sourceID, !source.isDeleted else { return false }
+            return !source.isIgnored(filePath: movie.filePath)
         }
     }
 
     private func beginRequest(for reference: MovieReference, manual: Bool) -> UUID? {
+        if manual && !household.isAdmin { return nil }
         // A scan must not replace a selection the user is waiting to apply.
         if requests[reference.id]?.manual == true, !manual { return nil }
         let token = UUID()
-        requests[reference.id] = RequestIntent(token: token, manual: manual)
+        requests[reference.id] = RequestIntent(token: token, manual: manual,
+                                              adminSession: manual ? household.sessionToken : nil)
         return token
+    }
+
+    private func requestIsCurrent(for reference: MovieReference, token: UUID) -> Bool {
+        guard let intent = requests[reference.id], intent.token == token else { return false }
+        if let session = intent.adminSession {
+            return household.isAdmin && household.sessionIsCurrent(session)
+        }
+        return true
     }
 
     private func finishRequest(for reference: MovieReference, token: UUID) {
@@ -114,6 +135,7 @@ final class MetadataService {
     }
 
     func resetToFileName(_ movie: Movie) {
+        guard household.isAdmin else { return }
         // Reset is an explicit intent even when title/ID already match the filename.
         requests.removeValue(forKey: movie.id)
         movie.resetToFileName()
@@ -124,6 +146,7 @@ final class MetadataService {
     }
 
     func setAPIKey(_ value: String) throws {
+        guard household.isAdmin else { throw HouseholdError.denied }
         try Keychain.set(value.trimmingCharacters(in: .whitespacesAndNewlines), for: Self.apiKeyAccount)
         clearTVCache()
     }
@@ -201,7 +224,7 @@ final class MetadataService {
         let details = try await tvDetails(id: seriesID)
         let season = try await tvSeason(id: seriesID, season: info.season)
         try Task.checkCancellation()
-        guard reference.isAvailable(movie), requests[reference.id]?.token == token,
+        guard reference.isAvailable(movie), requestIsCurrent(for: reference, token: token),
               MatchState(movie) == original else { return false }
         let episode = season.episodes.first { $0.seasonNumber == info.season && $0.episodeNumber == info.episode }
         movie.tmdbID = nil
@@ -219,6 +242,8 @@ final class MetadataService {
         movie.tagline = nil
         movie.runtimeMinutes = episode?.runtime ?? details.episodeRunTime?.first { $0 > 0 }
         movie.rating = episode?.voteAverage ?? details.voteAverage
+        movie.usContentRating = details.contentRatings?.usContentRating
+        movie.usContentRatingFetched = details.contentRatings != nil
         movie.posterPath = details.posterPath
         movie.backdropPath = episode?.stillPath ?? details.backdropPath
         movie.genres = details.genres?.map(\.name) ?? []
@@ -235,7 +260,7 @@ final class MetadataService {
             seriesID = TitleMatcher.bestMatch(title: info.seriesTitle, year: info.year, in: results)?.id
         }
         try Task.checkCancellation()
-        guard reference.isAvailable(movie), requests[reference.id]?.token == token,
+        guard reference.isAvailable(movie), requestIsCurrent(for: reference, token: token),
               MatchState(movie) == original else { return }
         if let seriesID {
             _ = try await applyTV(seriesID: seriesID, info: info, to: movie, force: false, token: token, reference: reference)
@@ -247,6 +272,8 @@ final class MetadataService {
                 if !movie.isLocked { movie.setTitle(movie.parsedTitle); movie.year = info.year }
             }
             movie.tmdbID = nil
+            movie.usContentRating = nil
+            movie.usContentRatingFetched = nil
             movie.seriesTitle = info.seriesTitle
             movie.seasonNumber = info.season
             movie.episodeNumber = info.episode
@@ -270,7 +297,7 @@ final class MetadataService {
         guard reference.isAvailable(movie) else { return false }
         let original = MatchState(movie)
         let details = try await load(TMDB.detailsRequest(id: tmdbID, apiKey: try apiKey), as: TMDBMovieDetails.self)
-        guard reference.isAvailable(movie), requests[reference.id]?.token == token,
+        guard reference.isAvailable(movie), requestIsCurrent(for: reference, token: token),
               MatchState(movie) == original else { return false }
         movie.tmdbID = details.id
         if force || !movie.isLocked {
@@ -281,6 +308,8 @@ final class MetadataService {
         movie.tagline = details.tagline
         movie.runtimeMinutes = details.runtime
         movie.rating = details.voteAverage
+        movie.usContentRating = details.releaseDates?.usContentRating
+        movie.usContentRatingFetched = details.releaseDates != nil
         movie.posterPath = details.posterPath
         movie.backdropPath = details.backdropPath
         movie.genres = details.genres?.map(\.name) ?? []
@@ -309,24 +338,68 @@ final class MetadataService {
         let year = movie.isLocked ? movie.year : movie.parsedYear
         guard !title.isEmpty else { return }
         let results = try await search(title: title, year: year)
-        guard reference.isAvailable(movie), requests[reference.id]?.token == token,
+        guard reference.isAvailable(movie), requestIsCurrent(for: reference, token: token),
               MatchState(movie) == original else { return }
         if let best = TitleMatcher.bestMatch(title: title, year: year, in: results) {
             _ = try await apply(tmdbID: best.id, to: movie, force: false, token: token, reference: reference)
         } else {
+            movie.usContentRating = nil
+            movie.usContentRatingFetched = nil
             movie.metadataFetched = true
         }
     }
 
+    /// Refresh just the certification of an already matched item. In particular,
+    /// upgrading a library must not replace a user's title, artwork or progress.
+    func fetchUSContentRating(for movie: Movie) async throws {
+        guard !movie.isDeleted, !movie.isMissing, try hasKey,
+              !MediaFile.isAudio(path: movie.filePath), !MediaFile.isPhoto(path: movie.filePath) else { return }
+        let reference = MovieReference(movie)
+        guard reference.isAvailable(movie), let token = beginRequest(for: reference, manual: false) else { return }
+        defer { finishRequest(for: reference, token: token) }
+        let original = MatchState(movie)
+        let key = try apiKey
+        let rating: String?
+        if let seriesID = movie.seriesTMDBID {
+            prepareTVCache(key: key)
+            let response: TMDBTVContentRatings
+            if let cached = tvContentRatingsCache[seriesID] ?? tvDetailsCache[seriesID]?.contentRatings {
+                response = cached
+            } else {
+                response = try await load(TMDB.tvContentRatingsRequest(id: seriesID, apiKey: key), as: TMDBTVContentRatings.self)
+                if tvCacheKey == key { tvContentRatingsCache[seriesID] = response }
+            }
+            rating = response.usContentRating
+        } else if let tmdbID = movie.tmdbID, movie.episodeInfo == nil {
+            let response = try await load(TMDB.movieReleaseDatesRequest(id: tmdbID, apiKey: key), as: TMDBMovieReleaseDates.self)
+            rating = response.usContentRating
+        } else {
+            // Unmatched titles and legacy TV rows with a movie ID remain unrated.
+            return
+        }
+        try Task.checkCancellation()
+        guard reference.isAvailable(movie), requestIsCurrent(for: reference, token: token),
+              MatchState(movie) == original else { return }
+        movie.usContentRating = rating
+        movie.usContentRatingFetched = true
+    }
+
     func fetchMissing(in context: ModelContext) async throws -> MetadataFetchSummary? {
         guard try hasKey else { return nil }
-        let descriptor = FetchDescriptor<Movie>(predicate: #Predicate { !$0.isMissing && (!$0.metadataFetched || $0.seriesTitle == nil) })
+        let descriptor = FetchDescriptor<Movie>(predicate: #Predicate { !$0.isMissing })
+        func needsMatch(_ movie: Movie) -> Bool {
+            !movie.metadataFetched || (!movie.isLocked && movie.seriesTitle == nil && movie.episodeInfo != nil)
+        }
         let movies = try context.fetch(descriptor).filter {
             !$0.isMissing && $0.source?.isIgnored(filePath: $0.filePath) != true &&
-                !MediaFile.isAudio(path: $0.filePath) && !MediaFile.isPhoto(path: $0.filePath) && (!$0.metadataFetched ||
-                (!$0.isLocked && $0.seriesTitle == nil && $0.episodeInfo != nil))
+                !MediaFile.isAudio(path: $0.filePath) && !MediaFile.isPhoto(path: $0.filePath) &&
+                (needsMatch($0) || ($0.usContentRatingFetched != true &&
+                    ($0.seriesTMDBID != nil || ($0.tmdbID != nil && $0.episodeInfo == nil))))
         }
-        return try await update(movies, in: context) { try await self.match($0) }
+        return try await update(movies, in: context) {
+            if needsMatch($0) { try await self.match($0) }
+            else { try await self.fetchUSContentRating(for: $0) }
+        }
     }
 
     func update(_ movies: [Movie], in context: ModelContext,

@@ -76,7 +76,7 @@ private val tabs = listOf("Home", "Library", "Photos", "Search", "Sources", "Set
 fun RootScreen() {
     val context = LocalContext.current
     val container = context.container
-    val loadedMovies by remember { container.database.movies().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val loadedMovies by remember { container.library.observeAll() }.collectAsStateWithLifecycle(initialValue = null)
     val movies = loadedMovies.orEmpty()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val tabFocus = remember { List(tabs.size) { FocusRequester() } }
@@ -113,6 +113,11 @@ fun RootScreen() {
     }
 
     Column(Modifier.fillMaxSize()) {
+        if (container.family.current.enabled) {
+            Row(Modifier.padding(horizontal = ScreenPadding), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedButton(onClick = { container.family.lock() }) { Text("Switch profile · ${container.family.current.profile?.name.orEmpty()}") }
+            }
+        }
         TabRow(
             selectedTabIndex = tab,
             modifier = Modifier
@@ -164,7 +169,7 @@ private fun HomeTab(
     val context = LocalContext.current
     val container = context.container
     val status by container.scanner.status.collectAsStateWithLifecycle()
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(initialValue = null)
     val available = remember(movies, sources) { homeAvailableItems(movies, sources.orEmpty()) }
     val collections = remember(available) { available.groupBy { it.mediaKind } }
     val loadedSources = sources
@@ -194,11 +199,18 @@ private fun HomeTab(
             ScreenHeader(
                 "Welcome to MediaVault",
                 Modifier.padding(horizontal = ScreenPadding),
-                trailing = status,
+                trailing = if (container.family.current.admin) status else null,
             )
         }
         if (available.isEmpty()) {
-            item { loadedSources?.let { EmptyHome(movies, it, openPhotos, openSources) } }
+            item {
+                if (container.family.current.enabled && !container.family.current.admin) {
+                    Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("No media available for this profile yet", style = MaterialTheme.typography.headlineMedium)
+                        Text("There is no available media for this profile yet. Ask Admin to choose folders and check the rating limits.", color = SecondaryText)
+                    }
+                } else loadedSources?.let { EmptyHome(movies, it, openPhotos, openSources) }
+            }
         } else {
             if (continuing.isNotEmpty()) item(key = "continue-watching") {
                 ContinueWatchingRow(continuing, onOpen) { HomeCollectionActivity.start(context, HomeCollection.CONTINUE) }
@@ -333,7 +345,7 @@ private fun LazyGridScope.posters(movies: List<MovieEntity>, onOpen: (MovieEntit
 private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, openSources: () -> Unit) {
     val container = LocalContext.current.container
     val settings = container.settings
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(initialValue = null)
     var sort by remember { mutableStateOf(settings.librarySort) }
     var filter by remember { mutableStateOf(settings.libraryFilter) }
     var facets by remember { mutableStateOf(settings.libraryFacets) }
@@ -378,12 +390,13 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, 
     val emptyMessage = when {
         filter == LibraryFilter.WATCHLIST && facets == LibraryFacets() -> "Open a title and choose Add to Watchlist to save it for later."
         hasFilters -> "Clear your filters to browse all ${kind.label.lowercase()}."
+        !container.family.current.admin -> "Ask Admin to choose folders and check the rating limits for your profile."
         else -> "Add the parent media folder in Sources. Its subfolders are scanned automatically."
     }
     val emptyContent: @Composable () -> Unit = {
         EmptyState(emptyTitle, emptyMessage,
-            actionLabel = if (hasFilters) "Clear filters" else "Open Sources",
-            onAction = if (hasFilters) ::clearFilters else openSources,
+            actionLabel = if (hasFilters) "Clear filters" else if (!container.family.current.admin) "Switch profile" else "Open Sources",
+            onAction = if (hasFilters) ::clearFilters else if (!container.family.current.admin) ({ container.family.lock() }) else openSources,
             actionModifier = Modifier.testTag("library-empty-action"))
     }
 

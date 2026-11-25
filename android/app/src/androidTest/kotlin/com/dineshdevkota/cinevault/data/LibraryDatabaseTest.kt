@@ -28,6 +28,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class LibraryDatabaseTest {
+    private fun library(database: CineVaultDatabase) = com.dineshdevkota.cinevault.family.FamilyLibrary(database,
+        com.dineshdevkota.cinevault.family.FamilyStore(ApplicationProvider.getApplicationContext(), SecretBox(), "isolated-editor-${java.util.UUID.randomUUID()}"))
     private lateinit var db: CineVaultDatabase
 
     @Before
@@ -70,7 +72,7 @@ class LibraryDatabaseTest {
     fun bulkWatchedChangesMoreThanOneSqlBatchAndRollsBackIfAnyBatchFails() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val writer = PlaybackProgressWriter(scope)
-        val editor = LibraryEditor(db, MetadataService(db, TmdbClient(OkHttpClient()) { "" }), writer)
+        val editor = LibraryEditor(db, MetadataService(db, TmdbClient(OkHttpClient()) { "" }), writer, library(db))
         try {
             insertMovie()
             val original = requireNotNull(db.movies().get("movie"))
@@ -103,7 +105,7 @@ class LibraryDatabaseTest {
     fun bulkWatchedWaitsForPlayerAndRechecksCurrentSourceRules() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val writer = PlaybackProgressWriter(scope)
-        val editor = LibraryEditor(db, MetadataService(db, TmdbClient(OkHttpClient()) { "" }), writer)
+        val editor = LibraryEditor(db, MetadataService(db, TmdbClient(OkHttpClient()) { "" }), writer, library(db))
         try {
             insertMovie()
             val original = requireNotNull(db.movies().get("movie"))

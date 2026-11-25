@@ -60,7 +60,6 @@ private fun NasSetupScreen(onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val browser = remember { NasBrowser() }
     val sourceId = remember { UUID.randomUUID().toString() }
-    val listState = rememberLazyListState()
     var step by remember { mutableStateOf(SetupStep.Devices) }
     var name by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
@@ -207,7 +206,6 @@ private fun NasSetupScreen(onDone: () -> Unit) {
     }
 
     BackHandler { back() }
-    LaunchedEffect(step, rootPath) { listState.scrollToItem(0) }
     LaunchedEffect(step, rootPath, focusReady, busy, windowFocused) {
         if (focusReady && windowFocused && !busy && !focusedStage) focusedStage = primaryFocus.requestFocus()
     }
@@ -218,9 +216,12 @@ private fun NasSetupScreen(onDone: () -> Unit) {
         onDispose { generation++; requestJob?.cancel() }
     }
 
+    // A wizard stage/folder is a different list. Reusing its measured item indices while
+    // scrollToItem races a shorter next stage can retain an out-of-range prefetched item.
+    key(step, rootPath) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        state = listState,
+        state = rememberLazyListState(),
         contentPadding = PaddingValues(ScreenPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -240,6 +241,10 @@ private fun NasSetupScreen(onDone: () -> Unit) {
         exclusionsNotice?.let { note -> item { Text(note, color = SecondaryText) } }
         when (step) {
             SetupStep.Devices -> {
+                item {
+                    OutlinedButton(onClick = { SourceEditorActivity.webdav(context); onDone() }) { Text("Connect WebDAV") }
+                    Text("For servers using a WebDAV web address. For SMB, choose a device below.", color = SecondaryText)
+                }
                 item {
                     NasStatusPanel(if (discovery.searching) "Looking for devices…" else "Devices on your network",
                         "Choose a NAS on this network, or enter its address.", working = discovery.searching)
@@ -346,7 +351,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                                         share = source.share, rootPath = source.rootPath, username = source.username,
                                         encryptedPassword = encrypted,
                                         ignoredFolders = source.ignoredFolders, ignoredFiles = source.ignoredFiles,
-                                    ))
+                                    )) { container.family.requireAdmin() }
                                     container.scope.launch { container.scanner.scan(sourceId) }
                                 }
                                 if (generation == token) onDone()
@@ -369,5 +374,6 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                 }
             }
         }
+    }
     }
 }

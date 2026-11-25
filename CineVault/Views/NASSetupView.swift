@@ -80,6 +80,11 @@ struct NASSetupView: View {
     }
 
     @ViewBuilder private var deviceSections: some View {
+        Section {
+            NavigationLink("Connect WebDAV") {
+                SourceEditorView(source: nil, addingWebDAV: true, onSaved: { dismiss() })
+            }
+        }
         Section("Devices on your network") {
             if discovery.searching { ProgressView("Looking for devices…") }
             ForEach(discovery.devices) { device in
@@ -310,6 +315,7 @@ struct NASSetupView: View {
     }
 
     private func save() {
+        guard HouseholdStore.shared.isAdmin else { return }
         guard folderReady, !busy, !scanner.isScanning, let config = configuration(requireShare: true) else { return }
         let savedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         run(config, progress: "Adding your media folder…") { token in

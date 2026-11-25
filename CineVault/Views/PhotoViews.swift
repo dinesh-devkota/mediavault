@@ -35,7 +35,7 @@ struct PhotosView: View {
                 }
                 if visibleAlbums.isEmpty {
                     ContentUnavailableView("Your photos belong here", systemImage: "photo.on.rectangle.angled",
-                        description: Text("Add a NAS photo folder in Sources, then scan. Albums follow your folders, and your photos stay on your NAS."))
+                        description: Text(HouseholdStore.shared.isAdmin ? "Add a NAS photo folder in Sources, then scan. Albums follow your folders, and your photos stay on your NAS." : "Ask an Admin to allow a photo folder for this profile. Your photos stay on your NAS."))
                         .padding(.top, 100)
                 } else {
                     LazyVGrid(columns: columns, spacing: 48) {
@@ -207,6 +207,7 @@ struct PhotoThumbnail: View {
             catch { if identity == request && !Task.isCancelled { failed = true } }
         }
         .onDisappear { image = nil }
+        .onReceive(NotificationCenter.default.publisher(for: HouseholdStore.willLock)) { _ in image = nil; failed = false }
         .accessibilityLabel(PhotoLibrary.title(photo))
     }
 }
@@ -279,6 +280,7 @@ struct PhotoViewer: View {
             }.padding(.horizontal, 60).padding(.vertical, 36)
         }
         .onExitCommand { dismiss() }
+        .onReceive(NotificationCenter.default.publisher(for: HouseholdStore.willLock)) { _ in image = nil; selectedID = nil; error = nil }
         .onAppear { focus = .photo }
         .task(id: identity) {
             let request = identity

@@ -34,13 +34,13 @@ enum LocalSubtitleService {
                          list: (SourceConfig, String) async throws -> [NASDirectoryEntry] = {
                              try await SMBService.shared.listEntries($0, directory: $1)
                          }) async throws -> [SubtitleFile] {
-        guard let directory = SubtitleFile.directory(for: videoPath, rootPath: config.rootPath),
+        guard let directory = SubtitleFile.directory(for: videoPath, rootPath: config.rootPath, caseSensitive: config.isWebDAV),
               !config.excludesFile(videoPath) else { throw SMBError.sourceChanged }
         let entries = try await list(config, directory)
         try Task.checkCancellation()
         let matches = entries.prefix(4096).filter { !$0.isDirectory }.compactMap {
             SubtitleFile.match(name: $0.name, videoPath: videoPath, rootPath: config.rootPath,
-                               ignoredFolders: config.ignoredFolders, ignoredFiles: config.ignoredFiles)
+                               ignoredFolders: config.ignoredFolders, ignoredFiles: config.ignoredFiles, caseSensitive: config.isWebDAV)
         }.sorted {
             let left = PlaybackSubtitles.sameLanguage($0.language, preferredLanguage)
             let right = PlaybackSubtitles.sameLanguage($1.language, preferredLanguage)
@@ -53,7 +53,7 @@ enum LocalSubtitleService {
     static func read(_ file: SubtitleFile, config: SourceConfig,
                      size: (SourceConfig, String) async throws -> Int64 = { try await SMBService.shared.fileSize($0, path: $1) },
                      read: (SourceConfig, String, Int) async throws -> Data = { try await SMBService.shared.read($0, path: $1, offset: 0, length: $2) }) async throws -> SubtitleDocument {
-        guard SubtitleFile.safePath(file.path, within: config.rootPath) != nil, !config.excludesFile(file.path) else { throw SMBError.sourceChanged }
+        guard SubtitleFile.safePath(file.path, within: config.rootPath, caseSensitive: config.isWebDAV) != nil, !config.excludesFile(file.path) else { throw SMBError.sourceChanged }
         let length = try await size(config, file.path)
         try Task.checkCancellation()
         guard length > 0, length <= SubtitleDocument.maximumBytes else { throw SubtitleError.tooLarge }
@@ -398,6 +398,7 @@ final class PlaybackSubtitles: ObservableObject {
     func stop() {
         guard !stopped else { return }
         stopped = true; generation = UUID(); task?.cancel(); loadTask?.cancel(); searchTask?.cancel(); caption = ""; document = nil
+        presented = false; local = []; embedded = []; online = []; message = nil; onlineMessage = nil
         if let observer { player.removeTimeObserver(observer) }; observer = nil
         if let mediaObserver { NotificationCenter.default.removeObserver(mediaObserver) }; mediaObserver = nil
         if let jumpObserver { NotificationCenter.default.removeObserver(jumpObserver) }; jumpObserver = nil

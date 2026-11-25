@@ -96,8 +96,34 @@ struct CredentialStore {
 
 enum Keychain {
     private static let store = CredentialStore()
+    #if DEBUG
+    private static let previewLock = NSLock()
+    private static var previewValues: [String: String] = [:]
+    #endif
 
-    static func get(_ account: String) throws -> String? { try store.get(account) }
-    static func set(_ value: String, for account: String) throws { try store.set(value, for: account) }
-    static func delete(_ account: String) throws { try store.delete(account) }
+    static func get(_ account: String) throws -> String? {
+        #if DEBUG
+        if HouseholdPreview.isEnabled {
+            previewLock.lock(); defer { previewLock.unlock() }; return previewValues[account]
+        }
+        #endif
+        return try store.get(account)
+    }
+    static func set(_ value: String, for account: String) throws {
+        #if DEBUG
+        if HouseholdPreview.isEnabled {
+            previewLock.lock(); defer { previewLock.unlock() }
+            previewValues[account] = value.isEmpty ? nil : value; return
+        }
+        #endif
+        try store.set(value, for: account)
+    }
+    static func delete(_ account: String) throws {
+        #if DEBUG
+        if HouseholdPreview.isEnabled {
+            previewLock.lock(); defer { previewLock.unlock() }; previewValues.removeValue(forKey: account); return
+        }
+        #endif
+        try store.delete(account)
+    }
 }

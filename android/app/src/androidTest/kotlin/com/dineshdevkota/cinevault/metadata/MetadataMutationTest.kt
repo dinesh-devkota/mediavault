@@ -34,6 +34,8 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class MetadataMutationTest {
+    private fun library(database: CineVaultDatabase) = com.dineshdevkota.cinevault.family.FamilyLibrary(database,
+        com.dineshdevkota.cinevault.family.FamilyStore(ApplicationProvider.getApplicationContext(), com.dineshdevkota.cinevault.data.SecretBox(), "isolated-editor-${java.util.UUID.randomUUID()}"))
     private lateinit var database: CineVaultDatabase
 
     @Before
@@ -56,6 +58,47 @@ class MetadataMutationTest {
         ).also { database.movies().insert(it) }
     }
 
+    @Test fun certificationBackfillKeepsExistingMetadataAndResetInvalidatesIt() = runBlocking {
+        val original = movie().copy(title = "Chosen title", overview = "Keep these details", metadataFetched = true)
+        database.movies().update(original)
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("fixture")
+                .body("""{"id":1,"title":"Different title","overview":"Replace details","release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"certification":"PG"}]}]}}""".toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        MetadataService(database, TmdbClient(client) { "fixture" }).fetchMissing()
+        val updated = database.movies().get(original.id)!!
+        assertEquals(original.title, updated.title)
+        assertEquals(original.overview, updated.overview)
+        assertEquals("PG", updated.ageCertification)
+        assertTrue(updated.certificationFetched)
+        MetadataService(database, TmdbClient(client) { "" }).resetToFile(original.id)
+        assertNull(database.movies().get(original.id)!!.ageCertification)
+        assertFalse(database.movies().get(original.id)!!.certificationFetched)
+    }
+
+    @Test fun lateManualMetadataReplyCannotCommitAfterAuthorizationRevoked() = runBlocking {
+        val original = movie().copy(ageCertification = "R", certificationFetched = true)
+        database.movies().update(original)
+        val replies = Replies()
+        val service = MetadataService(database, TmdbClient(replies.client) { "fixture" })
+        val authorized = java.util.concurrent.atomic.AtomicBoolean(true)
+        val request = async(Dispatchers.IO) { runCatching { service.apply(2, original.id, force = true) { check(authorized.get()) } } }
+        replies.started.await()
+        authorized.set(false); replies.release.countDown()
+        assertTrue(request.await().isFailure)
+        assertEquals(original, database.movies().get(original.id))
+    }
+
+    @Test fun absentCertificationResponseRemainsUnknownAndRetryable() = runBlocking {
+        val original = movie().copy(ageCertification = "G", certificationFetched = true)
+        database.movies().update(original)
+        val replies = Replies("""{"id":2,"title":"Unknown classification"}""").apply { release.countDown() }
+        MetadataService(database, TmdbClient(replies.client) { "fixture" }).apply(2, original.id, force = true)
+        val current = database.movies().get(original.id)!!
+        assertNull(current.ageCertification)
+        assertFalse(current.certificationFetched)
+    }
+
     /** Holds the automatic reply while a manual operation is queued. No network is used. */
     private class Replies(private val responseBody: String? = null) {
         val started = CompletableDeferred<Unit>()
@@ -69,7 +112,7 @@ class MetadataMutationTest {
                 check(release.await(10, TimeUnit.SECONDS)) { "Timed out releasing metadata response" }
             }
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("fixture")
-                .body((responseBody ?: """{"id":$id,"title":"Match $id","overview":"Details $id"}""").toResponseBody("application/json".toMediaType()))
+                .body((responseBody ?: """{"id":$id,"title":"Match $id","overview":"Details $id","release_dates":{"results":[]}}""").toResponseBody("application/json".toMediaType()))
                 .build()
         }.build()
     }
@@ -80,7 +123,7 @@ class MetadataMutationTest {
             val movie = movie()
             val replies = Replies()
             val service = MetadataService(database, TmdbClient(replies.client) { "key" })
-            val editor = LibraryEditor(database, service, PlaybackProgressWriter(this))
+            val editor = LibraryEditor(database, service, PlaybackProgressWriter(this), library(database))
             val automatic = async(Dispatchers.IO) { service.match(movie) }
             replies.started.await()
             val manual = async(start = CoroutineStart.UNDISPATCHED) { editor.fixMatch(movie.id, 2) }
