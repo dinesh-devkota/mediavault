@@ -9,7 +9,8 @@ struct HouseholdFolder: Codable, Equatable, Identifiable {
     var sourceID: UUID
     /// Share-relative path. Empty explicitly allows this source's complete scan root.
     var path: String
-    var id: String { "\(sourceID.uuidString)/\(path.lowercased())" }
+    var caseSensitive: Bool?
+    var id: String { "\(sourceID.uuidString)/\(caseSensitive == true ? Data(path.utf8).base64EncodedString() : path.lowercased())" }
 }
 
 struct HouseholdPIN: Codable, Equatable {
@@ -74,8 +75,13 @@ enum HouseholdError: LocalizedError {
 enum HouseholdPolicy {
     static let movieRatings = ["G", "PG", "PG-13", "R", "NC-17"]
     static let tvRatings = ["TV-Y", "TV-G", "TV-Y7", "TV-PG", "TV-14", "TV-MA"]
-    static func allowsPath(profile: HouseholdProfile, sourceID: UUID?, path: String) -> Bool {
+    static func allowsPath(profile: HouseholdProfile, sourceID: UUID?, path: String, caseSensitive: Bool = false) -> Bool {
         if profile.isAdmin { return true }
+        if caseSensitive {
+            return profile.allowedFolders.contains {
+                $0.sourceID == sourceID && $0.caseSensitive == true && WebDAVAddress.contains(path, within: $0.path)
+            }
+        }
         guard let sourceID, let file = ScanExclusions.normalizeFile(path: path)?.lowercased() else { return false }
         return profile.allowedFolders.contains {
             guard $0.sourceID == sourceID else { return false }
@@ -371,17 +377,17 @@ final class HouseholdStore: ObservableObject {
             try persist(next); lock()
         }
     }
-    func allowsPath(sourceID: UUID?, path: String) -> Bool {
+    func allowsPath(sourceID: UUID?, path: String, caseSensitive: Bool = false) -> Bool {
         synced {
             guard !storageFailure else { return false }
             guard configured else { return true }
             guard let current else { return false }
-            return HouseholdPolicy.allowsPath(profile: current, sourceID: sourceID, path: path)
+            return HouseholdPolicy.allowsPath(profile: current, sourceID: sourceID, path: path, caseSensitive: caseSensitive)
         }
     }
     func allows(_ movie: Movie) -> Bool {
         synced {
-            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath) else { return false }
+            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath, caseSensitive: movie.source?.isWebDAV == true) else { return false }
             guard let current, !current.isAdmin else { return !isLocked }
             guard !movie.isHidden else { return false }
             if MediaFile.isAudio(path: movie.filePath) || MediaFile.isPhoto(path: movie.filePath) { return true }

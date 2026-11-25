@@ -37,7 +37,7 @@ class DavAddress(raw: String, allowHttp: Boolean = false) {
         val parsed = raw.trim().toHttpUrlOrNull()
             ?: throw IllegalArgumentException("Enter a complete WebDAV address, such as https://nas.example.com:5006/media/.")
         require(raw.trim().startsWith("https://", true) || raw.trim().startsWith("http://", true)) { "Use an https:// WebDAV address." }
-        require(parsed.scheme == "https" || allowHttp) { "Enable unencrypted HTTP only for a trusted network, or use HTTPS." }
+        require(parsed.scheme == "https" || allowHttp) { "Use an https:// WebDAV address." }
         require(parsed.username.isEmpty() && parsed.password.isEmpty() && parsed.query == null && parsed.fragment == null) {
             "Enter the server address without a username, password, query, or fragment. Use the sign-in fields below."
         }
@@ -65,6 +65,14 @@ class DavAddress(raw: String, allowHttp: Boolean = false) {
     }
 
     companion object {
+        fun contains(path: String, root: String, allowRoot: Boolean = false): Boolean {
+            val parts = if (path.isEmpty()) emptyList() else path.split('/')
+            val prefix = if (root.isEmpty()) emptyList() else root.split('/')
+            return parts.all(::safeComponent) && prefix.all(::safeComponent) &&
+                (if (allowRoot) parts.size >= prefix.size else parts.size > prefix.size) &&
+                parts.take(prefix.size) == prefix
+        }
+
         fun safeComponent(value: String): Boolean = value.isNotEmpty() && value != "." && value != ".." &&
             value.none { it == '/' || it == '\\' || it.code < 32 || it.code == 127 } &&
             // Prevent double-decoding servers from interpreting a literal filename as traversal/separators.
@@ -88,9 +96,10 @@ class WebDavService(private val client: OkHttpClient = OkHttpClient.Builder()
             if (config.username.isNotEmpty()) header("Authorization", Credentials.basic(config.username, config.password, Charsets.UTF_8))
         }
 
-    private fun execute(request: Request): Response {
+    private fun execute(request: Request, allowEmptyFile: Boolean = false): Response {
         val response = client.newCall(request).execute()
-        if (response.code in 200..299) return response
+        if (response.code in 200..299 ||
+            allowEmptyFile && response.code == 416 && response.header("Content-Range") == "bytes */0") return response
         val code = response.code
         response.close()
         throw WebDavException(when (code) {
@@ -98,6 +107,7 @@ class WebDavService(private val client: OkHttpClient = OkHttpClient.Builder()
             403 -> "This account cannot open that folder. Check its WebDAV read permissions."
             404 -> "WebDAV folder or file not found. Check the full server address."
             in 300..399 -> "The server redirected this address. Enter its final WebDAV address to keep your sign-in secure."
+            412 -> "The file changed. Rescan and retry."
             405, 501 -> "This address does not support WebDAV folder browsing. Check that WebDAV is enabled."
             else -> "The WebDAV server could not complete the request (HTTP $code)."
         }, code)
@@ -105,6 +115,7 @@ class WebDavService(private val client: OkHttpClient = OkHttpClient.Builder()
 
     suspend fun list(config: SourceConfig, path: String = config.rootPath): List<DavEntry> = withContext(Dispatchers.IO) {
         coroutineContext.ensureActive()
+        if (!DavAddress.contains(path, config.rootPath, allowRoot = true)) throw WebDavException("Choose a folder inside this WebDAV source.")
         val token = generation(config)
         val address = address(config)
         val url = address.url(path, directory = true)
@@ -120,14 +131,19 @@ class WebDavService(private val client: OkHttpClient = OkHttpClient.Builder()
     }
 
     fun open(config: SourceConfig, path: String): RemoteHandle {
+        if (!DavAddress.contains(path, config.rootPath)) throw WebDavException("Choose a file inside this WebDAV source.")
         val token = generation(config)
         val url = address(config).url(path)
         // A one-byte range works on servers which disable HEAD and proves seeking before playback.
-        val length = execute(request(config, url).header("Range", "bytes=0-0").get().build()).use { response ->
-            validateRange(response, 0, 1).also {
+        val (length, etag) = execute(
+            request(config, url).header("Range", "bytes=0-0").get().build(),
+            allowEmptyFile = true,
+        ).use { response ->
+            val size = if (response.code == 416) 0L else validateRange(response, 0, 1).also {
                 val input = response.body?.byteStream() ?: throw WebDavException("The server returned no file data.")
                 if (input.read() < 0) throw WebDavException("The file ended unexpectedly.")
             }
+            size to response.header("ETag")?.takeIf { it.startsWith('"') && it.endsWith('"') }
         }
         check(config, token)
         return object : RemoteHandle {
@@ -139,17 +155,56 @@ class WebDavService(private val client: OkHttpClient = OkHttpClient.Builder()
                 if (closed.get()) throw WebDavException("The file is closed.")
                 require(position in 0..length) { "Invalid playback position." }
                 if (position == length) return ByteArrayInputStream(byteArrayOf())
-                val response = execute(request(config, url).header("Range", "bytes=$position-${length - 1}").get().build())
+                val range = request(config, url).header("Range", "bytes=$position-${length - 1}")
+                if (etag != null) range.header("If-Match", etag)
+                val response = execute(range.get().build())
                 try {
-                    if (validateRange(response, position, length - position) != length) throw WebDavException("The file changed. Rescan and retry.")
+                    val receivedTag = response.header("ETag")
+                    if (validateRange(response, position, length - position) != length ||
+                        (etag != null && receivedTag != null && etag != receivedTag)) {
+                        throw WebDavException("The file changed. Rescan and retry.")
+                    }
                     check(config, token)
                     val body = response.body ?: throw WebDavException("The server returned no file data.")
                     val stream = object : FilterInputStream(body.byteStream()) {
-                        override fun read(): Int { check(config, token); return super.read().also { check(config, token) } }
-                        override fun read(b: ByteArray, off: Int, len: Int): Int {
-                            check(config, token); return super.read(b, off, len).also { check(config, token) }
+                        private var remaining = length - position
+
+                        override fun read(): Int {
+                            check(config, token)
+                            if (remaining == 0L) return -1
+                            val byte = super.read()
+                            consumed(if (byte < 0) -1 else 1)
+                            return byte
                         }
-                        override fun close() { response.close() }
+
+                        override fun read(b: ByteArray, off: Int, len: Int): Int {
+                            if (off < 0 || len < 0 || off > b.size - len) throw IndexOutOfBoundsException()
+                            check(config, token)
+                            if (len == 0) return 0
+                            if (remaining == 0L) return -1
+                            return super.read(b, off, minOf(len.toLong(), remaining).toInt()).also(::consumed)
+                        }
+
+                        override fun skip(n: Long): Long {
+                            check(config, token)
+                            val skipped = super.skip(n.coerceIn(0, remaining))
+                            remaining -= skipped
+                            check(config, token)
+                            return skipped
+                        }
+
+                        private fun consumed(count: Int) {
+                            check(config, token)
+                            if (count < 0) throw WebDavException("The file ended unexpectedly.")
+                            remaining -= count
+                        }
+
+                        override fun markSupported(): Boolean = false
+
+                        override fun close() {
+                            response.close()
+                            streams.remove(this)
+                        }
                     }
                     synchronized(streams) {
                         if (closed.get()) { stream.close(); throw WebDavException("The file is closed.") }
@@ -158,7 +213,7 @@ class WebDavService(private val client: OkHttpClient = OkHttpClient.Builder()
                     return stream
                 } catch (error: Exception) { response.close(); throw error }
             }
-            override fun close() { closed.set(true); synchronized(streams) { streams.forEach { runCatching { it.close() } }; streams.clear() } }
+            override fun close() { closed.set(true); synchronized(streams) { streams.toList().forEach { runCatching { it.close() } }; streams.clear() } }
         }
     }
 
@@ -184,39 +239,89 @@ class WebDavService(private val client: OkHttpClient = OkHttpClient.Builder()
                 throw WebDavException("The WebDAV folder listing is unsafe or too large.")
             val result = linkedMapOf<String, DavEntry>()
             val handler = object : DefaultHandler() {
-                var href = ""; var isDir = false; var size = 0L; var status = ""; var propertyDir = false; var propertySize = 0L
-                var inResponse = false; var inPropstat = false; var rootSeen = false; var responseCount = 0; var propertiesSucceeded = false
-                val stack = mutableListOf<String>(); var text = StringBuilder()
+                var rootSeen = false
+                var directorySeen = false
+                private var responses = 0
+                private var href: String? = null
+                private var responseStatus: String? = null
+                private var status = ""
+                private var isDir = false
+                private var size = 0L
+                private var propertyDir = false
+                private var propertySize = 0L
+                private var propertiesSucceeded = false
+                private val stack = mutableListOf<String>()
+                private val text = StringBuilder()
+                private val responsePath = "/multistatus/response"
+                private val propstatPath = "$responsePath/propstat"
+                private val propertyPath = "$propstatPath/prop"
+                private val success = Regex("HTTP/\\S+ 200(?: .*)?")
+                private val elementPath: String get() = stack.joinToString("/", prefix = "/")
+
                 override fun startElement(uri: String, localName: String, qName: String, attributes: Attributes) {
-                    stack += if (uri == "DAV:") localName else "?"; text = StringBuilder()
-                    if (stack.size == 1 && uri == "DAV:" && localName == "multistatus") rootSeen = true
-                    if (uri != "DAV:") return
-                    when (localName) {
-                        "response" -> { inResponse = true; href = ""; isDir = false; size = 0; propertiesSucceeded = false; responseCount++; if (responseCount > 100000) throw WebDavException("This folder has too many entries.") }
-                        "propstat" -> { inPropstat = true; status = ""; propertyDir = false; propertySize = 0 }
-                        "collection" -> if (inPropstat && stack.getOrNull(stack.lastIndex - 1) == "resourcetype") propertyDir = true
+                    stack += if (uri == "DAV:") localName else "?"
+                    text.clear()
+                    if (stack.size > 32) throw WebDavException("The WebDAV folder listing is nested too deeply.")
+                    when (elementPath) {
+                        "/multistatus" -> rootSeen = true
+                        responsePath -> {
+                            href = null
+                            responseStatus = null
+                            isDir = false
+                            size = 0
+                            propertiesSucceeded = false
+                            if (++responses > 100000) throw WebDavException("This folder has too many entries.")
+                        }
+                        propstatPath -> {
+                            status = ""
+                            propertyDir = false
+                            propertySize = 0
+                        }
+                        "$propertyPath/resourcetype/collection" -> propertyDir = true
                     }
                 }
-                override fun characters(ch: CharArray, start: Int, length: Int) { text.append(ch, start, length) }
+
+                override fun characters(ch: CharArray, start: Int, length: Int) {
+                    text.append(ch, start, length)
+                }
+
                 override fun endElement(uri: String, localName: String, qName: String) {
                     val value = text.toString().trim()
-                    if (uri == "DAV:") when (localName) {
-                        "href" -> if (inResponse && !inPropstat) href = value
-                        "status" -> if (inPropstat) status = value
-                        "getcontentlength" -> if (inPropstat) propertySize = value.toLongOrNull()?.coerceAtLeast(0) ?: 0
-                        "propstat" -> { if (Regex("HTTP/\\S+ 200(?: .*)?").matches(status)) { propertiesSucceeded = true; isDir = isDir || propertyDir; size = maxOf(size, propertySize) }; inPropstat = false }
-                        "response" -> {
-                            inResponse = false
-                            val path = address.relative(href, requested)
-                            val parent = path?.substringBeforeLast('/', "")
-                            if (propertiesSucceeded && !href.isBlank() && path != null && path != directory && parent == directory) {
-                                val entry = DavEntry(path, isDir, size)
-                                if (result.putIfAbsent(path, entry)?.let { it != entry } == true) throw WebDavException("The server returned conflicting folder entries.")
-                            }
+                    when (elementPath) {
+                        "$responsePath/href" -> {
+                            if (href != null) throw WebDavException("The server returned multiple addresses for one entry.")
+                            href = value
+                        }
+                        "$responsePath/status" -> responseStatus = value
+                        "$propstatPath/status" -> status = value
+                        "$propertyPath/getcontentlength" -> propertySize = value.toLongOrNull()?.coerceAtLeast(0) ?: 0
+                        propstatPath -> if (success.matches(status)) {
+                            propertiesSucceeded = true
+                            isDir = isDir || propertyDir
+                            size = maxOf(size, propertySize)
+                        }
+                        responsePath -> acceptResponse()
+                    }
+                    stack.removeAt(stack.lastIndex)
+                    text.clear()
+                }
+
+                private fun acceptResponse() {
+                    val path = href?.takeIf(String::isNotBlank)?.let { address.relative(it, requested) } ?: return
+                    val successful = propertiesSucceeded && (responseStatus?.let(success::matches) ?: true)
+                    if (path == directory) {
+                        if (!successful || !isDir || directorySeen) {
+                            throw WebDavException("The server did not confirm read access to this WebDAV folder.")
+                        }
+                        directorySeen = true
+                    } else if (successful && path.substringBeforeLast('/', "") == directory) {
+                        val entry = DavEntry(path, isDir, size)
+                        if (result.putIfAbsent(path, entry)?.let { it != entry } == true) {
+                            throw WebDavException("The server returned conflicting folder entries.")
                         }
                     }
-                    stack.removeAt(stack.lastIndex); text = StringBuilder()
                 }
+
                 override fun resolveEntity(publicId: String?, systemId: String?): InputSource = throw WebDavException("External XML resources are not supported.")
             }
             try {
@@ -225,7 +330,7 @@ class WebDavService(private val client: OkHttpClient = OkHttpClient.Builder()
                 val reader = factory.newSAXParser().xmlReader
                 reader.contentHandler = handler; reader.entityResolver = handler
                 reader.parse(InputSource(ByteArrayInputStream(bytes)))
-                if (!handler.rootSeen) throw WebDavException("This address did not return a WebDAV folder listing.")
+                if (!handler.rootSeen || !handler.directorySeen) throw WebDavException("This address did not return a WebDAV folder listing.")
             } catch (error: WebDavException) { throw error }
             catch (_: Exception) { throw WebDavException("The WebDAV folder listing could not be read.") }
             return result.values.sortedWith(compareByDescending<DavEntry> { it.directory }.thenBy { it.name.lowercase() })

@@ -80,6 +80,11 @@ struct NASSetupView: View {
     }
 
     @ViewBuilder private var deviceSections: some View {
+        Section {
+            NavigationLink("Connect WebDAV") {
+                SourceEditorView(source: nil, addingWebDAV: true, onSaved: { dismiss() })
+            }
+        }
         Section("Devices on your network") {
             if discovery.searching { ProgressView("Looking for devices…") }
             ForEach(discovery.devices) { device in

@@ -4,6 +4,7 @@ import com.dineshdevkota.cinevault.core.MediaFile
 import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.data.MovieEntity
 import kotlinx.serialization.Serializable
+import com.dineshdevkota.cinevault.webdav.DavAddress
 
 @Serializable
 data class FolderAccess(val sourceId: String, val path: String, val caseSensitive: Boolean = false)
@@ -27,11 +28,15 @@ object FamilyPolicy {
 
     fun allows(profile: HouseholdProfile, movie: MovieEntity): Boolean {
         if (profile.isAdmin) return true
-        val path = ScanExclusions.normalizeFile(movie.filePath) ?: return false
+        val smbPath = ScanExclusions.normalizeFile(movie.filePath)
         val folderAllowed = profile.folders.any { grant ->
-            if (grant.sourceId != movie.sourceId) false else {
-                val folder = if (grant.path.isEmpty()) "" else ScanExclusions.normalizeFolder(grant.path)
-                folder != null && (folder.isEmpty() || path.startsWith("$folder/", ignoreCase = !grant.caseSensitive))
+            when {
+                grant.sourceId != movie.sourceId -> false
+                grant.caseSensitive -> DavAddress.contains(movie.filePath, grant.path)
+                else -> {
+                    val folder = if (grant.path.isEmpty()) "" else ScanExclusions.normalizeFolder(grant.path)
+                    smbPath != null && folder != null && (folder.isEmpty() || smbPath.startsWith("$folder/", ignoreCase = true))
+                }
             }
         }
         if (!folderAllowed) return false

@@ -13,37 +13,43 @@ public enum ScanExclusions {
     }
 
     /// `path` is share-relative. Call before listing a directory's children.
-    public static func isDirectoryExcluded(path: String, rootPath: String, ignoredFolders: [String]) -> Bool {
-        matches(directory: components(path, allowRoot: true), rootPath: rootPath, rules: ignoredFolders)
+    public static func isDirectoryExcluded(path: String, rootPath: String, ignoredFolders: [String], caseSensitive: Bool = false) -> Bool {
+        matches(directory: components(path, allowRoot: true, caseSensitive: caseSensitive), rootPath: rootPath, rules: ignoredFolders, caseSensitive: caseSensitive)
     }
 
     /// Folder rules match parents; file rules match only the exact relative filename.
-    public static func isFileExcluded(path: String, rootPath: String, ignoredFolders: [String], ignoredFiles: [String] = []) -> Bool {
-        guard let file = components(path, allowRoot: false) else { return false }
-        if matches(directory: Array(file.dropLast()), rootPath: rootPath, rules: ignoredFolders) { return true }
-        guard let root = components(rootPath, allowRoot: true), startsWith(file, prefix: root) else { return false }
+    public static func isFileExcluded(path: String, rootPath: String, ignoredFolders: [String], ignoredFiles: [String] = [], caseSensitive: Bool = false) -> Bool {
+        guard let file = components(path, allowRoot: false, caseSensitive: caseSensitive) else { return false }
+        if matches(directory: Array(file.dropLast()), rootPath: rootPath, rules: ignoredFolders, caseSensitive: caseSensitive) { return true }
+        guard let root = components(rootPath, allowRoot: true, caseSensitive: caseSensitive), startsWith(file, prefix: root, caseSensitive: caseSensitive) else { return false }
         let relative = Array(file.dropFirst(root.count))
         return ignoredFiles.contains { rule in
-            guard let ignored = components(rule, allowRoot: false) else { return false }
-            return relative.count == ignored.count && startsWith(relative, prefix: ignored)
+            guard let ignored = components(rule, allowRoot: false, caseSensitive: caseSensitive) else { return false }
+            return relative.count == ignored.count && startsWith(relative, prefix: ignored, caseSensitive: caseSensitive)
         }
     }
 
-    private static func matches(directory: [String]?, rootPath: String, rules: [String]) -> Bool {
-        guard let directory, !rules.isEmpty, let root = components(rootPath, allowRoot: true),
-              startsWith(directory, prefix: root) else { return false }
+    private static func matches(directory: [String]?, rootPath: String, rules: [String], caseSensitive: Bool) -> Bool {
+        guard let directory, !rules.isEmpty, let root = components(rootPath, allowRoot: true, caseSensitive: caseSensitive),
+              startsWith(directory, prefix: root, caseSensitive: caseSensitive) else { return false }
         let relative = Array(directory.dropFirst(root.count))
         return rules.contains { rule in
-            guard let ignored = components(rule, allowRoot: false) else { return false }
-            return startsWith(relative, prefix: ignored)
+            guard let ignored = components(rule, allowRoot: false, caseSensitive: caseSensitive) else { return false }
+            return startsWith(relative, prefix: ignored, caseSensitive: caseSensitive)
         }
     }
 
-    private static func startsWith(_ path: [String], prefix: [String]) -> Bool {
+    private static func startsWith(_ path: [String], prefix: [String], caseSensitive: Bool) -> Bool {
         path.count >= prefix.count && prefix.indices.allSatisfy { path[$0].lowercased() == prefix[$0].lowercased() }
     }
 
-    private static func components(_ path: String, allowRoot: Bool) -> [String]? {
+    private static func components(_ path: String, allowRoot: Bool, caseSensitive: Bool = false) -> [String]? {
+        if caseSensitive {
+            if path.isEmpty { return allowRoot ? [] : nil }
+            let parts = path.components(separatedBy: "/")
+            guard parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+            return parts
+        }
         let slashed = path.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\\", with: "/")
         let stripped = slashed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         // A single leading separator is a convenience; UNC hosts and URI/drive paths are not relative.

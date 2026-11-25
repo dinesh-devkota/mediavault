@@ -81,7 +81,6 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
     val scanStatus by container.scanner.status.collectAsStateWithLifecycle()
     val draftId = remember { UUID.randomUUID().toString() }
     var sourceType by remember { mutableStateOf(initialType) }
-    var allowHttp by remember { mutableStateOf(false) }
     val webdav = sourceType == "webdav"
     var existing by remember { mutableStateOf<SourceEntity?>(null) }
     var loaded by remember { mutableStateOf(sourceId == null) }
@@ -110,7 +109,7 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
             return@LaunchedEffect
         }
         existing = source
-        sourceType = source.sourceType; allowHttp = source.allowInsecureHttp
+        sourceType = source.sourceType
         name = source.name
         host = source.host
         port = source.port?.toString().orEmpty()
@@ -145,10 +144,10 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
     // turn into the default port. Keep all draft values unchanged until the user corrects them.
     fun validatedConfig(): SourceConfig {
         if (webdav) {
-            val address = com.dineshdevkota.cinevault.webdav.DavAddress(host, allowHttp)
+            val address = com.dineshdevkota.cinevault.webdav.DavAddress(host)
             address.url(rootPath.trim().trim('/'), directory = true)
             return SourceConfig(existing?.id ?: draftId, address.base.toString(), null, "", rootPath.trim().trim('/'),
-                username.trim(), password, ignoredFolders, ignoredFiles, "webdav", allowHttp)
+                username.trim(), password, ignoredFolders, ignoredFiles, "webdav")
         }
         val portText = port.trim()
         val portValue = portText.toIntOrNull()?.takeIf { it in 1..65535 }
@@ -257,10 +256,6 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
                 )
                 if (webdav) {
                     Text("Use the full WebDAV folder address from your NAS settings. HTTPS protects your sign-in.", color = SecondaryText)
-                    OutlinedButton(enabled = !busy, onClick = { allowHttp = !allowHttp }) {
-                        Text("Allow unencrypted HTTP: " + if (allowHttp) "On" else "Off")
-                    }
-                    if (allowHttp) Text("HTTP sends your password and media unencrypted. Use it only on a trusted network.", color = SecondaryText)
                 }
                 Text("Sign in", style = MaterialTheme.typography.titleMedium)
                 TvTextField(username, { message = null; username = it }, "Username (empty for guest)", Modifier.fillMaxWidth(), enabled = !busy)

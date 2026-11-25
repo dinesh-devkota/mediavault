@@ -7,6 +7,7 @@ final class MediaSource {
     var id: UUID = UUID()
     var name: String = ""
     var host: String = ""
+    var sourceProtocol: String?
     var port: Int?
     var share: String = ""
     /// Folder inside the share to scan, e.g. "Movies". Empty scans the whole share.
@@ -29,6 +30,8 @@ final class MediaSource {
         self.username = username
     }
 
+    var isWebDAV: Bool { sourceProtocol == "webdav" }
+
     private var passwordAccount: String { "source-\(id.uuidString)" }
 
     func password() throws -> String {
@@ -43,23 +46,26 @@ final class MediaSource {
         var secret = ""
         if !username.isEmpty { secret = try password() }
         return SourceConfig(id: id, host: host, port: port, share: share, rootPath: rootPath,
-                            username: username, password: secret, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [])
+                            username: username, password: secret, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [],
+                            isWebDAV: isWebDAV)
     }
 
     func isIgnored(filePath: String) -> Bool {
         ScanExclusions.isFileExcluded(path: filePath, rootPath: rootPath,
-                                      ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [])
+                                      ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [], caseSensitive: isWebDAV)
     }
 
     /// Keep records and playback history; a later scan restores files that are no longer ignored.
     func applyIgnoredPaths(folders: [String], files: [String]) throws {
         func normalize(_ paths: [String], folder: Bool) throws -> [String] {
             var normalized: [String] = []
-            var seen: Set<String> = []
+            var seen: Set<Data> = []
             for path in paths {
-                guard let value = folder ? ScanExclusions.normalizeFolder(path: path) : ScanExclusions.normalizeFile(path: path)
-                    else { throw IgnoredFolderError.invalidPath }
-                if seen.insert(value.lowercased()).inserted { normalized.append(value) }
+                let candidate = isWebDAV
+                    ? (WebDAVAddress.contains(path, within: "") ? path : nil)
+                    : (folder ? ScanExclusions.normalizeFolder(path: path) : ScanExclusions.normalizeFile(path: path))
+                guard let value = candidate else { throw IgnoredFolderError.invalidPath }
+                if seen.insert(Data((isWebDAV ? value : value.lowercased()).utf8)).inserted { normalized.append(value) }
             }
             return normalized
         }
@@ -89,20 +95,22 @@ struct SourceConfig: Sendable, Hashable {
     let password: String
     let ignoredFolders: [String]
     let ignoredFiles: [String]
+    let isWebDAV: Bool
 
     init(id: UUID, host: String, port: Int? = nil, share: String, rootPath: String,
-         username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = []) {
+         username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = [],
+         isWebDAV: Bool = false) {
         self.id = id; self.host = host; self.port = port; self.share = share; self.rootPath = rootPath
         self.username = username; self.password = password; self.ignoredFolders = ignoredFolders
-        self.ignoredFiles = ignoredFiles
+        self.ignoredFiles = ignoredFiles; self.isWebDAV = isWebDAV
     }
 
     func excludesDirectory(_ path: String) -> Bool {
-        ScanExclusions.isDirectoryExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders)
+        ScanExclusions.isDirectoryExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, caseSensitive: isWebDAV)
     }
 
     func excludesFile(_ path: String) -> Bool {
-        ScanExclusions.isFileExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles)
+        ScanExclusions.isFileExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles, caseSensitive: isWebDAV)
     }
 
     var serverURL: URL? {

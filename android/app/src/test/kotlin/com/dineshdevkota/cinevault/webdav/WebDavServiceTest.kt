@@ -37,8 +37,25 @@ class WebDavServiceTest {
         assertEquals(listOf("Movies", "Movie.mkv"), result.map { it.path })
     }
     @Test fun listingPreservesCaseAndSkipsDeniedProperties() {
-        assertEquals(setOf("Kids", "kids"), parse(entry("/media/Kids/", true) + entry("/media/kids/", true) + entry("/media/Private/", true, 403)).map { it.path }.toSet())
+        assertEquals(setOf("Kids", "kids"), parse(entry("/media/", true) + entry("/media/Kids/", true) + entry("/media/kids/", true) + entry("/media/Private/", true, 403)).map { it.path }.toSet())
     }
+    @Test fun listingRequiresConfirmationOfTheRequestedDirectory() {
+        assertTrue(parse(entry("/media/", true)).isEmpty())
+        rejects { parse(entry("/media/", true, 403)) }
+        rejects { parse(entry("/media/")) }
+        rejects { parse(entry("/media/Child.mkv")) }
+        rejects { parse("<d:prop>${entry("/media/", true)}</d:prop>") }
+        rejects { parse(entry("/media/", true) + entry("/media/", true)) }
+        rejects { parse("""<d:response><d:href>/media/</d:href><d:status>HTTP/1.1 403 Forbidden</d:status></d:response>""") }
+    }
+
+    @Test fun listingDoesNotUseNestedPropertiesOrDeniedChildren() {
+        val injected = entry("/media/Fake/", true).replace("<d:propstat>", "<d:ignored><d:propstat>")
+            .replace("</d:propstat>", "</d:propstat></d:ignored>")
+        val denied = entry("/media/Denied/", true).replace("</d:response>", "<d:status>HTTP/1.1 403 Forbidden</d:status></d:response>")
+        assertTrue(parse(entry("/media/", true) + injected + denied).isEmpty())
+    }
+
     @Test fun xmlEntitiesAndNonDavDocumentsAreRejected() {
         rejects { WebDavService.parseListing("<!DOCTYPE x [<!ENTITY steal SYSTEM 'file:///secret'>]><x>&steal;</x>".toByteArray(), address, address.base, "") }
         rejects { WebDavService.parseListing("<html>Login</html>".toByteArray(), address, address.base, "") }
@@ -46,7 +63,7 @@ class WebDavServiceTest {
     }
     @Test fun realRequestsBrowseAndSeekWithScopedAuthentication() = runBlocking {
         val server = MockWebServer()
-        server.enqueue(MockResponse().setResponseCode(207).setBody("<d:multistatus xmlns:d=\"DAV:\">${entry("/media/Movies/", true)}</d:multistatus>"))
+        server.enqueue(MockResponse().setResponseCode(207).setBody("<d:multistatus xmlns:d=\"DAV:\">${entry("/media/", true) + entry("/media/Movies/", true)}</d:multistatus>"))
         server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 0-0/10").setBody("0"))
         server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 5-9/10").setBody("56789"))
         server.start()
@@ -68,6 +85,48 @@ class WebDavServiceTest {
             }
         } finally { server.shutdown() }
     }
+    @Test fun emptyFileDoesNotRequestAnInvalidRange() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(416).setHeader("Content-Range", "bytes */0"))
+        server.start()
+        try {
+            val config = SourceConfig("test", server.url("/media/").toString(), null, "", "", "", "", sourceType = "webdav", allowInsecureHttp = true)
+            WebDavService().open(config, "empty.mp4").use { handle ->
+                assertEquals(0L, handle.length)
+                handle.stream(0).use { assertEquals(-1, it.read()) }
+            }
+            assertEquals(1, server.requestCount)
+        } finally { server.shutdown() }
+    }
+
+    @Test fun sameSizeReplacementDuringSeekFails() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 0-0/10")
+            .setHeader("ETag", "\"old\"").setBody("0"))
+        server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 5-9/10")
+            .setHeader("ETag", "\"new\"").setBody("56789"))
+        server.start()
+        try {
+            val config = SourceConfig("test", server.url("/media/").toString(), null, "", "", "", "", sourceType = "webdav", allowInsecureHttp = true)
+            WebDavService().open(config, "movie.mp4").use { handle -> rejects { handle.stream(5) } }
+            server.takeRequest()
+            assertEquals("\"old\"", server.takeRequest().getHeader("If-Match"))
+        } finally { server.shutdown() }
+    }
+
+    @Test fun truncatedChunkedRangeFailsInsteadOfReturningACompleteFile() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 0-0/10").setBody("0"))
+        server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 5-9/10").setChunkedBody("567", 2))
+        server.start()
+        try {
+            val config = SourceConfig("test", server.url("/media/").toString(), null, "", "", "", "", sourceType = "webdav", allowInsecureHttp = true)
+            WebDavService().open(config, "movie.mp4").use { handle ->
+                handle.stream(5).use { stream -> rejects { stream.readBytes() } }
+            }
+        } finally { server.shutdown() }
+    }
+
     @Test fun redirectAndServersIgnoringRangesFailClosed() {
         val server = MockWebServer()
         server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/target/"))

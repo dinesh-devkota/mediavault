@@ -132,3 +132,28 @@ connection while continuing implementation and tests. Push reviewable checkpoint
 and create draft PRs when supported. Track completion and real blocked items in
 this document. Work through independent phases instead of stopping after a plan,
 scaffold or first error. Do not promise that the full matrix finishes overnight.
+
+## Cloud implementation checkpoint
+
+Started the cloud checkout at `96b818a45b0768779d09a26e6be1a56a5469fdca`.
+Android WebDAV now requires a confirmed collection response in the multistatus,
+rejects invalid XML structure and truncated ranges, handles empty files, and
+uses strong ETags when present. Production setup requires HTTPS and supports
+guest access or Basic authentication. The cleartext fixture configuration is
+retained for local tests.
+
+The tvOS WebDAV implementation routes listing, scans, ranged playback, photos
+and subtitle reads through the existing file facade. Setup, folder browsing,
+editing, connection checks and removal use the existing source editor and
+Keychain. Viewer grants for WebDAV are exact-case and are never created by
+source setup. Validate the optional SwiftData field against a pre-change store,
+then run the hosted tvOS build, simulator tests, and an end-to-end HTTPS scenario
+before calling this integration ready.
+
+The Android Jellyfin client handles password sign-in, Quick Connect, logout,
+library listing and pagination with catalog hierarchy fields. It is not exposed
+in setup at this checkpoint. It still needs secure account storage, import and
+app wiring, playback and server media assets, and a tvOS counterpart. Emby, Plex,
+NFS and cloud drives are still pending. Jellyfin uses the public
+[OpenAPI contract](https://api.jellyfin.org/) over HTTPS. No Jellyfin server
+source or GPL server/SDK code is bundled.

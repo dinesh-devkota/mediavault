@@ -101,7 +101,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
 
     func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
         guard household.sessionIsCurrent(householdSession),
-              household.allowsPath(sourceID: config.id, path: path) else { throw PlaybackPreparationError.fileUnavailable }
+              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV) else { throw PlaybackPreparationError.fileUnavailable }
         guard start >= 0, end >= start else { throw SMBError.invalidByteRange }
         var offset = start
         while offset < end {
@@ -110,7 +110,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             let data = try await SMBService.shared.read(config, path: path, offset: offset, length: length)
             try Task.checkCancellation()
             guard household.sessionIsCurrent(householdSession),
-                  household.allowsPath(sourceID: config.id, path: path) else { throw PlaybackPreparationError.fileUnavailable }
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV) else { throw PlaybackPreparationError.fileUnavailable }
             guard !data.isEmpty else { throw SMBError.unexpectedEndOfFile }
             respond(data)
             offset += Int64(data.count)

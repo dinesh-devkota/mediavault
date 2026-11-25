@@ -20,7 +20,7 @@ struct SourceExclusionsEditor: View {
                     add(path, folder: isFolder)
                 }
             }
-            .disabled(configuration.host.isEmpty || configuration.share.isEmpty)
+            .disabled(configuration.host.isEmpty || (!configuration.isWebDAV && configuration.share.isEmpty))
             ForEach(folders, id: \.self) { folder in
                 Button("Stop ignoring folder: \(folder)") { folders.removeAll { $0 == folder } }
             }
@@ -45,14 +45,17 @@ struct SourceExclusionsEditor: View {
     }
 
     private func add(_ path: String, folder: Bool) {
-        guard let normalized = folder ? ScanExclusions.normalizeFolder(path: path) : ScanExclusions.normalizeFile(path: path) else {
+        let normalizedPath = configuration.isWebDAV
+            ? (WebDAVAddress.contains(path, within: "") ? path : nil)
+            : (folder ? ScanExclusions.normalizeFolder(path: path) : ScanExclusions.normalizeFile(path: path))
+        guard let normalized = normalizedPath else {
             errorText = IgnoredFolderError.invalidPath.localizedDescription
             return
         }
         if folder {
-            if !folders.contains(where: { $0.caseInsensitiveCompare(normalized) == .orderedSame }) { folders.append(normalized) }
+            if !folders.contains(where: { configuration.isWebDAV ? WebDAVAddress.sameComponent($0, normalized) : $0.caseInsensitiveCompare(normalized) == .orderedSame }) { folders.append(normalized) }
         } else {
-            if !files.contains(where: { $0.caseInsensitiveCompare(normalized) == .orderedSame }) { files.append(normalized) }
+            if !files.contains(where: { configuration.isWebDAV ? WebDAVAddress.sameComponent($0, normalized) : $0.caseInsensitiveCompare(normalized) == .orderedSame }) { files.append(normalized) }
         }
         manualPath = ""; errorText = nil
     }
@@ -84,7 +87,7 @@ struct NASPathPicker: View {
     var body: some View {
         List {
             Section {
-                Text("\(configuration.share) / \(path.isEmpty ? "Top level" : path)")
+                Text(path.isEmpty ? (configuration.isWebDAV ? "WebDAV root" : configuration.share) : path)
                 if busy { ProgressView("Reading folder…") }
                 if let errorText { Text(errorText).foregroundStyle(.red) }
                 if mode == .household {
@@ -134,6 +137,10 @@ struct NASPathPicker: View {
         .onAppear {
             if !loaded {
                 loaded = true
+                if configuration.isWebDAV {
+                    browse(configuration.rootPath)
+                    return
+                }
                 let original = configuration.rootPath.trimmingCharacters(in: .whitespacesAndNewlines)
                 if original.isEmpty || original == "/" {
                     browse("")
@@ -163,7 +170,8 @@ struct NASPathPicker: View {
         cancel()
         let token = requestID
         let config = SourceConfig(id: UUID(), host: configuration.host, port: configuration.port,
-            share: configuration.share, rootPath: selectedPath, username: configuration.username, password: configuration.password)
+            share: configuration.share, rootPath: selectedPath, username: configuration.username, password: configuration.password,
+            isWebDAV: configuration.isWebDAV)
         let service = SMBService(timeout: 10)
         path = selectedPath; ready = false; busy = true; errorText = nil; entries = []
         request = Task { @MainActor in

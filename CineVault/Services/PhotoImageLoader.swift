@@ -117,7 +117,7 @@ actor PhotoImageLoader {
         let session = household.sessionToken
         func checkAccess() throws {
             guard household.sessionIsCurrent(session),
-                  household.allowsPath(sourceID: config.id, path: path) else { throw PhotoLoadingError.unavailable }
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV) else { throw PhotoLoadingError.unavailable }
         }
         try checkAccess()
         try Task.checkCancellation()
