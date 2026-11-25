@@ -7,6 +7,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import okhttp3.FormBody
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -21,7 +22,7 @@ internal class OneDriveClient(
     http: OkHttpClient? = null,
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
-    private val clientId = UUID.fromString(clientId).toString().also {
+    val applicationId = UUID.fromString(clientId).toString().also {
         require(it.equals(clientId, ignoreCase = true)) { "Configure a Microsoft public client application ID." }
     }
     private val transport = http?.let(::CloudHttp) ?: CloudHttp()
@@ -50,6 +51,7 @@ internal class OneDriveClient(
         val size: Long? = null,
         val folder: Folder? = null,
         val file: File? = null,
+        val remoteItem: JsonElement? = null,
     ) {
         @Serializable
         data class Folder(val childCount: Int? = null)
@@ -68,6 +70,9 @@ internal class OneDriveClient(
 
     @Serializable
     private data class OAuthError(val error: String)
+
+    @Serializable
+    private data class Drive(val id: String)
 
     @Serializable
     private data class Page(val value: List<Entry>, @SerialName("@odata.nextLink") val next: String? = null)
@@ -89,11 +94,11 @@ internal class OneDriveClient(
             throw CloudClientException("Microsoft returned an invalid sign-in challenge.")
         }
         return Challenge(result.userCode, verification, result.deviceCode, result.expiresIn, result.interval,
-            nowMillis(), clientId)
+            nowMillis(), applicationId)
     }
 
     suspend fun completeSignIn(challenge: Challenge): Credentials {
-        require(challenge.clientId == clientId) { "This sign-in code is for a different Microsoft application." }
+        require(challenge.clientId == applicationId) { "This sign-in code is for a different Microsoft application." }
         val duration = challenge.expiresIn * 1000L
         var interval = challenge.interval * 1000L
         while (true) {
@@ -123,6 +128,14 @@ internal class OneDriveClient(
         return credentials(oauth(
             "token", "grant_type" to "refresh_token", "refresh_token" to refreshToken, "scope" to SCOPE,
         ))
+    }
+
+    suspend fun driveIdentity(accessToken: String): String {
+        val url = GRAPH.newBuilder().addQueryParameter("\$select", "id").build()
+        val response = transport.exchange(Request.Builder().url(url).bearer(accessToken).build())
+        val identity = decode<Drive>(response).id
+        if (!ITEM_ID.matches(identity)) throw CloudClientException("Microsoft returned an invalid drive identity.")
+        return identity
     }
 
     suspend fun listChildren(
@@ -166,7 +179,7 @@ internal class OneDriveClient(
     }
 
     private suspend fun oauth(path: String, vararg fields: Pair<String, String>, additionalStatus: Int? = null): CloudResponse {
-        val form = FormBody.Builder().add("client_id", clientId).apply {
+        val form = FormBody.Builder().add("client_id", applicationId).apply {
             fields.forEach { (name, value) -> add(name, value) }
         }.build()
         val endpoint = OAUTH.newBuilder().addPathSegment(path).build()

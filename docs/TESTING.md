@@ -77,6 +77,27 @@ identity, malformed responses, request limits, bounded raw downloads, redirects,
 and cancellation. They do not use a real API key or consume a user's download quota.
 A live account connection still needs a key entered by its owner in the app.
 
+## OneDrive source fixtures
+
+Android JVM tests cover Microsoft device-code polling, refresh rotation,
+pagination, exact signed download ranges, and rejection of a scan or read
+after access is revoked. The Android runtime suite checks that the refresh
+record is encrypted on disk and remains readable after reopening the store.
+The tvOS client fixtures cover device authorization, Graph pagination, and
+download requests that keep the Graph token on Graph.
+
+For a live account test, register a public Microsoft Entra application that
+accepts personal Microsoft accounts. Enable public client flows, configure
+delegated Files.Read, and use the public application ID with a dedicated
+OneDrive test account. The client requests offline_access for refresh.
+[Microsoft device authorization](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code)
+[Drive item downloads](https://learn.microsoft.com/en-us/graph/api/driveitem-get-content)
+
+The Android catalog takes an admin-selected root and separate browse and
+read permission checks. The app still needs to bind these checks to the
+active household profile and connect the catalog to TV setup, the library,
+and the player before exposing OneDrive in Sources.
+
 ## Further device testing
 
 Automated checks do not establish compatibility with every NAS or codec. Before
