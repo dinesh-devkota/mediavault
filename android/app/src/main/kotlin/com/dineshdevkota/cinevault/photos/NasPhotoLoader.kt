@@ -17,6 +17,10 @@ import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SecretBox
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.embyConnection
+import com.dineshdevkota.cinevault.emby.embyItemId
+import com.dineshdevkota.cinevault.emby.embyPhotoId
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.jellyfin.jellyfinConnection
@@ -74,10 +78,12 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             val photo = database.movies().get(photoId) ?: throw PhotoLoadException("This photo is no longer in the library.")
             check(family.isCurrent(session) && family.permits(photo)) { "This photo is unavailable for this profile." }
             val source = database.sources().get(photo.sourceId) ?: throw PhotoLoadException("This image's source was removed.")
-            val providerItem = if (source.sourceType == JELLYFIN) {
-                if (artwork == null) jellyfinPhotoID(photo.filePath) else jellyfinItemID(photo.filePath)
-            } else null
-            val config = source.takeIf { it.sourceType != JELLYFIN && artwork == null }?.config(secrets)
+            val providerItem = when (source.sourceType) {
+                JELLYFIN -> if (artwork == null) jellyfinPhotoID(photo.filePath) else jellyfinItemID(photo.filePath)
+                EMBY -> if (artwork == null) embyPhotoId(photo.filePath) else embyItemId(photo.filePath)
+                else -> null
+            }
+            val config = source.takeIf { it.sourceType !in setOf(JELLYFIN, EMBY) && artwork == null }?.config(secrets)
             fun validateItem(item: MovieEntity) {
                 if (config != null) validate(item, config)
                 else if (providerItem == null || item.isMissing || item.isHidden) {
@@ -85,7 +91,9 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                 }
             }
             fun authorize(item: MovieEntity) {
-                check(family.isCurrent(session) && family.permits(item)) { "This image is unavailable for this profile." }
+                check(family.isCurrent(session) && family.permits(item, requiresWholeSource = source.sourceType == EMBY)) {
+                    "This image is unavailable for this profile."
+                }
             }
             validateItem(photo)
             // Source changes and completed rescans invalidate decoded content.
@@ -98,7 +106,14 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             var decoded: Bitmap? = null
             try {
                 val loadContext = currentCoroutineContext()
-                runInterruptible {
+                if (source.sourceType == EMBY) {
+                    authorize(photo)
+                    val connection = source.embyConnection(secrets, fixtureHttp)
+                    val data = connection.client.primaryImage(connection.account, checkNotNull(providerItem), edge.coerceIn(64, 1920))
+                    loadContext.ensureActive()
+                    authorize(photo)
+                    temporary.writeBytes(data)
+                } else runInterruptible {
                     authorize(photo)
                     fun copy(input: InputStream, length: Long) {
                         if (length > PhotoDecodePolicy.MAX_FILE_BYTES) throw PhotoLoadException("This image is larger than the 64 MB viewing limit.")

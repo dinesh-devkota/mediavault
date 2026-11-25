@@ -65,6 +65,8 @@ import coil3.compose.AsyncImage
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.embyItemId
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.jellyfin.jellyfinItemID
@@ -118,7 +120,7 @@ internal fun MediaArtwork(
     width: Int,
     kind: JellyfinImage = JellyfinImage.Primary,
 ) {
-    if (jellyfinItemID(movie.filePath) == null || movie.isHidden || movie.isMissing) {
+    if ((jellyfinItemID(movie.filePath) == null && embyItemId(movie.filePath) == null) || movie.isHidden || movie.isMissing) {
         Artwork(url, title, modifier)
         return
     }
@@ -127,13 +129,13 @@ internal fun MediaArtwork(
         .collectAsStateWithLifecycle(null)
     val session by container.family.session.collectAsStateWithLifecycle()
     val activeSource = source
-    if (activeSource?.sourceType != JELLYFIN) {
+    if (activeSource == null || activeSource.sourceType !in setOf(EMBY, JELLYFIN)) {
         Artwork(url, title, modifier)
         return
     }
     val bitmap by key(session, activeSource, movie.id, movie.filePath, movie.ageCertification, kind, width) {
         produceState<Bitmap?>(null) {
-            if (!container.family.isCurrent(session) || !container.family.permits(movie)) return@produceState
+            if (!container.family.isCurrent(session) || !container.family.permits(movie, requiresWholeSource = activeSource.sourceType == EMBY)) return@produceState
             try {
                 value = container.photos.loadArtwork(movie.id, width, kind)
             } catch (cancelled: CancellationException) {

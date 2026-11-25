@@ -2,6 +2,7 @@ package com.dineshdevkota.cinevault.photos
 
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.jellyfinPhotoID
 import java.util.Locale
@@ -28,7 +29,7 @@ fun photoAlbums(items: List<MovieEntity>, sources: List<SourceEntity>? = null): 
     .map { (id, photos) ->
         val first = photos.first()
         val folder = first.filePath.replace('\\', '/').substringBeforeLast('/', "")
-        val library = sourceById?.get(first.sourceId)?.takeIf { it.sourceType == JELLYFIN }
+        val library = sourceById?.get(first.sourceId)?.takeIf { it.sourceType == JELLYFIN || it.sourceType == EMBY }
         PhotoAlbum(id, first.sourceId, folder,
             photos.sortedWith(compareBy<MovieEntity> { it.fileName.lowercase(Locale.ROOT) }.thenBy { it.id }),
             title = library?.name ?: folder.substringAfterLast('/').ifBlank { "Shared folder" })

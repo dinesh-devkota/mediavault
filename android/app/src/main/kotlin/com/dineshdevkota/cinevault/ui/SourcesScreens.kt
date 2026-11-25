@@ -35,6 +35,7 @@ import com.dineshdevkota.cinevault.BuildConfig
 import com.dineshdevkota.cinevault.core.NasAddress
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +61,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
             AdaptiveActions() {
                 Button(onClick = { NasSetupActivity.start(context) }) { Text("Add NAS Source") }
                 OutlinedButton(onClick = { JellyfinSetupActivity.start(context) }) { Text("Connect Jellyfin") }
+                OutlinedButton(onClick = { EmbySetupActivity.start(context) }) { Text("Connect Emby") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
                     enabled = !scanning && sources.isNotEmpty(),
@@ -87,8 +89,11 @@ fun SourcesTab(movies: List<MovieEntity>) {
                 scanning = scanning,
                 onScan = { container.scope.launch { container.scanner.scan(source.id) } },
                 onEdit = {
-                    if (source.sourceType == JELLYFIN) JellyfinSetupActivity.start(context, source.id)
-                    else SourceEditorActivity.start(context, source.id)
+                    when (source.sourceType) {
+                        JELLYFIN -> JellyfinSetupActivity.start(context, source.id)
+                        EMBY -> EmbySetupActivity.start(context, source.id)
+                        else -> SourceEditorActivity.start(context, source.id)
+                    }
                 },
             )
         }
@@ -125,7 +130,7 @@ private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onSca
 }
 
 fun sourceUrl(source: SourceEntity): String {
-    if (source.sourceType == JELLYFIN) return source.host
+    if (source.sourceType == JELLYFIN || source.sourceType == EMBY) return source.host
     if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
     return "smb://" + listOf(address.authority, source.share, source.rootPath).filter { it.isNotEmpty() }.joinToString("/")

@@ -10,6 +10,9 @@ import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SecretBox
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.EmbyException
+import com.dineshdevkota.cinevault.emby.importEmbyLibrary
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.importJellyfinLibrary
 import com.dineshdevkota.cinevault.smb.SmbService
@@ -72,10 +75,10 @@ class LibraryScanner(
         statusFlow.value = "Scanning ${source.name}…"
         var partialAdded = 0
         try {
-            if (source.sourceType == JELLYFIN) {
-                val result = importJellyfinLibrary(database, source, secrets) {
-                    statusFlow.value = "Scanning ${source.name}: $it catalog items…"
-                }
+            if (source.sourceType == JELLYFIN || source.sourceType == EMBY) {
+                val progress: (Int) -> Unit = { statusFlow.value = "Scanning ${source.name}: $it catalog items…" }
+                val result = if (source.sourceType == EMBY) importEmbyLibrary(database, source, secrets, onProgress = progress)
+                    else importJellyfinLibrary(database, source, secrets, onProgress = progress)
                 statusFlow.value = if (result == null) "${source.name} changed during the scan. Scan the source again."
                     else "${source.name}: ${result.first} items (${result.second} new)."
                 return
@@ -136,10 +139,11 @@ class LibraryScanner(
             statusFlow.value = "Scan cancelled for ${source.name}. Items already found are kept."
             throw e
         } catch (e: Exception) {
-            val reason = if (source.sourceType == JELLYFIN) {
-                (e as? com.dineshdevkota.cinevault.jellyfin.JellyfinException)?.message
-                    ?: "Could not read the Jellyfin library"
-            } else SmbService.describe(e).trimEnd().removeSuffix(".")
+            val reason = when (source.sourceType) {
+                JELLYFIN -> (e as? com.dineshdevkota.cinevault.jellyfin.JellyfinException)?.message ?: "Could not read the Jellyfin library"
+                EMBY -> (e as? EmbyException)?.message ?: "Could not read the Emby library"
+                else -> SmbService.describe(e).trimEnd().removeSuffix(".")
+            }
             statusFlow.value = "Scan failed for ${source.name}: $reason. Items already found are kept. Retry from Sources."
         }
     }

@@ -41,6 +41,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.ui.PlayerView
@@ -48,6 +49,14 @@ import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.EmbyClient
+import com.dineshdevkota.cinevault.emby.EmbyConnection
+import com.dineshdevkota.cinevault.emby.EmbyException
+import com.dineshdevkota.cinevault.emby.EmbyHlsDataSource
+import com.dineshdevkota.cinevault.emby.EmbyVideo
+import com.dineshdevkota.cinevault.emby.embyConnection
+import com.dineshdevkota.cinevault.emby.embyItemId
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.JellyfinConnection
 import com.dineshdevkota.cinevault.jellyfin.JellyfinException
@@ -88,9 +97,14 @@ class PlayerActivity : ComponentActivity() {
     private class Target(
         val movie: MovieEntity, val config: SourceConfig?, val source: SourceEntity,
         val connection: JellyfinConnection? = null,
+        val emby: EmbyConnection? = null,
     )
 
     private class JellyfinPlaying(val connection: JellyfinConnection, val playback: JellyfinPlayback)
+
+    private class EmbyPlaying(val connection: EmbyConnection, val playback: EmbyClient.Playback, val length: Long? = null) {
+        var reportedStart = false
+    }
 
     private lateinit var playerView: PlayerView
     private lateinit var rootView: FrameLayout
@@ -98,6 +112,8 @@ class PlayerActivity : ComponentActivity() {
     private lateinit var titleLabel: TextView
     private lateinit var detailLabel: TextView
     @Volatile private var target: Target? = null
+    private var embyPlaying: EmbyPlaying? = null
+    private var embyReport: Job? = null
     private var jellyfinPlaying: JellyfinPlaying? = null
     private var jellyfinReportJob: Job? = null
     private var jellyfinFallbackJob: Job? = null
@@ -131,7 +147,15 @@ class PlayerActivity : ComponentActivity() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             // Paused, the TV may dim or start its screensaver as usual.
             playerView.keepScreenOn = isPlaying
-            if (!isPlaying) record()
+            val emby = embyPlaying
+            if (isPlaying && emby != null && !emby.reportedStart) {
+                emby.reportedStart = true
+                reportEmby(EmbyClient.PlaybackEvent.STARTED)
+            }
+            if (!isPlaying) {
+                record()
+                if (emby?.reportedStart == true) reportEmby(EmbyClient.PlaybackEvent.PROGRESS)
+            }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -254,7 +278,11 @@ class PlayerActivity : ComponentActivity() {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Toast.makeText(this@PlayerActivity, if (e is JellyfinException) e.message else SmbService.describe(e), Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@PlayerActivity, when (e) {
+                        is EmbyException -> safeEmbyError(e)
+                        is JellyfinException -> e.message
+                        else -> SmbService.describe(e)
+                    }, Toast.LENGTH_LONG).show()
                     finish()
                     return@repeatOnLifecycle
                 }
@@ -262,7 +290,7 @@ class PlayerActivity : ComponentActivity() {
                 target = loaded
                 showInformation(loaded.movie)
                 val downloaded = preparedSubtitles.filter { it.configuration.id?.startsWith("subdl:") == true }
-                preparedSubtitles = if (loaded.connection == null) discoverSubtitles(loaded) + downloaded else downloaded
+                preparedSubtitles = if (loaded.config != null) discoverSubtitles(loaded) + downloaded else downloaded
                 val jellyfin = try {
                     loaded.connection?.let { connection ->
                         val itemID = jellyfinItemID(loaded.movie.filePath)
@@ -279,6 +307,16 @@ class PlayerActivity : ComponentActivity() {
                     finish()
                     return@repeatOnLifecycle
                 }
+                val emby = try {
+                    prepareEmby(loaded)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Toast.makeText(this@PlayerActivity, safeEmbyError(failure), Toast.LENGTH_LONG).show()
+                    finish()
+                    return@repeatOnLifecycle
+                }
+                if (emby != null) preparedSubtitles = discoverEmbySubtitles(loaded, emby) + downloaded
                 onlineAttempted = false
                 if (isFinishing) return@repeatOnLifecycle
                 // Captions can suspend while a metadata correction changes the age rating.
@@ -290,9 +328,9 @@ class PlayerActivity : ComponentActivity() {
                     rootView.visibility = View.INVISIBLE; target = null; finish()
                     return@repeatOnLifecycle
                 }
-                target = Target(refreshed, loaded.config, loaded.source, loaded.connection)
+                target = Target(refreshed, loaded.config, loaded.source, loaded.connection, loaded.emby)
                 showInformation(refreshed)
-                startPlayer(jellyfin)
+                startPlayer(jellyfin, emby)
                 combine(container.library.observe(movieId), container.database.sources().observe(loaded.source.id)) {
                     current, source -> current to source
                 }.collect { (current, source) ->
@@ -305,7 +343,7 @@ class PlayerActivity : ComponentActivity() {
                         finish()
                     } else {
                         if (target?.movie?.subtitleIdentity() != current.subtitleIdentity()) invalidateSubtitleRequest()
-                        target = Target(current, loaded.config, source ?: loaded.source, loaded.connection)
+                        target = Target(current, loaded.config, source ?: loaded.source, loaded.connection, loaded.emby)
                         showInformation(current)
                     }
                 }
@@ -323,9 +361,16 @@ class PlayerActivity : ComponentActivity() {
         val connection = withContext(Dispatchers.IO) {
             if (source.sourceType == JELLYFIN) source.jellyfinConnection(container.secrets) else null
         }
-        val config = if (connection == null) withContext(Dispatchers.IO) { source.config(container.secrets) } else null
+        val emby = withContext(Dispatchers.IO) {
+            if (source.sourceType == EMBY) source.embyConnection(container.secrets) else null
+        }
+        val config = if (connection == null && emby == null) withContext(Dispatchers.IO) { source.config(container.secrets) } else null
         if (config != null) PlaybackValidator.validate(movie, config, container.smb::hasPlayableContent)
-        else if (jellyfinItemID(movie.filePath) == null) throw JellyfinException("This Jellyfin item is invalid. Scan the source again.")
+        else if (connection != null && jellyfinItemID(movie.filePath) == null) {
+            throw JellyfinException("This Jellyfin item is invalid. Scan the source again.")
+        } else if (emby != null && embyItemId(movie.filePath) == null) {
+            throw EmbyException("This Emby item is invalid. Scan the source again.")
+        }
         // A source edit or ignore action can complete while the NAS header read is suspended.
         return database.withTransaction {
             val currentSource = database.sources().get(source.id)
@@ -338,7 +383,7 @@ class PlayerActivity : ComponentActivity() {
             }
             PlaybackValidator.rejectionReason(current, config)?.let { throw SmbException(it) }
             check(container.family.isCurrent(householdSession)) { "Your household session has locked." }
-            Target(current, config, source, connection)
+            Target(current, config, source, connection, emby)
         }
     }
 
@@ -395,7 +440,35 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
-    private fun startPlayer(jellyfin: JellyfinPlaying?) {
+    private suspend fun prepareEmby(loaded: Target): EmbyPlaying? {
+        val connection = loaded.emby ?: return null
+        val id = embyItemId(loaded.movie.filePath) ?: throw EmbyException("Invalid Emby item.")
+        requirePlaybackAccess(loaded.movie)
+        val direct = connection.client.directPlaybackIfSupported(connection.account, id, EMBY_CONTAINERS,
+            setOf("h264", "hevc", "vp8", "vp9", "av1", "mpeg4"))
+        requirePlaybackAccess(loaded.movie)
+        if (direct != null) {
+            val initial = connection.client.read(connection.account, direct, 0, 1)
+            requirePlaybackAccess(loaded.movie)
+            return EmbyPlaying(connection, direct, initial.totalLength)
+        }
+        val transcode = connection.client.transcode(connection.account, id)
+        requirePlaybackAccess(loaded.movie)
+        return EmbyPlaying(connection, transcode)
+    }
+
+    private fun requirePlaybackAccess(movie: MovieEntity) {
+        val activeTarget = target
+        val active = activeTarget?.movie
+        if (active == null || active.id != movie.id || active.sourceId != movie.sourceId || active.filePath != movie.filePath ||
+            active.isMissing || active.isHidden ||
+            !container.family.isCurrent(householdSession) ||
+            !container.family.permits(active, requiresWholeSource = activeTarget.emby != null)) {
+            throw EmbyException("This item is no longer available.", 403)
+        }
+    }
+
+    private fun startPlayer(jellyfin: JellyfinPlaying?, emby: EmbyPlaying? = null) {
         val target = target ?: return
         if (player != null || isFinishing) return
         val smb = container.smb
@@ -407,8 +480,16 @@ class PlayerActivity : ComponentActivity() {
                 throw IOException("This Jellyfin item is no longer available for playback.")
             }
         }
+        val transcode = emby?.playback as? EmbyClient.TranscodedPlayback
+        val direct = emby?.playback as? EmbyClient.DirectPlayback
         val files = if (jellyfin != null) jellyfinDataSources(jellyfin.connection, jellyfin.playback, authorize = authorizeJellyfin)
-        else DataSource.Factory { SmbDataSource(authorize = {
+        else if (transcode != null) DataSource.Factory {
+            EmbyHlsDataSource(emby.connection, transcode) { requirePlaybackAccess(target.movie) }
+        } else if (direct != null) DataSource.Factory {
+            SmbDataSource(authorize = { requirePlaybackAccess(target.movie) }) {
+                EmbyVideo(emby.connection, direct, checkNotNull(emby.length)) { requirePlaybackAccess(target.movie) }
+            }
+        } else DataSource.Factory { SmbDataSource(authorize = {
             val active = this.target?.movie
             check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
         }) {
@@ -417,8 +498,9 @@ class PlayerActivity : ComponentActivity() {
         } }
         // Only the scoped HTTP transport can resolve paths from a Jellyfin manifest.
         val dataSources = if (jellyfin != null) files else DefaultDataSource.Factory(this, files)
-        val primarySources = DefaultMediaSourceFactory(dataSources,
-            DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
+        val primarySources = if (transcode != null) HlsMediaSource.Factory(files)
+            .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
+        else DefaultMediaSourceFactory(dataSources, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
             .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
         val localCaptions = if (jellyfin == null) dataSources else jellyfinLocalSubtitleDataSources(authorizeJellyfin)
         val mediaSources = SubtitleMediaSourceFactory(primarySources, localCaptions) { preparedSubtitles }
@@ -441,9 +523,13 @@ class PlayerActivity : ComponentActivity() {
         }
         exo.setMediaItem(
             MediaItem.Builder()
-                .setUri(jellyfin?.playback?.url?.let { Uri.parse(it.toString()) }
-                    ?: filePlaybackUri(checkNotNull(target.config), target.movie.filePath))
-                .setMimeType(if (jellyfin?.playback?.method == "Transcode") MimeTypes.APPLICATION_M3U8 else null)
+                .setUri(when {
+                    jellyfin != null -> Uri.parse(jellyfin.playback.url.toString())
+                    transcode != null -> Uri.parse(transcode.manifest.toString())
+                    direct != null -> Uri.Builder().scheme("emby-read").authority("local").appendPath(target.movie.id).build()
+                    else -> filePlaybackUri(checkNotNull(target.config), target.movie.filePath)
+                })
+                .setMimeType(if (transcode != null || jellyfin?.playback?.method == "Transcode") MimeTypes.APPLICATION_M3U8 else null)
                 .setMediaId(target.movie.id)
                 .setSubtitleConfigurations(preparedSubtitles.map { it.configuration } + remoteSubtitles)
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(target.movie.title)
@@ -454,6 +540,7 @@ class PlayerActivity : ComponentActivity() {
             startPositionMs.coerceAtLeast(0),
         )
         exo.playWhenReady = playWhenReady
+        embyPlaying = emby
         exo.prepare()
         playerView.player = exo
         player = exo
@@ -464,6 +551,7 @@ class PlayerActivity : ComponentActivity() {
                 delay(PROGRESS_INTERVAL_MS)
                 if (exo.isPlaying) record()
                 reportJellyfin(JellyfinPlaybackEvent.PROGRESS, exo.currentPosition, !exo.isPlaying)
+                if (embyPlaying?.reportedStart == true) reportEmby(EmbyClient.PlaybackEvent.PROGRESS)
             }
         }
     }
@@ -483,6 +571,55 @@ class PlayerActivity : ComponentActivity() {
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* A failed report must not interrupt local playback or history. */ }
         }
+    }
+
+    private fun reportEmby(event: EmbyClient.PlaybackEvent) {
+        val active = embyPlaying ?: return
+        val exo = player ?: return
+        // The server credential belongs to Admin. Viewer histories remain local to their profiles.
+        if (!active.reportedStart || !householdSession.admin) return
+        val position = exo.currentPosition.coerceAtLeast(0)
+        val paused = !exo.isPlaying
+        val previous = embyReport
+        embyReport = container.scope.launch {
+            previous?.join()
+            if (event != EmbyClient.PlaybackEvent.STOPPED && !container.family.isCurrent(householdSession)) return@launch
+            try {
+                active.connection.client.report(active.connection.account, active.playback, event, position, paused)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // The profile's local resume state is authoritative, even if Emby reporting is unavailable.
+            }
+        }
+    }
+
+    private suspend fun discoverEmbySubtitles(loaded: Target, emby: EmbyPlaying): List<PreparedSubtitle> {
+        val language = container.settings.subtitleLanguage
+        val tracks = emby.playback.textSubtitles.sortedBy { !SubtitleTracks.sameLanguage(it.language, language) }
+        val worker = container.scope.async(Dispatchers.IO) {
+            tracks.take(4).mapNotNull { track ->
+                try {
+                    requirePlaybackAccess(loaded.movie)
+                    val data = emby.connection.client.textSubtitle(emby.connection.account, emby.playback, track)
+                    requirePlaybackAccess(loaded.movie)
+                    SubtitleTracks.configuration(data, "application/x-subrip", track.language,
+                        track.title ?: track.language ?: "Emby subtitle ${track.index}", "emby:${track.index}",
+                        track.forced, track.hearingImpaired)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) { null }
+            }
+        }
+        return try {
+            val result = withTimeoutOrNull(2_500) { worker.await() }
+            subtitleNotice = when {
+                result == null -> "Emby subtitle lookup took too long. Reopen this video to try again."
+                tracks.size > 4 -> "The player loaded up to four Emby subtitle tracks."
+                else -> null
+            }
+            result.orEmpty()
+        } finally { worker.cancel() }
     }
 
     private suspend fun discoverSubtitles(loaded: Target): List<PreparedSubtitle> {
@@ -635,7 +772,7 @@ class PlayerActivity : ComponentActivity() {
                     if (!automatic) showSubtitleError("No matching subtitles were found for this language.")
                     return@launch
                 }
-                val exact = if (target?.connection != null && movie.fileName == "${movie.parsedTitle}.mp4") emptyList()
+                val exact = if (target?.emby != null || (target?.connection != null && movie.fileName == "${movie.parsedTitle}.mp4")) emptyList()
                     else results.filter { result ->
                         (result.releaseNames + result.releaseName).any { SubtitleTracks.exactRelease(movie.fileName, it) }
                     }
@@ -825,6 +962,11 @@ class PlayerActivity : ComponentActivity() {
         nextCard = null
     }
 
+    private fun safeEmbyError(error: Throwable): String =
+        generateSequence(error) { it.cause }.take(8).filterIsInstance<EmbyException>().firstOrNull()?.let {
+            if (it.status == 401) "Reconnect this Emby source in Sources." else it.message
+        } ?: "Unable to play this Emby item. Check the server and its direct-play formats."
+
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun stopPlayer() {
@@ -834,6 +976,19 @@ class PlayerActivity : ComponentActivity() {
         record()
         reportJellyfin(JellyfinPlaybackEvent.STOPPED, exo.currentPosition)
         jellyfinPlaying = null
+        reportEmby(EmbyClient.PlaybackEvent.STOPPED)
+        val ending = embyPlaying
+        val session = ending?.playback as? EmbyClient.TranscodedPlayback
+        if (ending != null && session != null) {
+            val reporting = embyReport
+            container.scope.launch {
+                reporting?.join()
+                try { ending.connection.client.stopTranscode(ending.connection.account, session) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* The server also expires inactive encoding jobs. */ }
+            }
+        }
+        embyPlaying = null
         startPositionMs = exo.currentPosition
         playWhenReady = exo.playWhenReady
         exo.removeListener(listener)
@@ -902,6 +1057,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     companion object {
+        private val EMBY_CONTAINERS = setOf("mp4", "m4v", "mov", "mkv", "webm", "ts")
         private val jellyfinFallbackErrors = setOf(
             PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
             PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
