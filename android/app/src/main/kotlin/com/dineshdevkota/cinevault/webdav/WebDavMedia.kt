@@ -18,15 +18,15 @@ class WebDavMedia(val service: WebDavService = WebDavService()) {
         while (pending.isNotEmpty()) {
             coroutineContext.ensureActive()
             val dir = pending.removeLast()
-            if (!visited.add(dir) || ScanExclusions.isDirectoryExcluded(dir, config.rootPath, config.ignoredFolders)) continue
+            if (!visited.add(dir) || ScanExclusions.isDirectoryExcluded(dir, config.rootPath, config.ignoredFolders, caseSensitive = true)) continue
             if (visited.size > 100000) throw WebDavException("This source contains too many folders. Choose a smaller media folder.")
             val batch = mutableListOf<RemoteFile>()
             for (entry in service.list(config, dir)) {
                 coroutineContext.ensureActive()
                 if (entry.directory) {
-                    if (!MediaFile.shouldSkipDirectory(entry.name) && !ScanExclusions.isDirectoryExcluded(entry.path, config.rootPath, config.ignoredFolders)) pending += entry.path
+                    if (!MediaFile.shouldSkipDirectory(entry.name) && !ScanExclusions.isDirectoryExcluded(entry.path, config.rootPath, config.ignoredFolders, caseSensitive = true)) pending += entry.path
                 } else if (MediaFile.shouldIndex(entry.path, entry.size) &&
-                    !ScanExclusions.isFileExcluded(entry.path, config.rootPath, config.ignoredFolders, config.ignoredFiles) && accepts(config, entry.path)) {
+                    !ScanExclusions.isFileExcluded(entry.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = true) && accepts(config, entry.path)) {
                     val file = RemoteFile(entry.path, entry.size); results += file; batch += file
                     if (batch.size >= 100) { onProgress(ScanProgress(batch.toList(), results.size, folders)); batch.clear() }
                 }

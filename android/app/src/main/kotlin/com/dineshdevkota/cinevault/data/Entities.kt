@@ -40,9 +40,13 @@ data class SourceEntity(
     @ColumnInfo(defaultValue = "0") val allowInsecureHttp: Boolean = false,
 ) {
     fun includesFile(filePath: String): Boolean {
+        if (sourceType == "webdav") {
+            return com.dineshdevkota.cinevault.webdav.DavAddress.contains(filePath, rootPath) &&
+                !ScanExclusions.isFileExcluded(filePath, rootPath, ignoredFolders, ignoredFiles, caseSensitive = true)
+        }
         val path = ScanExclusions.normalizeFile(filePath) ?: return false
         val root = if (rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(rootPath) ?: return false
-        return (root.isEmpty() || path.startsWith("$root/", ignoreCase = sourceType != "webdav")) &&
+        return (root.isEmpty() || path.startsWith("$root/", ignoreCase = true)) &&
             !ScanExclusions.isFileExcluded(path, root, ignoredFolders, ignoredFiles)
     }
 

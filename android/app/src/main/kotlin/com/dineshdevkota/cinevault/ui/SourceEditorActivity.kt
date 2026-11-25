@@ -145,8 +145,8 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
     fun validatedConfig(): SourceConfig {
         if (webdav) {
             val address = com.dineshdevkota.cinevault.webdav.DavAddress(host)
-            address.url(rootPath.trim().trim('/'), directory = true)
-            return SourceConfig(existing?.id ?: draftId, address.base.toString(), null, "", rootPath.trim().trim('/'),
+            address.url(rootPath.trim('/'), directory = true)
+            return SourceConfig(existing?.id ?: draftId, address.base.toString(), null, "", rootPath.trim('/'),
                 username.trim(), password, ignoredFolders, ignoredFiles, "webdav")
         }
         val portText = port.trim()

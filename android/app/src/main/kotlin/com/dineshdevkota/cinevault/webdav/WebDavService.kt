@@ -1,5 +1,6 @@
 package com.dineshdevkota.cinevault.webdav
 
+import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.smb.RemoteHandle
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import kotlinx.coroutines.Dispatchers
@@ -131,7 +132,10 @@ class WebDavService(private val client: OkHttpClient = OkHttpClient.Builder()
     }
 
     fun open(config: SourceConfig, path: String): RemoteHandle {
-        if (!DavAddress.contains(path, config.rootPath)) throw WebDavException("Choose a file inside this WebDAV source.")
+        if (!DavAddress.contains(path, config.rootPath) ||
+            ScanExclusions.isFileExcluded(path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = true)) {
+            throw WebDavException("Choose a file inside this WebDAV source.")
+        }
         val token = generation(config)
         val url = address(config).url(path)
         // A one-byte range works on servers which disable HEAD and proves seeking before playback.

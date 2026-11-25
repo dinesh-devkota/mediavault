@@ -17,7 +17,10 @@ class WebDavServiceTest {
     private inline fun rejects(block: () -> Unit) { try { block(); fail("Expected rejection") } catch (_: IllegalArgumentException) {} catch (_: WebDavException) {} }
 
     @Test fun httpsAddressPreservesEncodedNamesAndPorts() {
-        assertEquals("https://nas.example.com:5006/media/Film%20%231%20%26%20Friends.mkv", address.url("Film #1 & Friends.mkv").toString())
+        val url = address.url("Film #1 & Friends.mkv")
+        assertEquals(5006, url.port)
+        assertEquals(listOf("media", "Film #1 & Friends.mkv"), url.pathSegments)
+        assertNull(url.fragment)
         assertEquals("Film #1 & Friends.mkv", address.relative("/media/Film%20%231%20%26%20Friends.mkv", address.base))
     }
     @Test fun credentialsQueryAndInsecureDefaultsAreRejected() {

@@ -134,6 +134,14 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
         if (!MediaFile.isPhoto(photo.filePath) || photo.isMissing || photo.isHidden) {
             throw PhotoLoadException("This photo is unavailable or hidden. Check the source and rescan.")
         }
+        if (config.isWebDav) {
+            if (!com.dineshdevkota.cinevault.webdav.DavAddress.contains(photo.filePath, config.rootPath) ||
+                !MediaFile.shouldIndex(photo.filePath, photo.fileSize) ||
+                ScanExclusions.isFileExcluded(photo.filePath, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = true)) {
+                throw PhotoLoadException("This photo is unavailable in the selected media folder.")
+            }
+            return
+        }
         val path = ScanExclusions.normalizeFile(photo.filePath)
             ?: throw PhotoLoadException("This photo has an invalid folder path.")
         val root = config.rootPath.replace('\\', '/').trim('/')

@@ -150,10 +150,6 @@ source setup. Validate the optional SwiftData field against a pre-change store,
 then run the hosted tvOS build, simulator tests, and an end-to-end HTTPS scenario
 before calling this integration ready.
 
-The Android Jellyfin client handles password sign-in, Quick Connect, logout,
-library listing and pagination with catalog hierarchy fields. It is not exposed
-in setup at this checkpoint. It still needs secure account storage, import and
-app wiring, playback and server media assets, and a tvOS counterpart. Emby, Plex,
-NFS and cloud drives are still pending. Jellyfin uses the public
-[OpenAPI contract](https://api.jellyfin.org/) over HTTPS. No Jellyfin server
-source or GPL server/SDK code is bundled.
+Jellyfin implementation is tracked separately on `codex/mediavault-jellyfin`.
+Subsequent providers will each have a separate feature branch and validation.
+Keep each PR in draft while its own implementation and tests are incomplete.

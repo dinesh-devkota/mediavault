@@ -76,7 +76,7 @@ class LibraryScanner(
             val scanned = if (scanWithProgress == null) scanVideos(config) else scanWithProgress(config) { progress ->
                 val allowed = progress.files.filter {
                     MediaFile.shouldIndex(it.path, it.size) &&
-                        !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles)
+                        !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.isWebDav)
                 }
                 database.withTransaction {
                     check(database.sources().get(source.id) == source) { "The NAS source changed during the scan. Scan again." }
@@ -92,7 +92,7 @@ class LibraryScanner(
                 statusFlow.value = "Scanning ${source.name}: ${foundPaths.size} items in ${progress.folders} folders…"
             }
             val files = scanned.filter { MediaFile.shouldIndex(it.path, it.size) &&
-                !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles) }
+                !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.isWebDav) }
             val added = database.withTransaction {
                 // An edit/delete can finish while the NAS operation is suspended. Never apply
                 // the old share's results to the replacement source (or recreate deleted rows).
