@@ -4,16 +4,16 @@ struct EmbySourceConnection: Sendable {
     let client: EmbyClient
     let account: EmbyClient.Account
 
-    static func client(endpoint: String, sourceID: UUID) throws -> EmbyClient {
+    static func client(endpoint: String, sourceID: UUID, session: URLSession? = nil) throws -> EmbyClient {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
-        return try EmbyClient(endpoint: endpoint, deviceID: sourceID.uuidString, appVersion: version)
+        return try EmbyClient(endpoint: endpoint, deviceID: sourceID.uuidString, appVersion: version, session: session)
     }
 
-    init(config: SourceConfig) throws {
+    init(config: SourceConfig, session: URLSession? = nil) throws {
         guard config.isEmby, !config.password.isEmpty, Self.validID(config.username) else {
             throw EmbyError.invalidResponse
         }
-        client = try Self.client(endpoint: config.host, sourceID: config.id)
+        client = try Self.client(endpoint: config.host, sourceID: config.id, session: session)
         account = .init(AccessToken: config.password, User: .init(Id: config.username, Name: ""))
     }
 

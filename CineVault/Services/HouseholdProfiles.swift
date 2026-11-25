@@ -98,7 +98,9 @@ enum HouseholdPolicy {
 final class HouseholdStore: ObservableObject {
     static let shared: HouseholdStore = {
         #if DEBUG
-        if HouseholdPreview.isEnabled { return HouseholdPreview.store }
+        if HouseholdPreview.isEnabled || ProcessInfo.processInfo.arguments.contains("--ui-preview-emby-entry") {
+            return HouseholdPreview.store
+        }
         #endif
         return HouseholdStore()
     }()

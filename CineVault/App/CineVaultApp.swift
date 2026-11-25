@@ -14,6 +14,10 @@ struct CineVaultApp: App {
                 #if DEBUG
                 if HouseholdPreview.isEnabled {
                     HouseholdDesignPreview()
+                } else if ProcessInfo.processInfo.arguments.contains("--ui-preview-emby-entry") {
+                    NavigationStack { SourcesView() }
+                        .environmentObject(scanner)
+                        .modelContainer(for: [MediaSource.self, Movie.self], inMemory: true)
                 } else if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback") {
                     PlaybackDesignPreview()
                 } else if PhotoDesignPreview.isEnabled {

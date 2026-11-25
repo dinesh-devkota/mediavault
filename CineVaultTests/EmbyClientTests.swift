@@ -69,6 +69,44 @@ final class EmbyClientTests: XCTestCase {
         XCTAssertTrue(canRead(viewer))
     }
 
+    @MainActor
+    func testPlayerRangeReturnsBytesAndSuppressesAResponseAfterAccessChanges() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [EmbyFixture.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let config = SourceConfig(id: UUID(), host: "https://emby.fixture.invalid/emby/", share: "library",
+                                  rootPath: "", username: "viewer", password: "fixture-token", sourceProtocol: "emby")
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "MediaVault.EmbyTests.\(UUID().uuidString)"))
+        let household = HouseholdStore(defaults: defaults, read: { nil }, write: { _ in }, erase: {})
+        let connection = try EmbySourceConnection(config: config, session: session)
+        let path = EmbySourceConnection.path("movie-a")
+        let playback = try await connection.directPlayback(path: path)
+        var received = Data()
+        var checks = 0
+        var permitted = true
+        let loader = SMBResourceLoader(config: config, path: path, household: household, emby: connection,
+                                       embyPlayback: playback, stillAvailable: {
+            checks += 1
+            return permitted && checks <= 2
+        })
+        do {
+            try await loader.streamBytes(from: 5, to: 9) { received.append($0) }
+            XCTFail("Expected access to be revoked before the bytes were delivered")
+        } catch PlaybackPreparationError.fileUnavailable {}
+        XCTAssertEqual(checks, 3)
+        XCTAssertTrue(received.isEmpty)
+        let permittedLoader = SMBResourceLoader(config: config, path: path, household: household, emby: connection,
+                                                embyPlayback: playback, stillAvailable: { permitted })
+        try await permittedLoader.streamBytes(from: 5, to: 9) { received.append($0) }
+        XCTAssertEqual(received, Data("5678".utf8))
+        permitted = false
+        do {
+            try await permittedLoader.streamBytes(from: 5, to: 9) { _ in XCTFail("Denied read sent bytes") }
+            XCTFail("Expected authorization to be checked before a subsequent seek")
+        } catch PlaybackPreparationError.fileUnavailable {}
+    }
+
     func testFixtureRejectsUnrangedOrMalformedResponse() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [EmbyFixture.self]
@@ -137,7 +175,9 @@ private final class EmbyFixture: URLProtocol {
             return (200, #"{"PlaySessionId":"fixture-session","MediaSources":[{"Id":"fixture-source","Container":"mp4","SupportsDirectPlay":true}]}"#, [:])
         case "/emby/Videos/movie-a/stream":
             guard query["Static"] == "true", query["MediaSourceId"] == "fixture-source",
-                  query["PlaySessionId"] == "fixture-session", query["DeviceId"] == "fixture-device" else { return failure }
+                  query["PlaySessionId"] == "fixture-session",
+                  let deviceID = query["DeviceId"],
+                  deviceID == "fixture-device" || UUID(uuidString: deviceID) != nil else { return failure }
             switch request.value(forHTTPHeaderField: "Range") {
             case "bytes=5-8": return (206, "5678", ["Content-Range": "bytes 5-8/20"])
             case "bytes=0-3": return (200, "0123", [:])
