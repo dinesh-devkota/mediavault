@@ -221,7 +221,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             inScaled = false
         }
         val bitmap = BitmapFactory.decodeFile(file.path, options)
-            ?: throw PhotoLoadException("This photo's format isn't supported on this TV, or the file is damaged.")
+            ?: throw PhotoLoadException("This photo's format isn't supported on this device, or the file is damaged.")
         val orientation = runCatching { ExifInterface(file.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
             .getOrDefault(ExifInterface.ORIENTATION_NORMAL)
         val transform = Matrix()
@@ -249,7 +249,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             is PhotoLoadException -> error.message.orEmpty()
             is IllegalArgumentException -> "This photo's dimensions are too large or invalid."
             else -> if (Build.VERSION.SDK_INT >= 28 && error is ImageDecoder.DecodeException)
-                "This photo's format isn't supported on this TV, or the file is damaged." else SmbService.describe(error)
+                "This photo's format isn't supported on this device, or the file is damaged." else SmbService.describe(error)
         }
     }
 }
