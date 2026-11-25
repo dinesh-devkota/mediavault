@@ -243,22 +243,27 @@ class EmbyClient internal constructor(
             val maximum = if (manifest) 2 * 1024 * 1024L else 16 * 1024 * 1024L
             if (stream.request(maximum + 1)) throw EmbyException("Emby HLS resource exceeds the size limit.")
             val body = stream.readByteArray()
-            if (manifest) {
-                val text = body.toString(Charsets.UTF_8)
-                if (!text.startsWith("#EXTM3U") || text.contains(account.AccessToken)) {
-                    throw EmbyException("Unsafe Emby HLS playlist.")
-                }
-                text.lineSequence().map(String::trim).filter { it.isNotEmpty() }.forEach { line ->
-                    val references = if (line.startsWith("#")) hlsURI.findAll(line).map { it.groupValues[1] }
-                        else sequenceOf(line)
-                    references.forEach { reference ->
-                        val resolved = url.resolve(reference) ?: throw EmbyException("Invalid Emby HLS reference.")
-                        hlsUrl(resolved, playback.itemId, playback.mediaSourceId, playback.sessionId, playback.encodingDeviceId, account)
-                    }
-                }
-            }
-            url to body
+            url to if (manifest) sanitizePlaylist(body, url, playback, account) else body
         }
+    }
+
+    private fun sanitizePlaylist(data: ByteArray, url: HttpUrl, playback: TranscodedPlayback, account: Account): ByteArray {
+        val text = data.toString(Charsets.UTF_8)
+        if (!text.startsWith("#EXTM3U")) throw EmbyException("Invalid Emby HLS playlist.")
+        fun clean(reference: String): String {
+            val resolved = url.resolve(reference) ?: throw EmbyException("Invalid Emby HLS reference.")
+            return hlsUrl(resolved, playback.itemId, playback.mediaSourceId, playback.sessionId, playback.encodingDeviceId, account).toString()
+        }
+        val safe = text.lineSequence().joinToString("\n") { source ->
+            val line = source.trim()
+            when {
+                line.isEmpty() -> ""
+                line.startsWith("#") -> hlsURI.replace(line) { match -> "URI=\"${clean(match.groupValues[1])}\"" }
+                else -> clean(line)
+            }
+        }
+        if (account.AccessToken in safe || sensitiveHlsQuery.containsMatchIn(safe)) throw EmbyException("Unsafe Emby HLS playlist.")
+        return safe.encodeToByteArray()
     }
 
     private fun hlsUrl(url: HttpUrl, itemId: String, mediaSource: String, session: String,
@@ -268,6 +273,9 @@ class EmbyClient internal constructor(
             throw EmbyException("Emby HLS resources must stay on the configured server.")
         }
         val path = url.pathSegments
+        if ((path + mediaSource + session).any { account.AccessToken in it }) {
+            throw EmbyException("Emby returned a credential in an HLS path or session identifier.")
+        }
         val prefix = base.pathSegments.filter(String::isNotEmpty)
         val media = if (path.take(prefix.size) == prefix) path.drop(prefix.size)
             else if (path.firstOrNull()?.equals("emby", ignoreCase = true) == true) path.drop(1) else path
@@ -281,11 +289,9 @@ class EmbyClient internal constructor(
         for (index in 0 until url.querySize) {
             val key = url.queryParameterName(index)
             val value = url.queryParameterValue(index)
-            when (key.lowercase()) {
-                "api_key", "apikey", "token", "x-emby-token", "access_token", "authorization",
-                "deviceid", "mediasourceid", "playsessionid" -> continue
-                else -> if (value?.contains(account.AccessToken) != true) safe.addQueryParameter(key, value)
-            }
+            val normalized = key.lowercase().replace("-", "").replace("_", "")
+            if (normalized !in protectedHlsQueries && account.AccessToken !in key &&
+                value?.contains(account.AccessToken) != true) safe.addQueryParameter(key, value)
         }
         return safe.addQueryParameter("DeviceId", encodingDevice).addQueryParameter("MediaSourceId", mediaSource)
             .addQueryParameter("PlaySessionId", session).build()
@@ -424,6 +430,9 @@ class EmbyClient internal constructor(
         val json = Json { ignoreUnknownKeys = true }
         val hlsResource = Regex("[A-Za-z0-9_.-]+[.](m3u8|ts|mp4|m4s|aac|vtt)")
         val hlsURI = Regex("""URI="([^"]+)"""")
+        val protectedHlsQueries = setOf("apikey", "accesstoken", "auth", "authtoken", "token", "xembytoken", "xmediabrowsertoken",
+            "authorization", "deviceid", "mediasourceid", "playsessionid")
+        val sensitiveHlsQuery = Regex("(?i)[?&](api[_-]?key|access[_-]?token|auth[_-]?token|x-emby-token|x-mediabrowser-token|token|authorization)=")
         const val maximumBytes = 8 * 1024 * 1024
         val defaultClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .callTimeout(30, TimeUnit.SECONDS).build()

@@ -191,7 +191,14 @@ class EmbyAndroidIntegrationTest {
             try {
                 assertFalse(uri.toString().contains("fixture-token"))
                 verifyRenderedSeek(HlsMediaSource.Factory(factory), uri)
-                familyAllows.set(false)
+                val opened = factory.createDataSource()
+                try {
+                    opened.open(DataSpec(uri))
+                    familyAllows.set(false)
+                    val unchanged = ByteArray(4) { 0x2a }
+                    assertThrows(IOException::class.java) { opened.read(unchanged, 0, unchanged.size) }
+                    assertArrayEquals(ByteArray(4) { 0x2a }, unchanged)
+                } finally { opened.close() }
                 assertDenied(factory, uri)
             } finally {
                 client.stopTranscode(account, session)

@@ -43,7 +43,6 @@ internal class EmbyHlsDataSource(
         if (cursor >= end) return C.RESULT_END_OF_INPUT
         val count = minOf(end - cursor, length)
         resource.copyInto(buffer, offset, cursor, cursor + count)
-        authorize()
         cursor += count
         bytesTransferred(count)
         return count
