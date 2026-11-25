@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.data.MovieEntity
@@ -85,7 +86,7 @@ private fun CollectionsScreen() {
                 items(collections, key = { it.id }) { collection ->
                     OutlinedButton(onClick = { selectedId = collection.id }, modifier = Modifier.fillMaxWidth().testTag("collection:${collection.name}")) {
                         val count = collectionItems(collection.movies).size
-                        Column { Text(collection.name); Text("$count ${if (count == 1) "title" else "titles"} · ${if (collection.custom) "Your collection" else "Movie series"}", color = SecondaryText) }
+                        Column { Text(collection.name); Text("$count ${if (count == 1) "title" else "titles"} · ${if (collection.custom) "Your collection" else "Movie series"}", color = LocalContentColor.current.copy(alpha = 0.78f)) }
                     }
                 }
             }
@@ -186,7 +187,7 @@ internal fun VersionChoices(current: MovieEntity) {
             versions.forEach { movie ->
                 OutlinedButton(onClick = { choosing = false; if (movie.id != current.id) MovieDetailActivity.start(context, movie.id) }, modifier = Modifier.fillMaxWidth().testTag("version:${movie.id}")) {
                     Column { Text("${if (movie.id == current.id) "✓ " else ""}${versionDescription(movie)}")
-                        Text("${sourceNames[movie.sourceId].orEmpty()} · ${movie.fileName}", color = SecondaryText)
+                        Text("${sourceNames[movie.sourceId].orEmpty()} · ${movie.fileName}", color = LocalContentColor.current.copy(alpha = 0.78f))
                         if (movie.isInProgress) Text("Resume ${formatDuration(movie.playbackPositionMs)}")
                     }
                 }
