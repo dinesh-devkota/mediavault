@@ -31,7 +31,8 @@ struct SourcesView: View {
                         Label(source.name, systemImage: "externaldrive.connected.to.line.below").font(.headline)
                         Text(location(of: source)).font(.caption).foregroundStyle(.secondary)
                         if let lastScan = source.lastScanDate {
-                            Text("\(source.movies.filter { !$0.isMissing }.count) items · Scanned \(lastScan.formatted(date: .abbreviated, time: .shortened))")
+                            let itemCount = source.movies.filter { !$0.isMissing }.count
+                            Text("\(itemCount) \(itemCount == 1 ? "item" : "items") · Scanned \(lastScan.formatted(date: .abbreviated, time: .shortened))")
                                 .font(.caption2).foregroundStyle(.secondary)
                         } else {
                             Text("Ready for its first scan").font(.caption2).foregroundStyle(.secondary)

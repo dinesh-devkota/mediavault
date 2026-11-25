@@ -561,6 +561,7 @@ struct PosterGrid: View {
                 .buttonStyle(ArtworkButtonStyle())
                 .focusEffectDisabled()
                 .focused($focusedMovie, equals: movie.id)
+                .accessibilityLabel(movie.title)
             }
         }
         .padding(.vertical, 24)

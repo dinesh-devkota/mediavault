@@ -47,9 +47,16 @@ final class MediaVaultPhoneTests: XCTestCase {
         save.tap()
         XCTAssertTrue(app.staticTexts["Fixture media"].waitForExistence(timeout: 25), "Expected the authenticated source to be saved.")
 
+        let scan = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "1 item · Scanned ")).firstMatch
+        XCTAssertTrue(scan.waitForExistence(timeout: 25), app.debugDescription)
+
         app.tabBars.buttons["Library"].tap()
-        let film = app.staticTexts["Film"].firstMatch
-        XCTAssertTrue(film.waitForExistence(timeout: 25), "Expected the scan to import the fixture movie.")
+        let poster = app.buttons["Film"]
+        for _ in 0..<3 where !poster.isHittable { app.swipeUp() }
+        XCTAssertTrue(poster.isHittable, app.debugDescription)
+        poster.tap()
+        XCTAssertTrue(app.staticTexts["Film"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons["Play"].exists, app.debugDescription)
     }
 
     @MainActor
