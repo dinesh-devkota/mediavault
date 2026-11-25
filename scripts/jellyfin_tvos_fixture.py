@@ -20,6 +20,10 @@ IMAGE = SAMPLES / "Photos" / "01.jpg"
 
 
 class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # The fixture intentionally returns a synthetic token in playlist URIs.
+        pass
+
     def send_body(self, status, body=b"", headers=()):
         self.send_response(status)
         self.send_header("Content-Length", str(len(body)))
@@ -57,11 +61,18 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized():
             return
         if path == "/jellyfin/Items/fixture-movie/PlaybackInfo" and data.get("UserId") == "fixture-user":
-            self.send_json({"PlaySessionId": "fixture-playback", "MediaSources": [
-                {"Id": "fixture-media-source", "SupportsDirectPlay": True, "MediaStreams": [
+            source = {"Id": "fixture-media-source", "SupportsDirectPlay": data.get("EnableDirectPlay") is True, "MediaStreams": [
                     {"Type": "Subtitle", "Index": 2, "IsTextSubtitleStream": True, "Language": "en"},
-                ]},
-            ]})
+            ]}
+            session = "fixture-playback"
+            if not source["SupportsDirectPlay"]:
+                profiles = data.get("DeviceProfile", {}).get("TranscodingProfiles", [])
+                if not any(profile.get("Protocol") == "hls" and profile.get("VideoCodec") == "h264" for profile in profiles):
+                    self.send_body(422)
+                    return
+                session = "fixture-transcode"
+                source["TranscodingUrl"] = "/Videos/fixture-movie/master.m3u8?api_key=synthetic-and-removable"
+            self.send_json({"PlaySessionId": session, "MediaSources": [source]})
         elif path in {"/jellyfin/Sessions/Playing", "/jellyfin/Sessions/Playing/Progress",
                       "/jellyfin/Sessions/Playing/Stopped", "/jellyfin/Sessions/Logout"}:
             self.send_body(204)
@@ -76,7 +87,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not self.authorized():
             return
-        if parts.path == "/jellyfin/UserViews" and query.get("userId") == ["fixture-user"]:
+        if any(name.lower() == "api_key" for name in query):
+            self.send_body(400)
+        elif parts.path.startswith("/jellyfin/Videos/fixture-movie/") and parts.path.endswith((".m3u8", ".ts")):
+            self.send_hls(parts.path)
+        elif parts.path == "/jellyfin/UserViews" and query.get("userId") == ["fixture-user"]:
             self.send_json({"Items": [LIBRARY], "StartIndex": 0, "TotalRecordCount": 1})
         elif (parts.path == "/jellyfin/Items" and query.get("parentId") == ["fixture-library"]
               and query.get("enableUserData") == ["false"]):
@@ -91,6 +106,31 @@ class Handler(BaseHTTPRequestHandler):
         elif parts.path == "/jellyfin/Videos/fixture-movie/fixture-media-source/Subtitles/2/Stream.vtt":
             self.send_body(200, b"WEBVTT\n\n00:00:07.000 --> 00:00:11.000\nFixture Jellyfin caption.\n",
                            [("Content-Type", "text/vtt")])
+        else:
+            self.send_body(404)
+
+    def do_DELETE(self):
+        if not self.authorized():
+            return
+        parts = urlsplit(self.path)
+        if (parts.path == "/jellyfin/Videos/ActiveEncodings"
+                and parse_qs(parts.query).get("playSessionId") == ["fixture-transcode"]):
+            self.send_body(204)
+        else:
+            self.send_body(404)
+
+    def send_hls(self, path):
+        name = path.rsplit("/", 1)[-1]
+        if name == "master.m3u8":
+            self.send_body(200, b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant.m3u8?api_key=synthetic-and-removable\n",
+                           [("Content-Type", "application/vnd.apple.mpegurl")])
+        elif self.server.hls and (name == "variant.m3u8" or re.fullmatch(r"segment\d+\.ts", name)):
+            resource = self.server.hls / name
+            if resource.is_file():
+                content_type = "application/vnd.apple.mpegurl" if name.endswith("m3u8") else "video/mp2t"
+                self.send_body(200, resource.read_bytes(), [("Content-Type", content_type)])
+            else:
+                self.send_body(404)
         else:
             self.send_body(404)
 
@@ -146,9 +186,18 @@ subjectAltName = IP:127.0.0.1
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
+    parser.add_argument("--hls", action="store_true")
     args = parser.parse_args()
     cert, key = certificate(args.directory)
+    hls = None
+    if args.hls:
+        hls = args.directory / "segments"
+        hls.mkdir(exist_ok=True)
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(MEDIA), "-c", "copy",
+                        "-hls_time", "2", "-hls_playlist_type", "vod",
+                        "-hls_segment_filename", str(hls / "segment%d.ts"), str(hls / "variant.m3u8")], check=True)
     with ThreadingHTTPServer(("127.0.0.1", 18896), Handler) as server:
+        server.hls = hls
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls.load_cert_chain(cert, key)
         server.socket = tls.wrap_socket(server.socket, server_side=True)

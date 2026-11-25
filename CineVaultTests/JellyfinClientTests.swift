@@ -51,6 +51,13 @@ final class JellyfinClientTests: XCTestCase {
                 XCTAssertEqual(json["PlaySessionId"] as? String, "play")
                 XCTAssertEqual(json["PositionTicks"] as? Int, 20_000_000)
                 return (Data(), 204)
+            case "/jellyfin/Videos/ActiveEncodings":
+                XCTAssertEqual(request.httpMethod, "DELETE")
+                let items = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
+                XCTAssertEqual(items?.first { $0.name == "deviceId" }?.value, "device")
+                XCTAssertEqual(items?.first { $0.name == "playSessionId" }?.value, "play")
+                XCTAssertTrue(request.value(forHTTPHeaderField: "Authorization")?.contains("fixture-token") ?? false)
+                return (Data(), 204)
             default:
                 XCTFail("Unexpected Jellyfin request")
                 return (Data(), 404)
@@ -63,6 +70,29 @@ final class JellyfinClientTests: XCTestCase {
         XCTAssertEqual(playback.subtitles.map(\.index), [2])
         XCTAssertThrowsError(try client.assetRequest(XCTUnwrap(URL(string: "https://fixture.example/outside/segment.ts")), account: account))
         try await client.report(account, playback: playback, event: .stopped, positionMillis: 2_000)
+        try await client.endTranscode(account, playback: playback)
+    }
+
+    func testHLSReferencesStayWithinTheCurrentMediaItem() throws {
+        let client = try JellyfinClient(endpoint: "https://fixture.example/jellyfin/", deviceID: "device", version: "1.0")
+        let base = try XCTUnwrap(URL(string: "https://fixture.example/jellyfin/Videos/movie/master.m3u8"))
+        let manifest = Data("""
+        #EXTM3U
+        #EXT-X-MAP:URI="hls/init.mp4?api_key=strip"
+        #EXT-X-STREAM-INF:BANDWIDTH=800000
+        /Videos/movie/hls/child.m3u8?Api_Key=strip&PlaySessionId=play
+        """.utf8)
+        let rewritten = try JellyfinHLSPlaylist.rewrite(manifest) { reference in
+            let resolved = try client.hlsResource(reference, relativeTo: base, itemID: "movie")
+            XCTAssertFalse(resolved.absoluteString.lowercased().contains("api_key"))
+            return "/opaque/" + resolved.lastPathComponent
+        }
+        let text = try XCTUnwrap(String(data: rewritten, encoding: .utf8))
+        XCTAssertTrue(text.contains(#"#EXT-X-MAP:URI="/opaque/init.mp4""#))
+        XCTAssertTrue(text.contains("\n/opaque/child.m3u8"))
+        for escaped in ["../different/hls.ts", "https://third-party.example/jellyfin/Videos/movie/hls.ts", "https://fixture.example/Videos/movie/hls.ts"] {
+            XCTAssertThrowsError(try client.hlsResource(escaped, relativeTo: base, itemID: "movie"))
+        }
     }
 
     func testHTTPAndHeaderInjectionAreRejected() {

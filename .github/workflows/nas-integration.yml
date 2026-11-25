@@ -32,6 +32,7 @@ jobs:
         run: |
           python -m unittest discover -s scripts/tests -p test_xcresult_report.py
           brew install xcodegen
+          command -v ffmpeg >/dev/null || brew install ffmpeg
           python -m pip install -r scripts/nas-test-requirements.txt
       - name: Generate project
         run: |
@@ -68,7 +69,7 @@ jobs:
           DEVICE='${{ steps.simulator.outputs.device }}'
           python scripts/nas_fixture.py "$RUNNER_TEMP/nas-fixture" >"$RUNNER_TEMP/nas-fixture.log" 2>&1 &
           SERVER_PID=$!
-          python scripts/jellyfin_tvos_fixture.py "$RUNNER_TEMP/jellyfin-fixture" >"$RUNNER_TEMP/jellyfin-fixture.log" 2>&1 &
+          python scripts/jellyfin_tvos_fixture.py "$RUNNER_TEMP/jellyfin-fixture" --hls >"$RUNNER_TEMP/jellyfin-fixture.log" 2>&1 &
           JELLYFIN_PID=$!
           trap 'kill "$SERVER_PID" "$JELLYFIN_PID" 2>/dev/null || true' EXIT
           for attempt in {1..30}; do

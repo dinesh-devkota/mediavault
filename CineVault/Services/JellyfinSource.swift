@@ -46,7 +46,7 @@ struct JellyfinSourceConnection: Sendable {
         }
     }
 
-    func directPlayback(path: String) async throws -> JellyfinPlayback {
+    func playback(path: String, allowDirect: Bool = true) async throws -> JellyfinPlayback {
         guard path.hasSuffix(".mp4") else { throw JellyfinClientError.unplayable }
         let id = try Self.itemID(for: path)
         let profile = Data("""
@@ -55,12 +55,18 @@ struct JellyfinSourceConnection: Sendable {
             "MaxStreamingBitrate": 120000000,
             "DirectPlayProfiles": [
                 { "Container": "mp4,m4v,mov", "Type": "Video", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,alac,mp3" }
+            ],
+            "TranscodingProfiles": [
+                {
+                    "Container": "ts", "Type": "Video", "Context": "Streaming",
+                    "Protocol": "hls", "VideoCodec": "h264", "AudioCodec": "aac",
+                    "MaxAudioChannels": "2", "MinSegments": 1,
+                    "BreakOnNonKeyFrames": false, "EstimateContentLength": false
+                }
             ]
         }
         """.utf8)
-        let playback = try await client.playback(account, itemID: id, startMillis: 0, deviceProfile: profile)
-        guard playback.method == .directPlay else { throw JellyfinClientError.unplayable }
-        return playback
+        return try await client.playback(account, itemID: id, startMillis: 0, deviceProfile: profile, allowDirect: allowDirect)
     }
 }
 
@@ -88,7 +94,15 @@ actor JellyfinPlaybackReporter {
     func stop(seconds: Double) {
         guard !stopped else { return }
         stopped = true
-        if reportedStart { send(.stopped, position: position(seconds) ?? 0) }
+        if reportedStart {
+            send(.stopped, position: position(seconds) ?? 0)
+        } else if playback.method == .transcode {
+            let connection = self.connection
+            let playback = self.playback
+            tail = Task {
+                try? await connection.client.endTranscode(connection.account, playback: playback)
+            }
+        }
     }
 
     private func send(_ event: JellyfinPlaybackEvent, position: Int64, paused: Bool = false) {
