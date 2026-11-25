@@ -24,7 +24,7 @@ FetchContent_Declare(utf8proc URL https://github.com/JuliaStrings/utf8proc/relea
   URL_HASH SHA256=a393fbef160835fb315bc3e91ba8d86f7a73a7cec9e6198b6c60b848b498bfeb)
 FetchContent_MakeAvailable(utf8proc)
 
-add_executable(mediavault_native_tests TestMain.cpp PathTests.cpp KeyPolicyTests.cpp JellyfinPolicyTests.cpp RelayTests.cpp
+add_executable(mediavault_native_tests TestMain.cpp PathTests.cpp KeyPolicyTests.cpp PlatformErrorCategoryTests.cpp JellyfinPolicyTests.cpp RelayTests.cpp
   ../kepler/Path.cpp ../kepler/Relay.cpp)
 target_include_directories(mediavault_native_tests PRIVATE ../kepler)
 target_link_libraries(mediavault_native_tests PRIVATE mbedcrypto utf8proc nlohmann_json::nlohmann_json Threads::Threads)
@@ -34,6 +34,7 @@ enable_testing()
 foreach(test IN ITEMS
   path_identifiers path_traversal path_encoding source_boundaries source_unicode_aliases source_parse_limits
   key_existing key_missing_read key_missing_records key_fresh_save key_creation_failure
+  platform_error_exact platform_error_spoofed platform_error_precedence platform_error_bound platform_error_private
   jellyfin_catalog_allowed jellyfin_catalog_scope jellyfin_catalog_parameters
   jellyfin_resources_allowed jellyfin_resource_routes jellyfin_resource_parameters
   relay_get_head relay_ranges relay_invalid_ranges relay_invalid_requests relay_resource_limits

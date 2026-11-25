@@ -32,7 +32,6 @@ info = json.load(open(sys.argv[1]))
 assert info.get('simulated') is True, 'Refusing to test on a physical device'
 assert info.get('architecture') == 'x86_64', 'Unexpected virtual-device architecture'
 PY
-log_device_serial="$(timeout --kill-after=2s 5s vega exec vda get-serialno 2>/dev/null)" || log_device_serial=''
 if ! python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1])).get("inDeveloperMode", False))' "$evidence/device.json"; then
   vega exec vda shell 'vsm developer-mode enable'
   # Enabling developer mode reboots only this disposable virtual device.
@@ -45,6 +44,18 @@ if ! python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1])).get(
     sleep 2
   done
   [[ "$ready" == true ]] || { echo 'The virtual device did not finish restarting.' >&2; exit 1; }
+fi
+# Developer mode can restart VDA. Resolve its serial only after that restart,
+# retaining bounded lookup diagnostics instead of silently omitting app logs.
+for attempt in {1..3}; do
+  if timeout --kill-after=2s 15s vega exec vda get-serialno >"$evidence/device-serial.txt" 2>>"$evidence/device-serial.log"; then
+    candidate="$(tr -d '\r\n' <"$evidence/device-serial.txt")"
+    if [[ "$candidate" =~ ^emulator-[0-9]+$ ]]; then log_device_serial="$candidate"; break; fi
+  fi
+  sleep 1
+done
+if [[ -z "$log_device_serial" ]]; then
+  printf 'The verified virtual device did not provide a usable VDA serial.\n' >"$evidence/device-application.log"
 fi
 vega exec vda shell 'touch /tmp/automation-toolkit.enable'
 python3 scripts/nas_fixture.py "$RUNNER_TEMP/vega-nas" >"$evidence/nas.log" 2>&1 &
@@ -63,7 +74,9 @@ PY
 vega exec vda reverse tcp:1445 tcp:1445
 vega run-app "$package" com.dineshdevkota.cinevault.main -d VirtualDevice >"$evidence/launch.log" 2>&1
 export PATH="$(dirname "$(vega exec which vda)"):$PATH"
-appium --address 127.0.0.1 --log "$evidence/appium.log" >"$evidence/appium-console.log" 2>&1 &
+# Debug-level driver logs include text-entry request bodies. Keep diagnostics
+# without retaining the synthetic password/PIN values from these journeys.
+appium --address 127.0.0.1 --log-level warn --log "$evidence/appium.log" >"$evidence/appium-console.log" 2>&1 &
 appium_pid=$!
 for attempt in {1..60}; do
   if curl --fail --silent http://127.0.0.1:4723/status >/dev/null; then break; fi

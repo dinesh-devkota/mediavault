@@ -1,7 +1,10 @@
 #include "Core.h"
 #include "KeyPolicy.h"
+#include "PlatformErrorCategory.h"
 #include <algorithm>
 #include <apmf/array.h>
+#include <apmf/iface/com/amazon/apmf/BaseError.h>
+#include <apmf/iface/com/amazon/apmf/IError.h>
 #include <apmf/iface/com/amazon/kepler/crypto/ICrypto.h>
 #include <apmf/iface/com/amazon/kepler/crypto/IDecryptionContext.h>
 #include <apmf/iface/com/amazon/kepler/crypto/IEncryptionContext.h>
@@ -29,6 +32,14 @@ namespace keystore = apmf::iface::com::amazon::kepler::keystore;
 namespace filesystem = apmf::iface::com::amazon::kepler::file_system;
 namespace security = apmf::iface::com::amazon::kepler::security;
 namespace {
+[[noreturn]] void storageFailure(const char *code, const char *stage,
+                                 const char *category) {
+  syslog(LOG_ERR, "MediaVault protected storage failed: %s (%s:%s)", stage,
+         code, category);
+  throw UserError(
+      std::string("Protected settings are unavailable. Try again. (") + code +
+      ":" + category + ")");
+}
 template <typename Operation>
 auto storageStep(const char *code, const char *stage, Operation &&operation)
     -> decltype(operation()) {
@@ -36,14 +47,19 @@ auto storageStep(const char *code, const char *stage, Operation &&operation)
     return operation();
   } catch (const UserError &) {
     throw;
+  } catch (const apmf::iface::com::amazon::apmf::BaseError &error) {
+    const char *category = "platform";
+    try {
+      category = platformErrorCategory(
+          std::string(error.GetErrorObject()->getTypes()));
+    } catch (...) {
+      // Failure to inspect error metadata must never hide the original denial.
+    }
+    storageFailure(code, stage, category);
   } catch (...) {
     // Only fixed labels are logged: SDK exceptions may contain credentials or
     // encrypted record contents, so never forward their text across the bridge.
-    syslog(LOG_ERR, "MediaVault protected storage failed: %s (%s)", stage,
-           code);
-    throw UserError(
-        std::string("Protected settings are unavailable. Try again. (") + code +
-        ")");
+    storageFailure(code, stage, "unexpected");
   }
 }
 std::string recordPrefix(const std::string &id) {
