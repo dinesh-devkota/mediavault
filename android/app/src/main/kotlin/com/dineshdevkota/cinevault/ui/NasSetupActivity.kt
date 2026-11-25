@@ -84,6 +84,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var busyText by remember { mutableStateOf("") }
     var committing by remember { mutableStateOf(false) }
+    val isTv = LocalTvLayout.current
     val primaryFocus = remember { FocusRequester() }
     // Decide once per step so typing an address never moves focus to Connect.
     val focusAddress = remember(step) { host.isBlank() }
@@ -207,7 +208,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
 
     BackHandler { back() }
     LaunchedEffect(step, rootPath, focusReady, busy, windowFocused) {
-        if (focusReady && windowFocused && !busy && !focusedStage) focusedStage = primaryFocus.requestFocus()
+        if (isTv && focusReady && windowFocused && !busy && !focusedStage) focusedStage = primaryFocus.requestFocus()
     }
     LaunchedEffect(refresh, step == SetupStep.Devices) {
         if (step == SetupStep.Devices) NasDiscovery(context).discover().collect { discovery = it }
@@ -232,7 +233,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                 Column {
                     ScreenHeader(if (step == SetupStep.Connect && !credentials) "Connect to NAS" else step.title,
                         kicker = "ADD NAS", showBack = false)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AdaptiveActions(12.dp) {
                         OutlinedButton(onClick = { back() }, enabled = !committing) { Text(if (busy) "Cancel" else "Back") }
                         if (step != SetupStep.Devices) {
                             Text(runCatching { NasAddress.parse(host, port.trim().toIntOrNull()).authority }
@@ -256,7 +257,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                         "Choose a NAS on this network, or enter its address.", working = discovery.searching)
                     discovery.error?.let { Text(it, color = SecondaryText) }
                     if (!discovery.searching && discovery.devices.isEmpty()) {
-                        Text("Your NAS may still be reachable by address. Check that the TV and NAS use the same network.", color = SecondaryText)
+                        Text("Your NAS may still be reachable by address. Check that this device and the NAS use the same network.", color = SecondaryText)
                     }
                 }
                 items(discovery.devices, key = { "${it.host}:${it.port}" }) { device ->
@@ -276,7 +277,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                     }
                 }
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AdaptiveActions(12.dp) {
                         Button(onClick = { step = SetupStep.Connect },
                             modifier = Modifier.focusRequester(primaryFocus).onGloballyPositioned { focusReady = true }) { Text("Enter NAS address") }
                         OutlinedButton(enabled = !discovery.searching, onClick = { refresh++ }) {
@@ -303,7 +304,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                             TvTextField(password, { invalidate(); password = it }, "Password", Modifier.fillMaxWidth(), isPassword = true, enabled = !busy)
                         }
                         if (!credentials) Text("Guest access is tried first. Sign in if your NAS needs an account.", color = SecondaryText)
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AdaptiveActions(12.dp) {
                             Button(onClick = { loadShares() }, enabled = !busy,
                                 modifier = if (!focusAddress) Modifier.focusRequester(primaryFocus).onGloballyPositioned { focusReady = true } else Modifier) { Text("Connect") }
                             OutlinedButton(onClick = {
@@ -344,7 +345,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                     TvTextField(name, { name = it }, "Library name (optional)", enabled = !busy)
                 }
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AdaptiveActions(12.dp) {
                         Button(enabled = !busy && folderReady,
                             modifier = Modifier.focusRequester(primaryFocus).onGloballyPositioned { focusReady = true }, onClick = {
                             val source = config(requireShare = true) ?: return@Button

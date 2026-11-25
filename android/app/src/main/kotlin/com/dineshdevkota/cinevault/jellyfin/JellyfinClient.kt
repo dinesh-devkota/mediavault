@@ -155,8 +155,8 @@ class JellyfinClient(
             put("Secret", secret)
         })))
 
-    suspend fun signOut(session: JellyfinSession) {
-        exchange(request(address.url("Sessions/Logout"), session).postBody(buildJsonObject {}).build(), false)
+    suspend fun signOut(session: JellyfinSession, timeoutMillis: Long? = null) {
+        exchange(request(address.url("Sessions/Logout"), session).postBody(buildJsonObject {}).build(), false, timeoutMillis)
     }
 
     suspend fun libraries(session: JellyfinSession): List<JellyfinItem> {
@@ -207,19 +207,20 @@ class JellyfinClient(
         itemId: String,
         deviceProfile: JsonObject,
         startMillis: Long = 0,
+        allowDirect: Boolean = true,
     ): JellyfinPlayback {
         val url = urlFor("Items", itemId, "PlaybackInfo")
         val info = send<JellyfinPlaybackInfo>(request(url, session).postBody(buildJsonObject {
             put("UserId", session.user.id)
             put("DeviceProfile", deviceProfile)
-            put("EnableDirectPlay", true)
-            put("EnableDirectStream", true)
+            put("EnableDirectPlay", allowDirect)
+            put("EnableDirectStream", allowDirect)
             put("EnableTranscoding", true)
             put("StartTimeTicks", millisToTicks(startMillis))
         }))
         val playSessionId = info.playSessionId?.takeIf(String::isNotBlank)
             ?: throw JellyfinException("The server did not start a playback session.")
-        val direct = info.sources.firstOrNull { it.directPlay }
+        val direct = info.sources.firstOrNull { allowDirect && it.directPlay }
         val source = direct ?: info.sources.firstOrNull { !it.transcodingUrl.isNullOrEmpty() }
             ?: throw JellyfinException("Jellyfin could not find a format this device can play.")
         val streamUrl = if (direct != null) {
@@ -365,24 +366,27 @@ class JellyfinClient(
         }
     }
 
-    private suspend fun exchange(request: Request, readBody: Boolean): String = runInterruptible(Dispatchers.IO) {
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                val status = response.code
-                throw JellyfinException(when (status) {
-                    401 -> "Jellyfin rejected this sign-in or the session expired."
-                    403 -> "This Jellyfin account cannot access the requested content."
-                    404 -> "The Jellyfin server could not find that library or feature."
-                    in 300..399 -> "Enter the final Jellyfin server address. Redirects are blocked to protect your sign-in."
-                    else -> "The Jellyfin request failed (HTTP $status)."
-                }, status)
+    private suspend fun exchange(request: Request, readBody: Boolean, timeoutMillis: Long? = null): String =
+        runInterruptible(Dispatchers.IO) {
+            val call = http.newCall(request)
+            timeoutMillis?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
+            call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    val status = response.code
+                    throw JellyfinException(when (status) {
+                        401 -> "Jellyfin rejected this sign-in or the session expired."
+                        403 -> "This Jellyfin account cannot access the requested content."
+                        404 -> "The Jellyfin server could not find that library or feature."
+                        in 300..399 -> "Enter the final Jellyfin server address. Redirects are blocked to protect your sign-in."
+                        else -> "The Jellyfin request failed (HTTP $status)."
+                    }, status)
+                }
+                if (!readBody) return@use ""
+                val source = response.body?.source() ?: throw JellyfinException("The Jellyfin response was empty.")
+                if (source.request(MAX_RESPONSE + 1)) throw JellyfinException("The Jellyfin response is too large.")
+                source.readUtf8()
             }
-            if (!readBody) return@use ""
-            val source = response.body?.source() ?: throw JellyfinException("The Jellyfin response was empty.")
-            if (source.request(MAX_RESPONSE + 1)) throw JellyfinException("The Jellyfin response is too large.")
-            source.readUtf8()
         }
-    }
 
     private companion object {
         val defaultHttp = OkHttpClient.Builder()

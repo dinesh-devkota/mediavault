@@ -272,6 +272,17 @@ internal fun HomeShelfHeader(title: String, onSeeAll: (() -> Unit)?) {
 @Composable
 fun ScreenHeader(title: String, modifier: Modifier = Modifier, kicker: String? = null, trailing: String? = null, showBack: Boolean = true) {
     val activity = LocalActivity.current as? ComponentActivity
+    if (!LocalTvLayout.current) {
+        Column(modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (showBack && activity != null && activity !is com.dineshdevkota.cinevault.MainActivity) {
+                OutlinedButton(onClick = { activity.onBackPressedDispatcher.onBackPressed() }) { Text("Back") }
+            }
+            kicker?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = Accent) }
+            Text(title, style = MaterialTheme.typography.headlineMedium)
+            trailing?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = SecondaryText) }
+        }
+        return
+    }
     Row(modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
         if (showBack && activity != null && activity !is com.dineshdevkota.cinevault.MainActivity) {
             OutlinedButton(onClick = { activity.onBackPressedDispatcher.onBackPressed() }, modifier = Modifier.padding(end = 16.dp)) { Text("Back") }
@@ -338,7 +349,7 @@ fun TvTextField(
             keyboardType = if (isPassword && keyboardType != KeyboardType.NumberPassword) KeyboardType.Password else keyboardType,
             imeAction = imeAction,
             autoCorrectEnabled = false,
-            showKeyboardOnFocus = false,
+            showKeyboardOnFocus = !LocalTvLayout.current,
         ),
         // Results update live, so the IME's Search key only needs to close the keyboard.
         keyboardActions = KeyboardActions(onSearch = { defaultKeyboardAction(ImeAction.Done) }),

@@ -44,7 +44,13 @@ final class JellyfinIntegrationTests: XCTestCase {
         XCTAssertNil(episode.tmdbID)
         XCTAssertFalse(movie.isWatched)
         let photo = try XCTUnwrap(source.movies.first { $0.filePath.hasSuffix(".jpg") })
-        let loader = PhotoImageLoader()
+        XCTAssertEqual(PhotoLibrary.albums([photo]).first?.title, source.name)
+        let suite = "MediaVault.JellyfinPhotoAccess.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var credentials: String?
+        let photoHousehold = HouseholdStore(defaults: defaults, read: { credentials }, write: { credentials = $0 })
+        let loader = PhotoImageLoader(household: photoHousehold)
         let thumbnail = try await loader.image(config: source.config(), path: photo.filePath,
                                                knownSize: 0, maxPixelSize: 128)
         XCTAssertLessThanOrEqual(max(thumbnail.size.height, thumbnail.size.width), 128)
@@ -59,6 +65,16 @@ final class JellyfinIntegrationTests: XCTestCase {
         ])
         XCTAssertTrue(HouseholdPolicy.allowsPath(profile: permitted, sourceID: source.id, path: movie.filePath, caseSensitive: true))
         XCTAssertFalse(HouseholdPolicy.allowsPath(profile: permitted, sourceID: UUID(), path: movie.filePath, caseSensitive: true))
+        let pin = "348216"
+        try await photoHousehold.setupAsync(pin: pin, confirmation: pin, intent: photoHousehold.authenticationToken)
+        let admin = try XCTUnwrap(photoHousehold.profiles.first(where: \.isAdmin))
+        try await photoHousehold.unlockAsync(admin.id, pin: pin, intent: photoHousehold.authenticationToken)
+        try await photoHousehold.saveViewer(restricted, newPIN: nil, confirmation: "", adminPIN: pin, intent: photoHousehold.authenticationToken)
+        try await photoHousehold.unlockAsync(restricted.id, pin: "", intent: photoHousehold.authenticationToken)
+        do {
+            _ = try await loader.image(config: source.config(), path: photo.filePath, knownSize: 0, maxPixelSize: 128)
+            XCTFail("Changing to an ungranted profile must block a cached provider photo.")
+        } catch PhotoLoadingError.unavailable { }
 
         let connection = try JellyfinSourceConnection(config: source.config())
         let playback = try await connection.playback(path: movie.filePath)

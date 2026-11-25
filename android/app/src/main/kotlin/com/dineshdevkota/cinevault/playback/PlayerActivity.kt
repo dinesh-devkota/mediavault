@@ -20,6 +20,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.annotation.OptIn
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -57,6 +59,7 @@ import com.dineshdevkota.cinevault.ui.ContinueWatchingItem
 import com.dineshdevkota.cinevault.ui.nextEpisodeFor
 import com.dineshdevkota.cinevault.ui.PlaybackSettingsActivity
 import com.dineshdevkota.cinevault.ui.languageName
+import com.dineshdevkota.cinevault.ui.isTelevision
 import com.dineshdevkota.cinevault.ui.chooseSubtitleLanguage
 import com.dineshdevkota.cinevault.subtitles.SubDlClient
 import com.dineshdevkota.cinevault.subtitles.subtitleQuery
@@ -97,6 +100,8 @@ class PlayerActivity : ComponentActivity() {
     @Volatile private var target: Target? = null
     private var jellyfinPlaying: JellyfinPlaying? = null
     private var jellyfinReportJob: Job? = null
+    private var jellyfinFallbackJob: Job? = null
+    private var retriedJellyfinPlayback = false
     private lateinit var householdSession: com.dineshdevkota.cinevault.family.FamilySession
     private var player: ExoPlayer? = null
     private var progressJob: Job? = null
@@ -152,6 +157,7 @@ class PlayerActivity : ComponentActivity() {
         override fun onPlayerError(error: PlaybackException) {
             playbackFailed = true
             cancelNext()
+            if (error.errorCode in jellyfinFallbackErrors) retryJellyfinWithTranscoding()
         }
 
         override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
@@ -180,6 +186,7 @@ class PlayerActivity : ComponentActivity() {
             }
         }
         playerView = PlayerView(this).apply {
+            id = com.dineshdevkota.cinevault.R.id.playback_view
             setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
             setShowNextButton(false)
             setShowPreviousButton(false)
@@ -190,7 +197,8 @@ class PlayerActivity : ComponentActivity() {
         }
         // One menu keeps online choices and NAS lookup notices accessible from both subtitle controls.
         playerView.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.setOnClickListener { showSubtitleMenu() }
-        val spacing = (24 * resources.displayMetrics.density).toInt()
+        val isTv = resources.configuration.isTelevision()
+        val spacing = ((if (isTv) 24 else 12) * resources.displayMetrics.density).toInt()
         titleLabel = TextView(this).apply { setTextColor(Color.WHITE); textSize = 24f; maxLines = 2 }
         detailLabel = TextView(this).apply { setTextColor(Color.LTGRAY); textSize = 15f; maxLines = 3 }
         information = LinearLayout(this).apply {
@@ -218,6 +226,13 @@ class PlayerActivity : ComponentActivity() {
             addView(playerView, FrameLayout.LayoutParams(-1, -1))
             addView(information, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         }
+        if (!isTv) {
+            ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, insets ->
+                val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                insets
+            }
+        }
         setContentView(rootView)
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility -> information.visibility = visibility })
         playerView.requestFocus()
@@ -229,7 +244,7 @@ class PlayerActivity : ComponentActivity() {
         }
         onBackPressedDispatcher.addCallback(this) {
             // First Back hides the on-screen controls, the next one leaves the player.
-            if (endHandled) finish()
+            if (!isTv || endHandled) finish()
             else if (playerView.isControllerFullyVisible && player?.playerError == null) playerView.hideController() else finish()
         }
         lifecycleScope.launch {
@@ -328,6 +343,8 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        jellyfinFallbackJob?.cancel()
+        jellyfinFallbackJob = null
         cancelNext()
         invalidateSubtitleRequest()
         subtitleDialog?.dismiss()
@@ -347,6 +364,35 @@ class PlayerActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
         outState.putLong(STATE_POSITION, player?.currentPosition ?: startPositionMs)
         outState.putBoolean(STATE_PLAY_WHEN_READY, player?.playWhenReady ?: playWhenReady)
+    }
+
+    private fun retryJellyfinWithTranscoding() {
+        val previousPlayer = player ?: return
+        val previousStream = jellyfinPlaying?.takeIf { it.playback.method == "DirectPlay" } ?: return
+        val previousTarget = target ?: return
+        if (retriedJellyfinPlayback || !container.family.isCurrent(householdSession) ||
+            !container.family.permits(previousTarget.movie)) return
+        retriedJellyfinPlayback = true
+        jellyfinFallbackJob = lifecycleScope.launch {
+            val connection = previousStream.connection
+            val stream = try {
+                connection.client.playback(connection.session, previousStream.playback.itemId, jellyfinAndroidProfile, allowDirect = false)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return@launch
+            }
+            val active = target ?: return@launch
+            if (isFinishing || player !== previousPlayer || active.movie.id != previousTarget.movie.id ||
+                !sameSource(active.source, previousTarget.source) || !container.family.isCurrent(householdSession) ||
+                !container.family.permits(active.movie)) return@launch
+            val position = maxOf(previousPlayer.currentPosition, 0).takeIf { it > 0 } ?: startPositionMs
+            stopPlayer()
+            startPositionMs = position
+            playbackFailed = false
+            warnedAboutTracks = false
+            startPlayer(JellyfinPlaying(connection, stream))
+        }
     }
 
     private fun startPlayer(jellyfin: JellyfinPlaying?) {
@@ -856,6 +902,13 @@ class PlayerActivity : ComponentActivity() {
     }
 
     companion object {
+        private val jellyfinFallbackErrors = setOf(
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+        )
         private const val EXTRA_MOVIE_ID = "movie_id"
         private const val EXTRA_RESUME = "resume"
         private const val STATE_POSITION = "position"

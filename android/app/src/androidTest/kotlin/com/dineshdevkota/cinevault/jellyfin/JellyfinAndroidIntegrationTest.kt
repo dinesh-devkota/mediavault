@@ -126,8 +126,16 @@ class JellyfinAndroidIntegrationTest {
                 assertDeniedBeforeOpening(local, downloaded.configuration.uri)
                 current.set(allowed)
                 verifyRenderedSeek(transport, uri, local, remoteCaption, downloaded)
+                val hls = restored.client.playback(
+                    restored.session, checkNotNull(jellyfinItemID(movie.filePath)), jellyfinAndroidProfile, allowDirect = false,
+                )
+                assertEquals("Transcode", hls.method)
+                val hlsTransport = jellyfinDataSources(restored, hls, http, authorize)
+                val hlsUri = Uri.parse(hls.url.toString())
+                verifyRenderedSeek(hlsTransport, hlsUri, local, remoteCaption, downloaded, MimeTypes.APPLICATION_M3U8)
                 current.set(viewer)
                 assertDeniedBeforeOpening(transport, uri)
+                assertDeniedBeforeOpening(hlsTransport, hlsUri)
                 assertDeniedBeforeOpening(transport, remoteCaption.uri)
                 assertDeniedBeforeOpening(local, downloaded.configuration.uri)
             } finally {
@@ -213,7 +221,7 @@ class JellyfinAndroidIntegrationTest {
 
     private suspend fun verifyRenderedSeek(
         transport: DataSource.Factory, uri: Uri, local: DataSource.Factory,
-        remoteCaption: MediaItem.SubtitleConfiguration, downloaded: PreparedSubtitle,
+        remoteCaption: MediaItem.SubtitleConfiguration, downloaded: PreparedSubtitle, mimeType: String? = null,
     ) {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             var player: ExoPlayer? = null
@@ -226,28 +234,31 @@ class JellyfinAndroidIntegrationTest {
                         .build()
                     player = exo
                     exo.addListener(observation)
-                    exo.setVideoFrameMetadataListener { timeUs, _, _, _ -> observation.frameTimeUs.set(timeUs) }
+                    exo.setVideoFrameMetadataListener { timeUs, _, _, _ ->
+                        observation.frameTimeUs.set(timeUs)
+                        observation.frames.incrementAndGet()
+                    }
                     view = PlayerView(activity).apply {
                         useController = false
                         this.player = exo
                     }
                     activity.setContentView(view)
-                    exo.setMediaItem(MediaItem.Builder().setUri(uri)
+                    exo.setMediaItem(MediaItem.Builder().setUri(uri).setMimeType(mimeType)
                         .setSubtitleConfigurations(listOf(remoteCaption, downloaded.configuration)).build())
                     exo.prepare()
                     exo.play()
                 }
                 val exo = checkNotNull(player)
-                awaitPlayback(exo, observation, 500)
-                withContext(Dispatchers.Main) {
-                    assertTrue("Jellyfin direct play must expose a seekable timeline.", exo.isCurrentMediaItemSeekable)
+                awaitPlayback(exo, observation, 500, mimeType)
+                val beforeSeek = withContext(Dispatchers.Main) {
+                    assertTrue("Jellyfin must expose a seekable timeline.", exo.isCurrentMediaItemSeekable)
                     val labels = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
                         .flatMap { group -> (0 until group.length).map { group.getTrackFormat(it).label } }
                     assertTrue("Expected both the Jellyfin sidecar and downloaded caption.", labels.containsAll(
                         listOf("Jellyfin NAS caption", "Downloaded caption")))
-                    exo.seekTo(5_000)
+                    observation.frames.get().also { exo.seekTo(5_000) }
                 }
-                awaitPlayback(exo, observation, 5_500)
+                awaitPlayback(exo, observation, 5_500, mimeType, beforeSeek)
                 withContext(Dispatchers.Main) { assertTrue(observation.seekObserved) }
             } finally {
                 withContext(NonCancellable + Dispatchers.Main) {
@@ -258,13 +269,16 @@ class JellyfinAndroidIntegrationTest {
         }
     }
 
-    private suspend fun awaitPlayback(player: ExoPlayer, observation: PlaybackObservation, position: Long) {
+    private suspend fun awaitPlayback(
+        player: ExoPlayer, observation: PlaybackObservation, position: Long, mimeType: String?, previousFrames: Int = 0,
+    ) {
         val reached = withTimeoutOrNull(30_000) {
             while (true) {
                 if (withContext(Dispatchers.Main) {
                     observation.error?.let { throw AssertionError("Jellyfin playback failed: ${it.errorCodeName}") }
-                    observation.firstFrame && player.isPlaying && player.currentPosition >= position &&
-                        observation.frameTimeUs.get() >= position * 1_000
+                    val decoded = if (mimeType == MimeTypes.APPLICATION_M3U8) observation.frames.get() > previousFrames
+                        else observation.frameTimeUs.get() >= position * 1_000
+                    observation.firstFrame && player.isPlaying && player.currentPosition >= position && decoded
                 }) return@withTimeoutOrNull true
                 delay(100)
             }
@@ -291,6 +305,7 @@ class JellyfinAndroidIntegrationTest {
 
     private class PlaybackObservation : Player.Listener {
         val frameTimeUs = AtomicLong(-1)
+        val frames = AtomicInteger()
         var firstFrame = false
         var seekObserved = false
         var error: PlaybackException? = null

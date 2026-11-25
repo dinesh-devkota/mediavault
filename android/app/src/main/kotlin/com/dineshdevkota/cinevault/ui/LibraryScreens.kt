@@ -23,6 +23,10 @@ import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.Tab as PhoneTab
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text as PhoneText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -75,6 +80,7 @@ private val tabs = listOf("Home", "Library", "Photos", "Search", "Sources", "Set
 
 @Composable
 fun RootScreen() {
+    val isTv = LocalTvLayout.current
     val context = LocalContext.current
     val container = context.container
     val loadedMovies by remember { container.library.observeAll() }.collectAsStateWithLifecycle(initialValue = null)
@@ -93,19 +99,21 @@ fun RootScreen() {
 
     fun openTab(index: Int) {
         tab = index
-        tabFocus[index].requestFocus()
+        if (isTv) tabFocus[index].requestFocus()
     }
 
     // Like tvOS: Back first returns to the tab bar, then to Home, then leaves the app.
-    BackHandler(enabled = !tabRowFocused || tab != 0) {
-        if (tabRowFocused) tab = 0
-        tabFocus[tab].requestFocus()
+    BackHandler(enabled = if (isTv) !tabRowFocused || tab != 0 else tab != 0) {
+        if (isTv) {
+            if (tabRowFocused) tab = 0
+            tabFocus[tab].requestFocus()
+        } else tab = 0
     }
     // TabRow subcomposes its tabs during layout, after this effect can first run.
     // Wait for their placement before restoring focus. A recreated window can
     // also have focus while its Compose view does not; acquire the owner first.
     LaunchedEffect(windowFocused, tabsPlaced) {
-        if (windowFocused && tabsPlaced && !initialFocusRequested) {
+        if (isTv && windowFocused && tabsPlaced && !initialFocusRequested) {
             // The owner's initial focus search can select another tab.
             val selectedTab = tab
             if (!view.hasFocus()) view.requestFocus()
@@ -119,7 +127,7 @@ fun RootScreen() {
                 OutlinedButton(onClick = { container.family.lock() }) { Text("Switch profile · ${container.family.current.profile?.name.orEmpty()}") }
             }
         }
-        TabRow(
+        if (isTv) TabRow(
             selectedTabIndex = tab,
             modifier = Modifier
                 .padding(start = ScreenPadding, top = 20.dp, bottom = 4.dp)
@@ -151,6 +159,26 @@ fun RootScreen() {
                 3 -> SearchTab(loadedMovies, openMovie)
                 4 -> SourcesTab(movies)
                 else -> SettingsTab()
+            }
+        }
+        if (!isTv) Column(Modifier.selectableGroup()) {
+            HorizontalDivider()
+            tabs.chunked(3).forEachIndexed { row, titles ->
+                Row(Modifier.fillMaxWidth().background(SurfaceColor)) {
+                    titles.forEachIndexed { col, title ->
+                        val index = row * 3 + col
+                        PhoneTab(
+                            selected = index == tab,
+                            onClick = { openTab(index) },
+                            modifier = Modifier.weight(1f),
+                            selectedContentColor = Accent,
+                            unselectedContentColor = SecondaryText,
+                            text = {
+                                PhoneText(title, fontWeight = if (index == tab) FontWeight.Bold else FontWeight.Normal)
+                            },
+                        )
+                    }
+                }
             }
         }
     }
@@ -317,11 +345,13 @@ private fun FeaturedCard(movie: MovieEntity, onClick: () -> Unit) {
 
 @Composable
 private fun MovieGrid(minimumPosterWidth: Dp = PosterWidth, content: LazyGridScope.() -> Unit) {
+    val isTv = LocalTvLayout.current
+    val spacing = if (isTv) 28.dp else 12.dp
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minimumPosterWidth),
+        columns = GridCells.Adaptive(if (isTv) minimumPosterWidth else minOf(minimumPosterWidth, 144.dp)),
         contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, bottom = 48.dp),
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
-        verticalArrangement = Arrangement.spacedBy(28.dp),
+        horizontalArrangement = Arrangement.spacedBy(spacing),
+        verticalArrangement = Arrangement.spacedBy(spacing),
         content = content,
     )
 }
