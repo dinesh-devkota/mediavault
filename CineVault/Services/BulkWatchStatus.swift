@@ -10,6 +10,7 @@ enum BulkWatchStatus {
     }
 
     static func isEligible(_ movie: Movie, includeHidden: Bool = false) -> Bool {
+        guard HouseholdStore.shared.allows(movie) else { return false }
         guard !movie.isDeleted, !movie.isMissing, includeHidden || !movie.isHidden,
               VideoFile.isVideo(path: movie.filePath),
               MediaFile.shouldIndex(path: movie.filePath, size: max(1, movie.fileSize)) else { return false }
@@ -24,11 +25,11 @@ enum BulkWatchStatus {
                       save: () throws -> Void) throws -> Result {
         var seen: Set<UUID> = []
         let eligible = movies.filter { isEligible($0, includeHidden: includeHidden) && seen.insert($0.id).inserted }
-        let previous = eligible.map { ($0, $0.isWatched, $0.playbackPosition) }
+        let previous = eligible.map { ($0, $0.householdWatched, $0.householdPosition) }
         var updated: Set<UUID> = []
         for movie in eligible {
             if reset(movie) {
-                movie.isWatched = watched
+                movie.householdWatched = watched
                 updated.insert(movie.id)
             }
         }
@@ -37,8 +38,8 @@ enum BulkWatchStatus {
         } catch {
             // Do not roll back unrelated pending metadata or scanner changes in this context.
             for (movie, oldWatched, oldPosition) in previous {
-                movie.isWatched = oldWatched
-                movie.playbackPosition = oldPosition
+                movie.householdWatched = oldWatched
+                movie.householdPosition = oldPosition
             }
             throw error
         }

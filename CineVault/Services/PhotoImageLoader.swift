@@ -59,6 +59,7 @@ actor PhotoImageLoader {
     static let maximumDecodedPixels = 4_194_304
     static let maximumDecodedBytes = 32 * 1024 * 1024
     private let slots: PhotoLoadSlots
+    private let household: HouseholdStore
     private let fileSize: (SourceConfig, String) async throws -> Int64
     private let read: (SourceConfig, String, Int64, Int) async throws -> Data
     private var cache: [CacheKey: CachedImage] = [:]
@@ -86,7 +87,8 @@ actor PhotoImageLoader {
 
     init(fileSize: ((SourceConfig, String) async throws -> Int64)? = nil,
          read: ((SourceConfig, String, Int64, Int) async throws -> Data)? = nil,
-         onQueued: @escaping () -> Void = {}) {
+         onQueued: @escaping () -> Void = {}, household: HouseholdStore = .shared) {
+        self.household = household
         slots = PhotoLoadSlots(onQueued: onQueued)
         let service = SMBService(timeout: 15)
         self.fileSize = fileSize ?? { try await service.fileSize($0, path: $1) }
@@ -112,6 +114,12 @@ actor PhotoImageLoader {
     }
 
     func image(config: SourceConfig, path: String, knownSize: Int64, maxPixelSize: Int, revision: Date? = nil) async throws -> UIImage {
+        let session = household.sessionToken
+        func checkAccess() throws {
+            guard household.sessionIsCurrent(session),
+                  household.allowsPath(sourceID: config.id, path: path) else { throw PhotoLoadingError.unavailable }
+        }
+        try checkAccess()
         try Task.checkCancellation()
         guard MediaFile.isPhoto(path: path), MediaFile.shouldIndex(path: path, size: 1),
               PhotoLocation.contains(path: path, root: config.rootPath), !config.excludesFile(path) else { throw PhotoLoadingError.unavailable }
@@ -122,12 +130,14 @@ actor PhotoImageLoader {
         try await slots.acquire()
         do {
             try Task.checkCancellation()
+            try checkAccess()
             // Another waiting thumbnail may already have completed this request.
             if let cached = cachedImage(for: key) {
                 await slots.release(); return cached
             }
             let size = try await fileSize(config, path)
             try Task.checkCancellation()
+            try checkAccess()
             guard size > 0 else { throw PhotoLoadingError.invalidImage }
             guard size <= Self.maximumEncodedBytes else { throw PhotoLoadingError.tooLarge }
             var bytes = Data()
@@ -138,6 +148,7 @@ actor PhotoImageLoader {
                 let length = Int(min(1024 * 1024, size - offset))
                 let chunk = try await read(config, path, offset, length)
                 try Task.checkCancellation()
+                try checkAccess()
                 guard !chunk.isEmpty, chunk.count <= length else { throw SMBError.unexpectedEndOfFile }
                 bytes.append(chunk); offset += Int64(chunk.count)
             }

@@ -103,7 +103,7 @@ struct BulkWatchSheet: View {
     private func row(_ movie: Movie) -> Row {
         let episode = movie.episodeInfo.map { String(format: "S%02dE%02d · ", $0.season, $0.episode) } ?? ""
         return Row(id: movie.id.uuidString, title: episode + movie.title,
-                   detail: "\(movie.isWatched ? "Watched" : "Unwatched") · \(movie.source?.name ?? "Library") · \(movie.filePath)",
+                   detail: "\(movie.householdWatched ? "Watched" : "Unwatched") · \(movie.source?.name ?? "Library") · \(movie.filePath)",
                    movies: [movie])
     }
 

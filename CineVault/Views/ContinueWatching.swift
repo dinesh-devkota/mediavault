@@ -46,7 +46,7 @@ enum ContinueWatching {
 
     // A scan can return alternate files in any order. Use the same copy on every visit.
     private static func activityFirst(_ lhs: Movie, _ rhs: Movie) -> Bool {
-        let left = lhs.lastPlayedAt ?? .distantPast, right = rhs.lastPlayedAt ?? .distantPast
+        let left = lhs.householdLastPlayed ?? .distantPast, right = rhs.householdLastPlayed ?? .distantPast
         if left != right { return left > right }
         if lhs.filePath != rhs.filePath { return lhs.filePath < rhs.filePath }
         let leftSource = lhs.source?.id.uuidString ?? "", rightSource = rhs.source?.id.uuidString ?? ""
@@ -58,14 +58,14 @@ enum ContinueWatching {
         var suggestions: [WatchSuggestion] = []
         var activeEpisodes: Set<UUID> = []
         // The first NAS scan may add thousands of episodes before anything has been played.
-        for movie in movies where movie.isInProgress || (movie.isWatched && movie.lastPlayedAt != nil) {
+        for movie in movies where movie.isInProgress || (movie.householdWatched && movie.householdLastPlayed != nil) {
             guard eligible(movie) else { continue }
             switch movie.mediaKind {
             case .tvShow: activeEpisodes.insert(movie.id)
             case .movie, .documentary:
                 if movie.isInProgress {
                     suggestions.append(WatchSuggestion(movie: movie, showID: nil, showTitle: nil,
-                                                       action: .resume, lastActivity: movie.lastPlayedAt))
+                                                       action: .resume, lastActivity: movie.householdLastPlayed))
                 }
             default: break
             }
@@ -77,7 +77,7 @@ enum ContinueWatching {
                 guard let anchor = show.episodes.filter({ activeEpisodes.contains($0.id) }).min(by: activityFirst) else { continue }
                 if anchor.isInProgress {
                     suggestions.append(WatchSuggestion(movie: anchor, showID: show.id, showTitle: show.title,
-                                                       action: .resume, lastActivity: anchor.lastPlayedAt))
+                                                       action: .resume, lastActivity: anchor.householdLastPlayed))
                 } else if let next = successor(after: anchor, in: show) {
                     suggestions.append(next)
                 }
@@ -105,12 +105,12 @@ enum ContinueWatching {
             copies[number, default: []].append(movie)
         }
         for number in copies.keys.sorted() {
-            guard let versions = copies[number], !versions.contains(where: { $0.isWatched }) else { continue }
+            guard let versions = copies[number], !versions.contains(where: { $0.householdWatched }) else { continue }
             let partial = versions.filter { $0.isInProgress }
             guard let target = (partial.isEmpty ? versions : partial).min(by: activityFirst) else { continue }
             return WatchSuggestion(movie: target, showID: show.id, showTitle: show.title,
                                    action: number.immediatelyFollows(current) ? .next : .nextAvailable,
-                                   lastActivity: anchor.lastPlayedAt)
+                                   lastActivity: anchor.householdLastPlayed)
         }
         return nil
     }

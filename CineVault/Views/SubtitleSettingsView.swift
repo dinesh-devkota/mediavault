@@ -105,6 +105,8 @@ struct SubtitleSettingsView: View {
     }
 
     private func connect() {
+        guard HouseholdStore.shared.isAdmin else { return }
+        let householdSession = HouseholdStore.shared.sessionToken
         generation = UUID(); let token = generation
         connecting = true; message = nil
         let typed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -114,7 +116,8 @@ struct SubtitleSettingsView: View {
                 let key = typed.isEmpty ? try Keychain.get(SubtitleSettings.account) ?? "" : typed
                 try await SubDLClient().validateKey(key)
                 try Task.checkCancellation()
-                guard generation == token else { return }
+                guard generation == token, HouseholdStore.shared.isAdmin,
+                      HouseholdStore.shared.sessionIsCurrent(householdSession) else { return }
                 try Keychain.set(key, for: SubtitleSettings.account)
                 SubtitleSettings.connected()
                 hasKey = true; verified = true; automatic = true; apiKey = ""
@@ -125,6 +128,7 @@ struct SubtitleSettingsView: View {
     }
 
     private func disconnect() {
+        guard HouseholdStore.shared.isAdmin else { return }
         do {
             try Keychain.delete(SubtitleSettings.account)
             automatic = false; verified = false; hasKey = false; apiKey = ""; message = "SubDL disconnected. Local subtitles remain available."

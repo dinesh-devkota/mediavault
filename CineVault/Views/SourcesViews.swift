@@ -268,6 +268,7 @@ struct SourceEditorView: View {
     }
 
     private func save() {
+        guard HouseholdStore.shared.isAdmin else { return }
         guard !fieldsDisabled, !(credentialReadFailed && !guestAccess), let c = checkedConfiguration() else { return }
         let target = source ?? MediaSource(name: "", host: "", share: "", rootPath: "", username: "")
         if source == nil { target.id = c.id }
@@ -298,6 +299,7 @@ struct SourceEditorView: View {
     }
 
     private func delete() {
+        guard HouseholdStore.shared.isAdmin else { return }
         guard let source, !fieldsDisabled else { return }
         let id = source.id
         context.delete(source)
@@ -324,6 +326,13 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Household") {
+                NavigationLink("Household profiles") { HouseholdSettingsView() }
+                    .accessibilityIdentifier("household-settings")
+                if HouseholdStore.shared.configured {
+                    Button("Switch profile") { HouseholdStore.shared.lock() }
+                }
+            }
             Section("Subtitles") {
                 NavigationLink("Subtitle language & SubDL setup") { SubtitleSettingsView() }
                     .accessibilityIdentifier("subtitle-settings")

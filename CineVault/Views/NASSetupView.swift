@@ -310,6 +310,7 @@ struct NASSetupView: View {
     }
 
     private func save() {
+        guard HouseholdStore.shared.isAdmin else { return }
         guard folderReady, !busy, !scanner.isScanning, let config = configuration(requireShare: true) else { return }
         let savedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         run(config, progress: "Adding your media folder…") { token in
