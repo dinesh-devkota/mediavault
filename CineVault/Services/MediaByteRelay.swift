@@ -162,7 +162,10 @@ final class MediaByteRelay: @unchecked Sendable {
 
     private func send(_ data: Data, client: NWConnection, final: Bool) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            client.send(content: data, contentContext: final ? .finalMessage : .defaultMessage, isComplete: final,
+            // Complete each logical send before switching contexts. TCP holds a different
+            // context until its predecessor completes; leaving defaultMessage incomplete
+            // would strand the final body chunk/FIN and make readers wait forever.
+            client.send(content: data, contentContext: final ? .finalMessage : .defaultMessage, isComplete: true,
                         completion: .contentProcessed { error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
             })

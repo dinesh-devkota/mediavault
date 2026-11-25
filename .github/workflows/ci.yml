@@ -22,6 +22,7 @@ jobs:
       - name: Test commercial build helpers
         run: |
           python3 -m unittest discover -s scripts/tests -p 'test_commercial_*.py'
+          python3 -m unittest discover -s scripts/tests -p test_webdav_fixture.py
           ruby -c fastlane/Fastfile
 
   build:

@@ -374,6 +374,7 @@ struct TVShowArtwork: View {
     var localPath: String? = nil
     var wide = false
     var focused = false
+    var compact = false
     private var width: CGFloat { wide ? CinemaTheme.episodeWidth : CinemaTheme.posterWidth }
     private var height: CGFloat { wide ? CinemaTheme.episodeWidth * 9 / 16 : CinemaTheme.posterHeight }
     var body: some View {
@@ -396,8 +397,8 @@ struct TVShowArtwork: View {
             .frame(width: width, height: height).clipped()
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(focused ? 0.9 : 0.1), lineWidth: focused ? 3 : 1) }
-            Text(title).font(.system(size: 23, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
-            Text(subtitle).font(.system(size: 19)).foregroundStyle(CinemaTheme.secondaryText)
+            Text(title).font(.system(size: compact ? 15 : 23, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
+            Text(subtitle).font(.system(size: compact ? 13 : 19)).foregroundStyle(CinemaTheme.secondaryText)
         }
         .frame(width: width, alignment: .leading)
         .scaleEffect(focused ? 1.04 : 1).animation(.easeOut(duration: 0.18), value: focused)

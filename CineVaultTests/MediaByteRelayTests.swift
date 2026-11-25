@@ -43,6 +43,21 @@ final class MediaByteRelayTests: XCTestCase {
         XCTAssertEqual(beforeHead, afterHead)
     }
 
+    func testMultipleChunksCompleteBeforeFinalBodyAndFIN() async throws {
+        // Cross two 512KB boundaries so both repeated defaultMessage sends and
+        // the final context must deliver, without reading the whole file at once.
+        let bytes = Data((0..<(1024 * 1024 + 37)).map { UInt8($0 % 251) })
+        let source = RelaySource(bytes: bytes)
+        let relay = try makeRelay(source); defer { relay.stop() }
+        let url = try await relay.start()
+        let (received, raw) = try await session().data(from: url)
+        XCTAssertEqual((raw as? HTTPURLResponse)?.statusCode, 200)
+        XCTAssertEqual(received, bytes)
+        let reads = await source.reads, largest = await source.largestRead
+        XCTAssertEqual(reads, 3)
+        XCTAssertLessThanOrEqual(largest, 512 * 1024)
+    }
+
     func testUnknownTokenNeverReadsSource() async throws {
         let source = RelaySource(); let relay = try makeRelay(source)
         defer { relay.stop() }
@@ -86,17 +101,20 @@ private actor RelaySource {
     var allowed = true
     var sizes = 0
     var reads = 0
+    var largestRead = 0
+    private let bytes: Data
+    init(bytes: Data = Data("0123456789".utf8)) { self.bytes = bytes }
     private var revoke = false
     private var block = false
     private var waiter: CheckedContinuation<Void, Never>?
     func setRevokeOnRead() { revoke = true }
     func setBlockRead() { block = true }
     func releaseRead() { block = false; waiter?.resume(); waiter = nil }
-    func size() -> Int64 { sizes += 1; return 10 }
+    func size() -> Int64 { sizes += 1; return Int64(bytes.count) }
     func read(offset: Int64, length: Int) async -> Data {
-        reads += 1
+        reads += 1; largestRead = max(largestRead, length)
         if block { await withCheckedContinuation { waiter = $0 } }
         if revoke { allowed = false }
-        return Data("0123456789".utf8).subdata(in: Int(offset)..<min(10, Int(offset) + length))
+        return bytes.subdata(in: Int(offset)..<min(bytes.count, Int(offset) + length))
     }
 }

@@ -17,6 +17,7 @@ final class LibraryFeaturesNavigationTests: XCTestCase {
         select(app.buttons["Done"], app)
         XCTAssertTrue(app.staticTexts["2 titles"].firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         capture("Personal collection with two titles", app)
+        select(app.buttons["collection-options"], app)
         select(app.buttons["Rename"], app)
         let rename = app.textFields["collection-rename-name"]
         select(rename, app)

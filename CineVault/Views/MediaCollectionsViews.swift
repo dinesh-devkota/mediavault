@@ -126,6 +126,17 @@ import SwiftUI
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if let collection {
+                    #if os(iOS)
+                    HStack {
+                        Text("\(collection.titleCount) \(collection.titleCount == 1 ? "title" : "titles")").foregroundStyle(.secondary)
+                        Spacer()
+                        BulkWatchControl(title: "Select", scope: collection.name, movies: collection.movies, startsSelected: false, groupShows: true)
+                    }
+                    if collection.customID != nil {
+                        Button { managing = true } label: { Label("Manage titles", systemImage: "plus.circle") }
+                            .buttonStyle(.bordered).accessibilityIdentifier("collection-manage")
+                    }
+                    #else
                     Text(collection.name).font(.largeTitle.bold())
                     Text("\(collection.titleCount) \(collection.titleCount == 1 ? "title" : "titles")").foregroundStyle(.secondary)
                     BulkWatchControl(title: "Select titles", scope: collection.name, movies: collection.movies, startsSelected: false, groupShows: true)
@@ -136,15 +147,34 @@ import SwiftUI
                             Button("Delete collection", role: .destructive) { confirmingDelete = true }
                         }
                     }
+                    #endif
                     if let error { Text(error).foregroundStyle(.orange) }
                     if collection.movies.isEmpty {
                         Text("No available titles in this collection. Add titles from their details or the library’s Select action.")
                     } else { CollectionLibraryGrid(movies: LibrarySort.year.sorted(collection.movies)) }
                 } else { Text("This collection is no longer available.") }
+                #if os(tvOS)
                 Button("Back") { dismiss() }
+                #endif
             }.padding(CinemaTheme.edgeInset)
         }
+        #if os(iOS)
+        .navigationTitle(collection?.name ?? "Collection")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            if let collection, collection.customID != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Rename", systemImage: "pencil") { name = collection.name; renaming = true }
+                        Button("Delete collection", systemImage: "trash", role: .destructive) { confirmingDelete = true }
+                    } label: { Label("Collection options", systemImage: "ellipsis.circle") }
+                    .accessibilityIdentifier("collection-options")
+                }
+            }
+        }
+        #else
         .navigationTitle("Collection")
+        #endif
         .sheet(isPresented: $managing) {
             if let id = collection?.customID { CollectionMembershipView(collectionID: id) }
         }
@@ -176,22 +206,27 @@ import SwiftUI
     let movies: [Movie]
     @FocusState private var focusedItem: String?
     private let columns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: CinemaTheme.gridSpacing)]
+    #if os(iOS)
+    private let compact = true
+    #else
+    private let compact = false
+    #endif
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 40) {
+        LazyVGrid(columns: columns, spacing: compact ? 20 : 40) {
             ForEach(CollectionRowItem.grouped(movies, groupVersions: true)) { item in
                 Group {
                     switch item {
                     case .movie(let movie):
-                        VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedItem == item.id)
+                        VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedItem == item.id, compact: compact)
                     case .show(let show):
                         NavigationLink { TVShowDestination(episodes: show.episodes, initialShowID: show.id) } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons", path: show.posterPath,
-                                localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedItem == item.id)
+                                localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedItem == item.id, compact: compact)
                         }
                     }
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: item.id)
             }
-        }.padding(.vertical, 24)
+        }.padding(.vertical, compact ? 8 : 24)
     }
 }
 
@@ -247,7 +282,9 @@ import SwiftUI
                 Text("Choose a version. Each file keeps its own playback position and watched status.").font(.caption).foregroundStyle(.secondary)
             }
             ForEach(movies) { movie in
-                NavigationLink(value: movie) {
+                NavigationLink {
+                    MovieDetailView(movie: movie)
+                } label: {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(MovieVersions.label(movie)).font(.headline)
                         Text(movie.fileName).font(.caption)
@@ -266,6 +303,7 @@ import SwiftUI
     let movie: Movie
     let candidates: [Movie]
     var isFocused = false
+    var compact = false
     private var count: Int {
         candidates.filter { MovieVersions.key($0) == MovieVersions.key(movie) && LibraryCollectionsStore.available($0) }.count
     }
@@ -273,14 +311,14 @@ import SwiftUI
         Group {
             if count > 1 {
                 NavigationLink { MovieVersionsView(groupKey: MovieVersions.key(movie)) } label: {
-                    PosterView(movie: movie, isFocused: isFocused)
+                    PosterView(movie: movie, isFocused: isFocused, compact: compact)
                         .overlay(alignment: .topLeading) {
                             Text("\(count) versions").font(.caption.bold()).padding(8)
                                 .background(.black.opacity(0.8), in: Capsule()).padding(8)
                         }
                 }.accessibilityLabel("\(movie.title), \(count) versions")
             } else {
-                NavigationLink(value: movie) { PosterView(movie: movie, isFocused: isFocused) }
+                NavigationLink { MovieDetailView(movie: movie) } label: { PosterView(movie: movie, isFocused: isFocused, compact: compact) }
                     .accessibilityLabel(movie.title)
             }
         }

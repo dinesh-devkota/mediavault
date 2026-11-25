@@ -737,6 +737,7 @@ struct ContinueWatchingCard: View {
 struct PosterView: View {
     let movie: Movie
     var isFocused = false
+    var compact = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -791,11 +792,11 @@ struct PosterView: View {
             .shadow(color: .black.opacity(isFocused ? 0.6 : 0.25), radius: isFocused ? 20 : 8, y: 10)
 
             Text(movie.title)
-                .font(.system(size: 23, weight: .semibold))
+                .font(.system(size: compact ? 15 : 23, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Text(movie.displayYear.isEmpty ? "Movie" : movie.displayYear)
-                .font(.system(size: 19))
+                .font(.system(size: compact ? 13 : 19))
                 .foregroundStyle(CinemaTheme.secondaryText)
         }
         .frame(width: CinemaTheme.posterWidth, alignment: .leading)

@@ -32,7 +32,11 @@ final class AlternativePlaybackIntegrationTests: XCTestCase {
                 engine.play()
                 try await wait(engine, description: ext + " completes") { engine.ended }
                 XCTAssertNil(engine.failure)
-            } catch { engine.stop(); await SMBService.shared.reset(config); throw error }
+            } catch {
+                engine.stop(); await SMBService.shared.reset(config)
+                XCTFail("\(ext) failed at \(engine.preparationStage): \(error)")
+                return
+            }
             engine.stop(); await SMBService.shared.reset(config)
             withExtendedLifetime(drawable) { }
         }

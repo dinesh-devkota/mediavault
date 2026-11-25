@@ -129,6 +129,30 @@ class Handler(BaseHTTPRequestHandler):
         )
 
 
+class TLSFixtureServer(ThreadingHTTPServer):
+    """Keep speculative/idle connections out of the listener's accept loop."""
+
+    def __init__(self, address, handler, *, ssl_context, connection_timeout=5):
+        self.ssl_context = ssl_context
+        self.connection_timeout = connection_timeout
+        super().__init__(address, handler)
+
+    def get_request(self):
+        connection, address = super().get_request()
+        try:
+            connection.settimeout(self.connection_timeout)
+            # Handshake on the handler worker's first read, not synchronously in
+            # SSLSocket.accept(). Browsers/URLSession may preconnect without yet
+            # sending a ClientHello; that must not stall every other client.
+            secured = self.ssl_context.wrap_socket(
+                connection, server_side=True, do_handshake_on_connect=False,
+            )
+            return secured, address
+        except Exception:
+            connection.close()
+            raise
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
@@ -136,8 +160,7 @@ def main():
     certificate, key = create_certificate(arguments.directory)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certificate, key)
-    with ThreadingHTTPServer(("127.0.0.1", 15443), Handler) as server:
-        server.socket = context.wrap_socket(server.socket, server_side=True)
+    with TLSFixtureServer(("127.0.0.1", 15443), Handler, ssl_context=context) as server:
         server.serve_forever()
 
 

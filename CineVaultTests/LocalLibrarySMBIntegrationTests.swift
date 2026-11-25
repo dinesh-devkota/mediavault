@@ -22,7 +22,11 @@ import XCTest
         let feature = try XCTUnwrap(films.first { !$0.filePath.contains("Directors") })
         let art = try XCTUnwrap(feature.localPosterPath)
         XCTAssertTrue(rows.contains { $0.filePath == art && $0.isMissing }, "Companion art is not a photo-album item")
-        XCTAssertTrue(rows.contains { $0.filePath == "Photos/poster.png" && !$0.isMissing })
+        // AMSMB2 may prefix share-relative paths with a slash (or repeat separators
+        // while walking folders). Compare canonical paths without changing saved IDs.
+        let photos = rows.filter { MediaFile.isPhoto(path: $0.filePath) && !$0.isMissing }
+        XCTAssertEqual(Set(photos.compactMap { ScanExclusions.normalizeFile(path: $0.filePath) }), ["Photos/poster.png"],
+            "Only the standalone photograph should remain in Photos: \(photos.map(\.filePath))")
         let config = try source.config()
         let image = try await PhotoImageLoader().image(config: config, path: art, knownSize: 0, maxPixelSize: 512)
         XCTAssertNotNil(image.cgImage)

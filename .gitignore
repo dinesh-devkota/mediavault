@@ -23,3 +23,6 @@ __pycache__/
 /project.commercial-local.yml
 /project.ios-commercial-tests.yml
 /project.ios-commercial-local.yml
+
+# Downloaded hosted test evidence (screenshots, videos, and logs).
+/.artifacts/

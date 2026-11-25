@@ -31,6 +31,7 @@ final class AlternativePlayback: ObservableObject {
     private var requestedPlayback = false
     private var observedPlaying = false
     private var pendingSeek: Double?
+    private(set) var preparationStage = "not started"
     var tick: (() -> Void)?
     var didEnd: (() -> Void)?
     var failed: ((String) -> Void)?
@@ -45,6 +46,7 @@ final class AlternativePlayback: ObservableObject {
     init(relay: MediaByteRelay) { self.relay = relay }
 
     func prepare(url: URL) async throws {
+        preparationStage = "creating media"
         guard let media = VLCMedia(url: url) else { throw PlaybackPreparationError.unsupportedFormat }
         // Do not search sibling/network resources from inside the decoding engine.
         media.addOption(":no-sub-autodetect-file")
@@ -53,8 +55,10 @@ final class AlternativePlayback: ObservableObject {
         engine.timeChangeUpdateInterval = 0.1
         let parser = VLCMediaParser(library: engine.libraryInstance, timeout: 30_000)
         self.parser = parser
+        preparationStage = "queueing metadata"
         guard parser.queue(media, options: VLCMediaParsingOptions(rawValue: 1)) == 0 else { throw PlaybackPreparationError.unsupportedFormat }
         defer { parser.cancelAllParsing(); self.parser = nil }
+        preparationStage = "reading metadata"
         let deadline = ContinuousClock.now.advanced(by: .seconds(35))
         while media.parsedStatus == .none || media.parsedStatus == .pending {
             try Task.checkCancellation()
@@ -62,13 +66,16 @@ final class AlternativePlayback: ObservableObject {
             try await Task.sleep(for: .milliseconds(100))
         }
         try Task.checkCancellation()
-        guard !stopped, media.parsedStatus == .done,
-              media.tracksInformation.contains(where: { $0.type == .video || $0.type == .audio }) else {
+        preparationStage = "metadata status \(media.parsedStatus.rawValue)"
+        guard !stopped, media.parsedStatus == .done else { throw PlaybackPreparationError.unsupportedFormat }
+        preparationStage = "checking playable tracks"
+        guard media.tracksInformation.contains(where: { $0.type == .video || $0.type == .audio }) else {
             throw PlaybackPreparationError.unsupportedFormat
         }
+        preparationStage = "checking finite duration"
         duration = Double(media.length.intValue) / 1000
         guard duration.isFinite, duration > 0 else { throw PlaybackPreparationError.unsupportedFormat }
-        ready = true
+        ready = true; preparationStage = "ready"
         timer = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
