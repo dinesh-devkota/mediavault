@@ -371,10 +371,12 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun requirePlaybackAccess(movie: MovieEntity) {
-        val active = target?.movie
+        val activeTarget = target
+        val active = activeTarget?.movie
         if (active == null || active.id != movie.id || active.sourceId != movie.sourceId || active.filePath != movie.filePath ||
             active.isMissing || active.isHidden ||
-            !container.family.isCurrent(householdSession) || !container.family.permits(active, requiresWholeSource = true)) {
+            !container.family.isCurrent(householdSession) ||
+            !container.family.permits(active, requiresWholeSource = activeTarget.emby != null)) {
             throw EmbyException("This item is no longer available.", 403)
         }
     }
