@@ -35,7 +35,8 @@ struct EmbyArtwork: View {
             } else { Color.clear }
         }.task(id: current) {
             loaded = nil
-            guard let current, let source = movie.source else { return }
+            guard let current, request == current, household.sessionIsCurrent(current.session),
+                  let source = movie.source else { return }
             do {
                 let config = try source.config()
                 let connection = try EmbySourceConnection(config: config)

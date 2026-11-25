@@ -125,13 +125,20 @@ final class LibraryScanner: ObservableObject {
         }
         let videos = EmbyCatalogVideo.videos(items)
         var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { first, _ in first })
-        let previous = existing.values.map { ($0, $0.isMissing, $0.usContentRating, $0.tmdbID, $0.seriesTMDBID) }
+        let previous = existing.values.map {
+            ($0, $0.isMissing, $0.usContentRating, $0.tmdbID, $0.seriesTMDBID,
+             $0.providerSeriesID, $0.seriesTitle, $0.seasonNumber, $0.episodeNumber)
+        }
         let scanDate = source.lastScanDate
         var inserted: [Movie] = []
         for video in videos {
             let path = EmbySourceConnection.path(video.id)
             if let movie = existing.removeValue(forKey: path) {
                 movie.usContentRating = video.rating
+                movie.providerSeriesID = video.seriesID
+                movie.seriesTitle = video.seriesTitle
+                movie.seasonNumber = video.season
+                movie.episodeNumber = video.episode
                 if !movie.isLocked {
                     movie.tmdbID = video.tmdbID
                     movie.seriesTMDBID = video.seriesTMDBID
@@ -163,11 +170,15 @@ final class LibraryScanner: ObservableObject {
         source.lastScanDate = Date()
         do { try saveContext(context) }
         catch {
-            for (movie, wasMissing, rating, tmdbID, seriesTMDBID) in previous {
+            for (movie, wasMissing, rating, tmdbID, seriesTMDBID, seriesID, title, season, episode) in previous {
                 movie.isMissing = wasMissing
                 movie.usContentRating = rating
                 movie.tmdbID = tmdbID
                 movie.seriesTMDBID = seriesTMDBID
+                movie.providerSeriesID = seriesID
+                movie.seriesTitle = title
+                movie.seasonNumber = season
+                movie.episodeNumber = episode
             }
             source.lastScanDate = scanDate
             for movie in inserted { context.delete(movie) }

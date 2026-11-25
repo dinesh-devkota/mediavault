@@ -242,8 +242,10 @@ final class MetadataService {
         movie.tagline = nil
         movie.runtimeMinutes = episode?.runtime ?? details.episodeRunTime?.first { $0 > 0 }
         movie.rating = episode?.voteAverage ?? details.voteAverage
-        movie.usContentRating = details.contentRatings?.usContentRating
-        movie.usContentRatingFetched = details.contentRatings != nil
+        if movie.source?.isEmby != true {
+            movie.usContentRating = details.contentRatings?.usContentRating
+            movie.usContentRatingFetched = details.contentRatings != nil
+        }
         movie.posterPath = details.posterPath
         movie.backdropPath = episode?.stillPath ?? details.backdropPath
         movie.genres = details.genres?.map(\.name) ?? []
@@ -308,8 +310,10 @@ final class MetadataService {
         movie.tagline = details.tagline
         movie.runtimeMinutes = details.runtime
         movie.rating = details.voteAverage
-        movie.usContentRating = details.releaseDates?.usContentRating
-        movie.usContentRatingFetched = details.releaseDates != nil
+        if movie.source?.isEmby != true {
+            movie.usContentRating = details.releaseDates?.usContentRating
+            movie.usContentRatingFetched = details.releaseDates != nil
+        }
         movie.posterPath = details.posterPath
         movie.backdropPath = details.backdropPath
         movie.genres = details.genres?.map(\.name) ?? []
