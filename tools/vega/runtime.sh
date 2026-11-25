@@ -10,8 +10,15 @@ source "$HOME/vega/env"
 cd "$repo"
 evidence="$repo/.artifacts/vega-ui"
 mkdir -p "$evidence"
-nas_pid=''; appium_pid=''
+nas_pid=''; appium_pid=''; log_device_serial=''
 cleanup() {
+  if [[ -n "$log_device_serial" && "$log_device_serial" != unknown ]]; then
+    # Collect only this app on the verified disposable device, retaining its
+    # latest 2 MiB. Time is bounded even if a native service or VDA is stuck.
+    # https://developer.amazon.com/docs/vega/2.0/loggingctl documents -v.
+    timeout --kill-after=2s 15s vega exec vda -s "$log_device_serial" shell 'loggingctl log -v com.dineshdevkota.cinevault' 2>&1 |
+      tail -c 2097152 >"$evidence/device-application.log" || true
+  fi
   [[ -z "$appium_pid" ]] || kill "$appium_pid" 2>/dev/null || true
   [[ -z "$nas_pid" ]] || kill "$nas_pid" 2>/dev/null || true
   vega virtual-device stop >"$evidence/stop.log" 2>&1 || true
@@ -25,6 +32,7 @@ info = json.load(open(sys.argv[1]))
 assert info.get('simulated') is True, 'Refusing to test on a physical device'
 assert info.get('architecture') == 'x86_64', 'Unexpected virtual-device architecture'
 PY
+log_device_serial="$(timeout --kill-after=2s 5s vega exec vda get-serialno 2>/dev/null)" || log_device_serial=''
 if ! python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1])).get("inDeveloperMode", False))' "$evidence/device.json"; then
   vega exec vda shell 'vsm developer-mode enable'
   # Enabling developer mode reboots only this disposable virtual device.

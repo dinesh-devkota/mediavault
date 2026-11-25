@@ -41,7 +41,7 @@ isolated Ubuntu host with pinned base images and a verified official installer.
 Source development includes SMB, WebDAV and Jellyfin, local metadata/artwork,
 profile-scoped collections, versions, photos, continuous viewing and protected
 source access. The native SMB/HTTP/credential bridge compiles against Amazon's
-real SDK. TypeScript checking, 25 app/contract tests and 49 native host regression
+real SDK. TypeScript checking, 25 app/contract tests and 52 native host regression
 tests pass. The host suite exercises real SMB/HTTPS fixtures, including rejected
 credentials, cancellation, certificate verification and Jellyfin access boundaries.
 The first complete aarch64 debug VPKG also passes Amazon's manifest
@@ -52,8 +52,8 @@ Vega as released or device-verified yet. Host tests do not exercise the device k
 The SMB sign-in stall found by the negative-credential tests is fixed. Connection
 negotiation and authentication have a ten-second deadline and support cancellation;
 upstream system DNS resolution can still take longer. All three release architectures
-compiled in the initial cloud run. The build now selects the final VPKG explicitly
-instead of counting the SDK's staging copy twice. Virtual-device results remain
+passed the hosted package checks in run `45718538147`. The build selects the final
+VPKG explicitly instead of counting the SDK's staging copy twice. Virtual-device results remain
 required before distributing this checkpoint.
 
 The initial Vega app still lacks the existing Android/Apple apps' TMDB settings,

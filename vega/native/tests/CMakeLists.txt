@@ -93,7 +93,8 @@ if(MEDIAVAULT_NATIVE_INTEGRATION)
   target_link_libraries(mediavault_native_tests PRIVATE smb2 CURL::libcurl)
   foreach(test IN ITEMS smb_list_stat smb_ranges smb_unicode smb_authentication smb_cancellation smb_invalid_paths
       http_get_head_range http_unicode_query http_authentication http_redirect_credentials
-      http_certificate_validation http_limits http_untrusted_input http_profile_expiry http_text_decoding)
+      http_certificate_validation http_limits http_untrusted_input http_profile_expiry http_text_decoding
+      http_error_status_oversized http_error_status_encoding http_error_status_cancellation)
     add_test(NAME ${test} COMMAND mediavault_native_tests ${test})
     set_tests_properties(${test} PROPERTIES TIMEOUT 30 LABELS integration)
   endforeach()

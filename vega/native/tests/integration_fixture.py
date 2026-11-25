@@ -87,6 +87,12 @@ def serve_tls(folder: Path, certificate: str, audit: Path, marker: Path, capture
             if path.startswith("/media/redirect"):
                 scheme = "http" if path.endswith("-http") else "https"
                 return self.reply(302, headers={"Location": f"{scheme}://localhost:{self.server.capture_port}/capture"})
+            if path.startswith("/media/error/"):
+                _, _, _, status, variant = path.split("/")
+                if variant == "cancelled":
+                    marker.with_name(marker.name + ".error").write_text("profile changed\n", encoding="ascii")
+                body = b"\xff\xc0\xaf" if variant == "invalid-utf8" else b"error-page" * 8192
+                return self.reply(int(status), body, {"Content-Type": "text/html"})
             if path == "/media/oversized":
                 return self.reply(200, b"a" * 65536)
             if path == "/media/invalid-utf8":
@@ -154,6 +160,7 @@ def run(build: Path) -> int:
     audit.write_text("", encoding="utf-8")
     marker = folder / "profile-expired"
     marker.unlink(missing_ok=True)
+    marker.with_name(marker.name + ".error").unlink(missing_ok=True)
     # Fail rather than accidentally testing against an unrelated running NAS.
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 1445))

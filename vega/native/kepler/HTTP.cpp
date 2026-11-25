@@ -222,21 +222,29 @@ HTTPResult http(const Source &source, const JSON &request,
   curl_easy_setopt(handle.get(), CURLOPT_XFERINFODATA, &t);
   auto result = curl_easy_perform(handle.get());
   assertCurrent();
-  if (t.sizeExceeded)
-    throw ResponseLimitError(
-        "The server text or media file exceeds the supported size limit.");
-  if (result != CURLE_OK || t.invalid)
-    throw UserError("The secure server request failed or exceeded its limit. "
-                    "Check its address and certificate.");
   long status = 0;
   curl_easy_getinfo(handle.get(), CURLINFO_RESPONSE_CODE, &status);
   t.result.status = int(status);
   if (status >= 300 && status < 400)
     throw UserError("Enter the final server address. Redirects are blocked to "
                     "protect your sign-in.");
+  if (t.sizeExceeded && status >= 400 && status <= 599 && !t.invalid) {
+    // The failure response is already known. Its error page is not metadata,
+    // and an oversized error body must not overwrite a previous media rating.
+    t.result.body.clear();
+    return std::move(t.result);
+  }
+  if (t.sizeExceeded && status >= 200 && status < 300)
+    throw ResponseLimitError(
+        "The server text or media file exceeds the supported size limit.");
+  if (result != CURLE_OK || t.invalid)
+    throw UserError("The secure server request failed or exceeded its limit. "
+                    "Check its address and certificate.");
   return std::move(t.result);
 }
 std::string textResponse(const HTTPResult &result) {
+  if (result.status < 200 || result.status >= 300)
+    return JSON{{"status", result.status}, {"body", ""}, {"headers", result.headers}}.dump();
   size_t offset = 0;
   while (offset < result.body.size()) {
     utf8proc_int32_t codepoint = 0;

@@ -7,6 +7,11 @@ that plays movies, shows and music and displays photo albums from SMB, HTTPS
 WebDAV, and Jellyfin sources. Built with SwiftUI on Apple devices and Compose
 on Android, with remote controls on TVs and touch navigation on phones.
 
+Amazon Fire TV support is in development for both **Fire OS and Vega OS**.
+Fire OS uses the Android app; Vega uses a separate native app. See the
+[Fire TV guide](docs/FIRE-TV.md) for build checks, installation and remaining
+device validation. No Fire TV Appstore release has been published.
+
 The **1.5.0, build 7** feature branch adds local NFO/XML details and artwork,
 personal collections, automatic movie series, and grouped movie versions across
 all four platforms. Apple playback gains an additional VideoLAN engine for

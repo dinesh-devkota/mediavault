@@ -142,3 +142,38 @@ CASE(http_text_decoding) {
     CHECK(success.at("status") == 207); CHECK(success.at("body") == valid);
     CHECK(success.at("headers").at("content-type") == "text/xml");
 }
+CASE(http_error_status_oversized) {
+    for (const int status : {401, 403, 500}) {
+        auto result = fetch(server(), request("error/" + std::to_string(status) + "/oversized", "GET", 32));
+        CHECK(result.status == status); CHECK(result.body.empty());
+        const auto decoded = JSON::parse(textResponse(result));
+        CHECK(decoded.at("status") == status); CHECK(decoded.at("body") == ""); CHECK(!decoded.contains("error"));
+    }
+}
+CASE(http_error_status_encoding) {
+    for (const int status : {401, 403, 500}) {
+        auto result = fetch(server(), request("error/" + std::to_string(status) + "/invalid-utf8"));
+        CHECK(result.status == status);
+        const auto decoded = JSON::parse(textResponse(result));
+        CHECK(decoded.at("status") == status); CHECK(decoded.at("body") == ""); CHECK(!decoded.contains("error"));
+        // The text conversion boundary must remain safe even if a caller supplies
+        // a non-success response directly rather than using this HTTP transport.
+        const auto direct = JSON::parse(textResponse({status, {0xff}, {{"content-type", "text/html"}}}));
+        CHECK(direct.at("status") == status); CHECK(direct.at("body") == ""); CHECK(!direct.contains("error"));
+    }
+}
+CASE(http_error_status_cancellation) {
+    const auto marker = environment("MEDIAVAULT_TEST_PROFILE_MARKER") + ".error";
+    CHECK(!std::ifstream(marker).good());
+    bool cancelled = false;
+    try {
+        http(server(), request("error/403/cancelled", "GET", 0), [&] {
+            if (std::ifstream(marker).good()) throw UserError("Fixture profile changed during denied request");
+        });
+    } catch (const ResponseLimitError&) {
+        throw std::runtime_error("Failed-response cancellation must not become corrupt content");
+    } catch (const UserError& error) {
+        cancelled = std::string(error.what()) == "Fixture profile changed during denied request";
+    }
+    CHECK(cancelled); CHECK(std::ifstream(marker).good());
+}

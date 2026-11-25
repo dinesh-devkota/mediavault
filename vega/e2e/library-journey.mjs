@@ -112,7 +112,8 @@ try {
     await click('action-back'); await click('action-back'); await click('action-select-titles');
     await click(feature); await click(sequel); await click('action-mark-watched'); await click('action-add-to-collection');
     await enter('field-new-collection-name', 'Weekend'); await click('action-create-collection');
-    await click('action-weekend-2-titles');
+    await click('action-weekend-2-titles'); // Finish adding the selected titles and return to the library.
+    await click('action-collections'); await click('action-weekend-2-titles');
     await enter('field-collection-name', 'Movie Night', 'Weekend'); await click('action-save-name');
     await click('action-manage-titles'); await click('action-library-sequel'); await click('action-done');
     await element(byID(feature)); assert.equal(await exists(byID(sequel)), false, 'Removing a title must immediately update the collection.');
