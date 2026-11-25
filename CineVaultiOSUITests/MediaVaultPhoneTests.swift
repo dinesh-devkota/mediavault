@@ -126,8 +126,7 @@ final class MediaVaultPhoneTests: XCTestCase {
                 needsTap = !library.isSelected
             } else if library.isSelected {
                 return
-            } else {
-                XCTAssertTrue(needsTap && library.isHittable, app.debugDescription)
+            } else if needsTap && library.isHittable {
                 library.tap()
                 needsTap = false
             }

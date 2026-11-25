@@ -33,10 +33,13 @@ the test saved `Movie N` before all of `Movie Night` had arrived. `9bf7d62` wait
 for each field edit before keyboard dismissal; its Apple TV run passed 233/233
 (`45713647345`). Repeated iPhone runs exposed an intermittent fixture TLS failure
 and controls remaining in the accessibility tree after hiding. `f8282b4` hides
-inactive controls from accessibility and keeps controls visible for VoiceOver;
-its rerun is pending. Four fixture tests pass, with explicit TLS-stage diagnostics.
-The phone connection journey also resumes a Library tap only when an observed
-system Save Password sheet actually interrupted it.
+inactive controls from accessibility and keeps controls visible for VoiceOver.
+Its full Apple TV run passed 233/233 (`45718498997`) and iPhone passed 223/223
+plus unsigned release (`45718499092`). Four fixture tests pass, with explicit
+TLS-stage diagnostics. A duplicate iPhone run exposed the system Save Password
+sheet arriving before Library became tappable. The latest test waits within one
+ten-second navigation budget and repeats a tap only after an observed interruption;
+that final test follow-up remains under hosted validation.
 
 Earlier actual defects are corrected: TCP send completion, VLC parser timeout
 units, pending-pause acknowledgement, synchronous stream revocation, nested
@@ -48,6 +51,11 @@ Android core/app tests, debug lint and APK builds passed. The Fire branch has
 without their server. Hosted modern Android TV passed 110/110 (run `45709711876`)
 and phone passed 7/7 (run `45709711901`). Never run disposable test fixtures
 against the owner's installed emulator or real NAS.
+
+Repeated Android TV testing found a nested-focus handoff that could keep an
+ignored season visible. `643cb35` suspends child focus restoration while removing
+content and bounds the handoff. Its full Android TV workflow passed
+(`45722101734`), retaining the real ignored-folder/navigation regression.
 
 ## Amazon Fire TV work — November 25, 2026
 
@@ -63,11 +71,14 @@ The separate `vega/` app uses actual Amazon SDK 2.0.15159, React Native 0.83 and
 Vega OS 2 (rolled out across current Vega devices). Visible name MediaVault;
 internal ID matches Android's `com.dineshdevkota.cinevault`. Type checking and
 25 app/contract tests pass. The actual SDK native module compiles; all three
-release architectures and 49 real native transport tests passed in cloud run
-`45718538147` at `67deed4`. A follow-up expands the host suite to 52 passing cases
-so oversized/non-UTF8 server errors cannot be confused with corrupt metadata.
-VVD journeys are in progress. No Vega runtime success or Appstore release has
-been claimed. Keep PR 20 draft until its evidence is reviewed.
+release architectures and 57 native host cases pass in the latest cloud build.
+These include real transport fixtures, error-response classification and fixed
+platform-error categories. VVD installed/launched the real application but stops
+at `MV06`, opening the private keystore, before any library journey can pass.
+Amazon's [Crypto documentation](https://developer.amazon.com/docs/vega-api/2.0/README.amazon-devices_keplercrypto)
+says its API is unsupported in the simulator. Typed error diagnostics are being
+checked before choosing the next test approach. Keep PR 20 draft; physical-device
+credential persistence and playback remain unverified.
 
 Rejected SMB sign-ins now have bounded socket/authentication negotiation and
 can be cancelled. System hostname resolution still precedes that loop and can
