@@ -146,7 +146,7 @@ jobs:
                   print(f"{case.get('classname')}.{case.get('name')} passed")
           required = {"TVNavigationTest", "SecretBoxInstrumentedTest", "LibraryDatabaseTest", "MetadataMutationTest",
                       "LibraryScannerTest", "SmbDataSourceContractTest", "SmbIntegrationTest", "SmbPlaybackTest",
-                      "JellyfinAndroidIntegrationTest",
+                      "JellyfinAndroidIntegrationTest", "JellyfinSetupNavigationTest",
                       "WatchlistMigrationTest", "WatchlistNavigationTest", "NasBrowserIntegrationTest",
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",

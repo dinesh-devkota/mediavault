@@ -24,11 +24,38 @@ internal fun SourceEntity.jellyfinConnection(secrets: SecretBox, fixtureHttp: Ok
     return JellyfinConnection(client, JellyfinSession(token, JellyfinUser(username, "")))
 }
 
-internal fun jellyfinEndpoint(raw: String): String = DavAddress(raw).base.toString()
+internal fun jellyfinEndpoint(raw: String): String =
+    try { DavAddress(raw).base.toString() }
+    catch (_: IllegalArgumentException) {
+        throw IllegalArgumentException("Enter a complete Jellyfin HTTPS address without credentials, a query, or a fragment.")
+    }
 
 internal fun jellyfinItemID(path: String): String? =
     path.takeIf { it.startsWith("jellyfin/") && it.endsWith(".mp4") }
         ?.removePrefix("jellyfin/")?.removeSuffix(".mp4")?.takeIf { DavAddress.safeComponent(it) }
+
+internal fun jellyfinPhotoID(path: String): String? =
+    path.takeIf { it.startsWith("jellyfin/") && it.endsWith(".jpg") }
+        ?.removePrefix("jellyfin/")?.removeSuffix(".jpg")?.takeIf { DavAddress.safeComponent(it) }
+
+private fun jellyfinPhoto(sourceId: String, item: JellyfinItem, old: MovieEntity?): MovieEntity? {
+    if (!DavAddress.safeComponent(item.id)) throw JellyfinException("Jellyfin returned an invalid item identifier.")
+    val title = item.name.trim().takeIf(String::isNotEmpty) ?: return null
+    val record = old ?: MovieEntity(
+        sourceId = sourceId, filePath = "jellyfin/${item.id}.jpg", fileName = "$title.jpg", fileSize = 0,
+        parsedTitle = title, parsedYear = item.year, title = title, year = item.year,
+    )
+    return record.copy(
+        fileName = "$title.jpg",
+        parsedTitle = title,
+        parsedYear = item.year,
+        title = if (record.isLocked) record.title else title,
+        sortTitle = if (record.isLocked) record.sortTitle else WatchRules.sortTitle(title),
+        year = if (record.isLocked) record.year else item.year,
+        metadataFetched = true,
+        isMissing = false,
+    )
+}
 
 internal fun jellyfinMovie(
     sourceId: String,
@@ -87,15 +114,18 @@ internal suspend fun importJellyfinLibrary(
     val series = catalog.filter { it.type == "Series" }.associateBy { it.id }
     // Only a complete, validated catalog can make a previously present item missing.
     return database.withTransaction {
-        if (database.sources().get(source.id) != source) return@withTransaction null
+        val current = database.sources().get(source.id)
+        if (current?.copy(name = source.name) != source) return@withTransaction null
         val dao = database.movies()
         val previous = dao.forSource(source.id).associateBy { it.filePath }.toMutableMap()
         var total = 0
         var added = 0
         for (item in catalog) {
-            val path = "jellyfin/${item.id}.mp4"
+            val path = if (item.type == "Photo") "jellyfin/${item.id}.jpg" else "jellyfin/${item.id}.mp4"
             val prior = previous[path]
-            val result = jellyfinMovie(source.id, item, item.seriesId?.let { series[it] }, prior) ?: continue
+            val result = if (item.type == "Photo") jellyfinPhoto(source.id, item, prior)
+                else jellyfinMovie(source.id, item, item.seriesId?.let { series[it] }, prior)
+            if (result == null) continue
             previous.remove(path)
             if (prior == null) { dao.insert(result); added++ }
             else dao.update(result)

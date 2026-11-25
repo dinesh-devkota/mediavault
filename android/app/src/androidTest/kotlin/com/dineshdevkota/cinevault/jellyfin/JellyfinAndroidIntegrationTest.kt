@@ -27,6 +27,7 @@ import com.dineshdevkota.cinevault.data.SecretBox
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.family.FamilyPolicy
 import com.dineshdevkota.cinevault.family.FolderAccess
+import com.dineshdevkota.cinevault.family.FamilyStore
 import com.dineshdevkota.cinevault.family.HouseholdProfile
 import com.dineshdevkota.cinevault.playback.jellyfinAndroidProfile
 import com.dineshdevkota.cinevault.playback.jellyfinDataSources
@@ -46,9 +47,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
+import com.dineshdevkota.cinevault.photos.NasPhotoLoader
+import com.dineshdevkota.cinevault.photos.photoAlbums
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
@@ -107,6 +112,67 @@ class JellyfinAndroidIntegrationTest {
                 database.close()
             }
         } finally {
+            client.signOut(session)
+        }
+    }
+
+    @Test
+    fun photoAlbumAndServerArtworkDecodeOnlyForProfilesWithAccess() = runBlocking<Unit> {
+        val certificate = InstrumentationRegistry.getArguments().getString("jellyfinCertificate")
+        assumeTrue("Run this journey on the disposable Android TV fixture.", !certificate.isNullOrBlank())
+        val requests = AtomicInteger()
+        val http = fixtureClient(checkNotNull(certificate)).newBuilder().addInterceptor { chain ->
+            if ("Images" in chain.request().url.pathSegments) requests.incrementAndGet()
+            chain.proceed(chain.request())
+        }.build()
+        val id = UUID.randomUUID().toString()
+        val endpoint = "https://10.0.2.2:18443/"
+        val client = JellyfinClient(endpoint, id, "fixture", http = http)
+        val session = client.signIn("fixture", "fixture-only")
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val secrets = SecretBox()
+        val database = Room.inMemoryDatabaseBuilder(context, CineVaultDatabase::class.java).build()
+        val profilePreferences = "jellyfin-fixture-$id"
+        val household = FamilyStore(context, secrets, profilePreferences)
+        val photos = NasPhotoLoader(context, database, secrets, family = household, fixtureHttp = http)
+        try {
+            val libraries = client.libraries(session)
+            suspend fun add(name: String): SourceEntity {
+                val library = libraries.single { it.name == name }
+                val source = SourceEntity(
+                    id = UUID.randomUUID().toString(), name = name, host = endpoint, share = library.id,
+                    username = session.user.id, encryptedPassword = secrets.encrypt(session.token), sourceType = JELLYFIN,
+                )
+                database.sources().upsert(source)
+                assertEquals(1 to 1, importJellyfinLibrary(database, source, secrets, http) {})
+                return source
+            }
+            val photoSource = add("Fixture Photos")
+            val photo = database.movies().forSource(photoSource.id).single()
+            val movieSource = add("Fixture Movies")
+            val movie = database.movies().forSource(movieSource.id).single()
+            assertEquals(photoSource.name, photoAlbums(listOf(photo), listOf(photoSource)).single().title)
+            household.setup("123456", "123456")
+            assertNull(household.unlock(HouseholdProfile.ADMIN, "123456"))
+            assertTrue(photos.loadArtwork(movie.id, 342, JellyfinImage.Primary).width > 0)
+            val viewer = HouseholdProfile("viewer", "Viewer")
+            household.saveProfile(viewer, null)
+            assertNull(household.unlock(viewer.id, ""))
+            assertTrue(runCatching { photos.load(photo.id) }.isFailure)
+            assertTrue(runCatching { photos.loadArtwork(movie.id, 342, JellyfinImage.Primary) }.isFailure)
+            assertEquals(1, requests.get())
+            assertNull(household.unlock(HouseholdProfile.ADMIN, "123456"))
+            household.saveProfile(viewer.copy(folders = listOf(FolderAccess(photoSource.id, "", caseSensitive = true))), null)
+            assertNull(household.unlock(viewer.id, ""))
+            assertTrue(photos.load(photo.id).width > 0)
+            assertEquals(2, requests.get())
+            household.lock()
+            assertTrue(runCatching { photos.load(photo.id) }.isFailure)
+            assertEquals(2, requests.get())
+        } finally {
+            photos.clearMemory()
+            context.deleteSharedPreferences(profilePreferences)
+            database.close()
             client.signOut(session)
         }
     }

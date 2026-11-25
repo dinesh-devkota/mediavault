@@ -46,6 +46,7 @@ import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.playback.PlayerActivity
 import com.dineshdevkota.cinevault.playback.PlaybackValidator
 import kotlinx.coroutines.launch
@@ -97,7 +98,8 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
     LaunchedEffect(playbackRejection) { actions.requestFocus() }
 
     Box(Modifier.fillMaxSize()) {
-        Artwork(Tmdb.imageUrl(current.backdropPath, "w1280"), "", Modifier.fillMaxSize())
+        MediaArtwork(current, Tmdb.imageUrl(current.backdropPath, "w1280"), "", Modifier.fillMaxSize(),
+            width = 1280, kind = JellyfinImage.Backdrop)
         Box(
             Modifier.fillMaxSize().background(
                 Brush.horizontalGradient(
@@ -112,10 +114,12 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Artwork(
+            MediaArtwork(
+                current,
                 Tmdb.imageUrl(current.posterPath, "w500"),
                 current.title,
                 Modifier.width(240.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)),
+                width = 500,
             )
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()),

@@ -60,31 +60,35 @@ def configure():
     session = request("/Users/AuthenticateByName", {"Username": "fixture", "Pw": password})
     token = session["AccessToken"]
     try:
-        query = urllib.parse.urlencode({"name": "Fixture Movies", "collectionType": "movies",
-                                        "paths": "/movies", "refreshLibrary": "false"})
-        request("/Library/VirtualFolders?" + query, {
-            "LibraryOptions": {"EnableRealtimeMonitor": False, "DisabledMetadataFetchers":
-                               ["TheMovieDb", "The Open Movie Database"]},
-        }, token=token)
-        wait_for_movie(token)
+        for name, kind, path in (("Fixture Movies", "movies", "/movies"),
+                                 ("Fixture Photos", "homevideos", "/photos")):
+            query = urllib.parse.urlencode({"name": name, "collectionType": kind,
+                                            "paths": path, "refreshLibrary": "false"})
+            request("/Library/VirtualFolders?" + query, {
+                "LibraryOptions": {"EnableRealtimeMonitor": False, "DisabledMetadataFetchers":
+                                   ["TheMovieDb", "The Open Movie Database"]},
+            }, token=token)
+        wait_for_catalog(token)
     finally:
         request("/Sessions/Logout", method="POST", token=token)
 
 
-def wait_for_movie(token):
-    scanned = False
+def wait_for_catalog(token):
+    request("/Library/Refresh", method="POST", token=token)
+    expected = {"Fixture Movies": "Movie", "Fixture Photos": "Photo"}
     for _ in range(45):
         views = request("/UserViews", token=token)["Items"]
-        library = next((item for item in views if item["Name"] == "Fixture Movies"), None)
-        if library:
-            if not scanned:
-                request("/Library/Refresh", method="POST", token=token)
-                scanned = True
-            query = urllib.parse.urlencode({"parentId": library["Id"], "recursive": "true", "includeItemTypes": "Movie"})
-            if request("/Items?" + query, token=token)["Items"]:
-                return
+        for library in views:
+            item_type = expected.get(library["Name"])
+            if item_type:
+                query = urllib.parse.urlencode(
+                    {"parentId": library["Id"], "recursive": "true", "includeItemTypes": item_type})
+                if request("/Items?" + query, token=token)["Items"]:
+                    del expected[library["Name"]]
+        if not expected:
+            return
         time.sleep(1)
-    raise RuntimeError("The fixture did not finish indexing.")
+    raise RuntimeError("The fixture did not index each synthetic library.")
 
 
 
@@ -183,6 +187,11 @@ def main():
         movie = movies / "Fixture Film (2026)" / "Fixture Film (2026).mp4"
         movie.parent.mkdir(parents=True)
         movie.with_suffix(".nfo").write_text("<movie><title>Fixture Film</title><year>2026</year></movie>", encoding="utf-8")
+        fixture_photos = root / "CineVaultTests" / "Fixtures" / "Photos"
+        photos = Path(temp) / "photos"
+        photos.mkdir()
+        shutil.copyfile(fixture_photos / "01.jpg", movie.parent / "poster.jpg")
+        shutil.copyfile(fixture_photos / "02.png", photos / "Fixture Photo.png")
         if args.serve_android:
             shutil.copyfile(root / "CineVaultTests" / "Fixtures" / "playback.mp4", movie)
         else:
@@ -195,7 +204,8 @@ def main():
                        check=True, stdout=subprocess.DEVNULL)
         try:
             subprocess.run(["docker", "cp", str(movies), name + ":/movies"], check=True)
-            print("Waiting for Jellyfin to index the synthetic movie.", flush=True)
+            subprocess.run(["docker", "cp", str(photos), name + ":/photos"], check=True)
+            print("Waiting for Jellyfin to index the synthetic movie and photo.", flush=True)
             configure()
             if args.serve_android:
                 publish_android_fixture(args.serve_android)
