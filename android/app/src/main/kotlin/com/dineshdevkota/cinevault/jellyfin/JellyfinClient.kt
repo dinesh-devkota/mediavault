@@ -54,6 +54,8 @@ data class JellyfinItem(
     @SerialName("OfficialRating") val rating: String? = null,
     @SerialName("RunTimeTicks") val runtimeTicks: Long? = null,
     @SerialName("ImageTags") val imageTags: Map<String, String> = emptyMap(),
+    @SerialName("ProviderIds") val providerIds: Map<String, String> = emptyMap(),
+    @SerialName("Path") val mediaPath: String? = null,
 )
 
 @Serializable
@@ -177,7 +179,7 @@ class JellyfinClient(
                 .addQueryParameter("parentId", libraryId)
                 .addQueryParameter("recursive", "true")
                 .addQueryParameter("includeItemTypes", "Movie,Series,Season,Episode,Photo,MusicAlbum,Audio")
-                .addQueryParameter("fields", "Overview")
+                .addQueryParameter("fields", "Overview,ProviderIds,Path")
                 .addQueryParameter("enableUserData", "false")
                 .addQueryParameter("sortBy", "SortName")
                 .addQueryParameter("startIndex", start.toString())

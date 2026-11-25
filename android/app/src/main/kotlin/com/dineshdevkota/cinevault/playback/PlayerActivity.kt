@@ -59,8 +59,7 @@ import com.dineshdevkota.cinevault.ui.PlaybackSettingsActivity
 import com.dineshdevkota.cinevault.ui.languageName
 import com.dineshdevkota.cinevault.ui.chooseSubtitleLanguage
 import com.dineshdevkota.cinevault.subtitles.SubDlClient
-import com.dineshdevkota.cinevault.subtitles.SubDlSearchQuery
-import com.dineshdevkota.cinevault.subtitles.SubDlMediaType
+import com.dineshdevkota.cinevault.subtitles.subtitleQuery
 import com.dineshdevkota.cinevault.subtitles.SubDlSubtitle
 import com.dineshdevkota.cinevault.smb.SmbException
 import com.dineshdevkota.cinevault.smb.SmbService
@@ -118,7 +117,7 @@ class PlayerActivity : ComponentActivity() {
     private var pendingSubtitleId: String? = null
     private var subtitleChoiceGeneration = 0L
     private val programmaticTrackChanges = mutableListOf<TrackSelectionParameters>()
-    private data class SubtitleIdentity(val id: String, val path: String, val source: String,
+    private data class SubtitleIdentity(val id: String, val path: String, val source: String, val fileName: String,
         val movieTmdb: Int?, val seriesTmdb: Int?, val season: Int?, val episode: Int?)
     private data class SubtitleRequest(val identity: SubtitleIdentity, val generation: Long, val language: String)
 
@@ -247,7 +246,7 @@ class PlayerActivity : ComponentActivity() {
                 target = loaded
                 showInformation(loaded.movie)
                 val downloaded = preparedSubtitles.filter { it.configuration.id?.startsWith("subdl:") == true }
-                preparedSubtitles = if (loaded.connection == null) discoverSubtitles(loaded) + downloaded else emptyList()
+                preparedSubtitles = if (loaded.connection == null) discoverSubtitles(loaded) + downloaded else downloaded
                 val jellyfin = try {
                     loaded.connection?.let { connection ->
                         val itemID = jellyfinItemID(loaded.movie.filePath)
@@ -354,13 +353,15 @@ class PlayerActivity : ComponentActivity() {
         if (player != null || isFinishing) return
         val smb = container.smb
         if (!container.family.isCurrent(householdSession) || !container.family.permits(target.movie)) { finish(); return }
-        val files = if (jellyfin != null) jellyfinDataSources(jellyfin.connection, jellyfin.playback) {
+        val authorizeJellyfin = {
             val active = this.target?.movie
             if (active == null || active.id != target.movie.id || active.isHidden || active.isMissing ||
                 !container.family.isCurrent(householdSession) || !container.family.permits(active)) {
                 throw IOException("This Jellyfin item is no longer available for playback.")
             }
-        } else DataSource.Factory { SmbDataSource(authorize = {
+        }
+        val files = if (jellyfin != null) jellyfinDataSources(jellyfin.connection, jellyfin.playback, authorize = authorizeJellyfin)
+        else DataSource.Factory { SmbDataSource(authorize = {
             val active = this.target?.movie
             check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
         }) {
@@ -372,7 +373,8 @@ class PlayerActivity : ComponentActivity() {
         val primarySources = DefaultMediaSourceFactory(dataSources,
             DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
             .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
-        val mediaSources = SubtitleMediaSourceFactory(primarySources, dataSources) { preparedSubtitles }
+        val localCaptions = if (jellyfin == null) dataSources else jellyfinLocalSubtitleDataSources(authorizeJellyfin)
+        val mediaSources = SubtitleMediaSourceFactory(primarySources, localCaptions) { preparedSubtitles }
         val exo = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setEnableDecoderFallback(true))
             .setMediaSourceFactory(mediaSources)
             .setAudioAttributes(
@@ -481,10 +483,8 @@ class PlayerActivity : ComponentActivity() {
                 }
             }
         }
-        if (target?.connection == null) {
-            options += "Find subtitles online · ${languageName(container.settings.subtitleLanguage)}"
-            actions += { searchOnlineSubtitles(automatic = false) }
-        }
+        options += "Find subtitles online · ${languageName(container.settings.subtitleLanguage)}"
+        actions += { searchOnlineSubtitles(automatic = false) }
         options += "Preferred language"
         actions += { subtitleDialog = chooseSubtitleLanguage(this, container.settings.subtitleLanguage) {
             invalidateSubtitleRequest()
@@ -506,7 +506,7 @@ class PlayerActivity : ComponentActivity() {
     private fun considerAutomaticSubtitles() {
         val exo = player ?: return
         val settings = container.settings
-        if (target?.connection != null || onlineAttempted || onlineJob != null || !settings.automaticSubtitles || !settings.subDlConnected ||
+        if (onlineAttempted || onlineJob != null || !settings.automaticSubtitles || !settings.subDlConnected ||
             settings.subtitlePreference in setOf("off", "und") || exo.currentTracks.isEmpty) return
         onlineAttempted = true
         val desired = settings.subtitleLanguage
@@ -518,7 +518,7 @@ class PlayerActivity : ComponentActivity() {
         if (!matching) searchOnlineSubtitles(automatic = true)
     }
 
-    private fun MovieEntity.subtitleIdentity(): SubtitleIdentity = SubtitleIdentity(id, filePath, sourceId,
+    private fun MovieEntity.subtitleIdentity(): SubtitleIdentity = SubtitleIdentity(id, filePath, sourceId, fileName,
         tmdbId, seriesTmdbId, episodeInfo?.season, episodeInfo?.episode)
 
     private fun invalidateSubtitleRequest() {
@@ -553,13 +553,6 @@ class PlayerActivity : ComponentActivity() {
             player?.currentMediaItem?.mediaId == request.identity.id
     }
 
-    private fun subtitleQuery(movie: MovieEntity, language: String): SubDlSearchQuery? {
-        val episode = movie.episodeInfo
-        return if (episode != null) movie.seriesTmdbId?.let {
-            SubDlSearchQuery(it, SubDlMediaType.TV, episode.season, episode.episode, language)
-        } else movie.tmdbId?.let { SubDlSearchQuery(it, SubDlMediaType.MOVIE, language = language) }
-    }
-
     private fun searchOnlineSubtitles(automatic: Boolean) {
         if (isFinishing || endHandled) return
         if (!automatic) invalidateSubtitleRequest()
@@ -579,7 +572,12 @@ class PlayerActivity : ComponentActivity() {
                 val request = SubtitleRequest(movie.subtitleIdentity(), generation, settings.subtitleLanguage)
                 val query = subtitleQuery(movie, request.language)
                 if (query == null) {
-                    if (!automatic) showSubtitleError("Match this movie or show with TMDB first, then try online subtitles.", retry = false)
+                    if (!automatic) {
+                        val detail = if (target?.connection != null)
+                            "Add this movie or series' TMDB ID in Jellyfin, then rescan the source."
+                        else "Match this movie or show with TMDB first, then try online subtitles."
+                        showSubtitleError(detail, retry = false)
+                    }
                     return@launch
                 }
                 if (!automatic) Toast.makeText(this@PlayerActivity, "Finding ${languageName(query.language)} subtitles…", Toast.LENGTH_SHORT).show()
@@ -590,9 +588,10 @@ class PlayerActivity : ComponentActivity() {
                     if (!automatic) showSubtitleError("No matching subtitles were found for this language.")
                     return@launch
                 }
-                val exact = results.filter { result ->
-                    (result.releaseNames + result.releaseName).any { SubtitleTracks.exactRelease(movie.fileName, it) }
-                }
+                val exact = if (target?.connection != null && movie.fileName == "${movie.parsedTitle}.mp4") emptyList()
+                    else results.filter { result ->
+                        (result.releaseNames + result.releaseName).any { SubtitleTracks.exactRelease(movie.fileName, it) }
+                    }
                 if (automatic && exact.size == 1 && settings.subtitlePreference != "off") {
                     downloadSubtitle(exact.single(), request, automatic = true)
                 } else if (!automatic) showOnlineResults(results, request)
@@ -646,12 +645,15 @@ class PlayerActivity : ComponentActivity() {
         val configuration = preparedSubtitle.configuration
         // Keep at most eight local tracks and the active downloaded release in memory.
         // Previously chosen downloads remain available through the bounded disk cache.
-        preparedSubtitles = preparedSubtitles.filterNot { it.configuration.id?.startsWith("subdl:") == true } + preparedSubtitle
         val mediaItem = exo.currentMediaItem ?: return
+        val priorCaption = preparedSubtitles.firstOrNull { it.configuration.id?.startsWith("subdl:") == true }
+        val existing = mediaItem.localConfiguration?.subtitleConfigurations.orEmpty()
+            .filterNot { it == priorCaption?.configuration }
+        preparedSubtitles = preparedSubtitles.filterNot { it == priorCaption } + preparedSubtitle
         container.settings.subtitlePreference = subtitle.language
         setProgrammaticTrackParameters(SubtitleTracks.applyPreference(exo.trackSelectionParameters, subtitle.language))
         pendingSubtitleId = configuration.id
-        exo.setMediaItem(mediaItem.buildUpon().setSubtitleConfigurations(preparedSubtitles.map { it.configuration }).build(), position)
+        exo.setMediaItem(mediaItem.buildUpon().setSubtitleConfigurations(existing + configuration).build(), position)
         exo.prepare()
         exo.playWhenReady = playing
         if (!automatic) Toast.makeText(this, "Subtitles ready", Toast.LENGTH_SHORT).show()

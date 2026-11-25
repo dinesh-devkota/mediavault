@@ -22,6 +22,9 @@ class JellyfinServerTest {
             client.catalog(session, library.id) { catalog += it }
             val movie = catalog.single { it.type == "Movie" }
             assertTrue(movie.name.startsWith("Fixture Film"))
+            val imported = requireNotNull(jellyfinMovie("fixture", movie, null))
+            assertEquals(9997001, imported.tmdbId)
+            assertEquals("Fixture Film (2026).mp4", imported.fileName)
             val profile = Json.parseToJsonElement("""
                 {
                   "Name": "MediaVault fixture",
@@ -32,6 +35,11 @@ class JellyfinServerTest {
             val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).build()
             val playback = client.playback(session, movie.id, profile)
             assertEquals("DirectPlay", playback.method)
+            val sidecar = playback.subtitles.single { !it.forced }
+            http.newCall(client.playbackAssetRequest(session, playback, sidecar.url)).execute().use { response ->
+                assertEquals(200, response.code)
+                assertTrue(requireNotNull(response.body).string().contains("Synthetic Jellyfin NAS caption"))
+            }
             client.report(session, playback, JellyfinPlaybackEvent.STARTED, 0)
             try {
                 val request = client.assetRequest(session, playback.url).newBuilder().header("Range", "bytes=256-287").build()

@@ -40,6 +40,7 @@ class JellyfinClientTest {
                 assertEquals("lib", request.requestUrl?.queryParameter("parentId"))
                 assertEquals(start, request.requestUrl?.queryParameter("startIndex"))
                 assertEquals("false", request.requestUrl?.queryParameter("enableUserData"))
+                assertEquals("Overview,ProviderIds,Path", request.requestUrl?.queryParameter("fields"))
             }
         }
     }

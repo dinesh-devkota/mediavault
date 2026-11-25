@@ -182,7 +182,10 @@ def main():
         movies = Path(temp) / "movies"
         movie = movies / "Fixture Film (2026)" / "Fixture Film (2026).mp4"
         movie.parent.mkdir(parents=True)
-        movie.with_suffix(".nfo").write_text("<movie><title>Fixture Film</title><year>2026</year></movie>", encoding="utf-8")
+        movie.with_suffix(".nfo").write_text(
+            "<movie><title>Fixture Film</title><year>2026</year><tmdbid>9997001</tmdbid></movie>", encoding="utf-8")
+        movie.with_suffix(".en.srt").write_text(
+            "1\n00:00:00,100 --> 00:00:02,500\nSynthetic Jellyfin NAS caption\n", encoding="utf-8")
         if args.serve_android:
             shutil.copyfile(root / "CineVaultTests" / "Fixtures" / "playback.mp4", movie)
         else:

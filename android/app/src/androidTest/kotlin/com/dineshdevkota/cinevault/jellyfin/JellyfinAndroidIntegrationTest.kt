@@ -6,7 +6,9 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -14,7 +16,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
@@ -28,8 +30,12 @@ import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.family.FamilyPolicy
 import com.dineshdevkota.cinevault.family.FolderAccess
 import com.dineshdevkota.cinevault.family.HouseholdProfile
+import com.dineshdevkota.cinevault.playback.PreparedSubtitle
+import com.dineshdevkota.cinevault.playback.SubtitleMediaSourceFactory
+import com.dineshdevkota.cinevault.playback.SubtitleTracks
 import com.dineshdevkota.cinevault.playback.jellyfinAndroidProfile
 import com.dineshdevkota.cinevault.playback.jellyfinDataSources
+import com.dineshdevkota.cinevault.playback.jellyfinLocalSubtitleDataSources
 import java.io.IOException
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
@@ -83,6 +89,8 @@ class JellyfinAndroidIntegrationTest {
                 database.sources().upsert(source)
                 assertEquals(1 to 1, importJellyfinLibrary(database, source, secrets, http) {})
                 val movie = database.movies().forSource(id).single()
+                assertEquals(9997001, movie.tmdbId)
+                assertEquals("Fixture Film (2026).mp4", movie.fileName)
                 val restored = source.jellyfinConnection(secrets, http)
                 assertEquals(session.token, restored.session.token)
                 val stream = restored.client.playback(
@@ -94,15 +102,29 @@ class JellyfinAndroidIntegrationTest {
                 val current = AtomicReference(viewer)
                 assertFalse(FamilyPolicy.allows(viewer, movie))
                 assertTrue(FamilyPolicy.allows(allowed, movie))
-                val transport = jellyfinDataSources(restored, stream, http) {
+                val authorize = {
                     if (!FamilyPolicy.allows(current.get(), movie)) throw IOException("Viewer access denied.")
                 }
+                val transport = jellyfinDataSources(restored, stream, http, authorize)
+                val local = jellyfinLocalSubtitleDataSources(authorize)
+                val sidecar = stream.subtitles.single()
+                val remoteCaption = MediaItem.SubtitleConfiguration.Builder(Uri.parse(sidecar.url.toString()))
+                    .setId("fixture-nas").setLabel("Jellyfin NAS caption")
+                    .setMimeType(MimeTypes.TEXT_VTT).setLanguage(sidecar.language).build()
+                val downloaded = requireNotNull(SubtitleTracks.configuration(
+                    "1\n00:00:00,100 --> 00:00:10,500\nSynthetic downloaded caption\n".encodeToByteArray(),
+                    MimeTypes.APPLICATION_SUBRIP, "es", "Downloaded caption", "fixture-download",
+                ))
                 val uri = Uri.parse(stream.url.toString())
                 assertDeniedBeforeOpening(transport, uri)
+                assertDeniedBeforeOpening(transport, remoteCaption.uri)
+                assertDeniedBeforeOpening(local, downloaded.configuration.uri)
                 current.set(allowed)
-                verifyRenderedSeek(transport, uri)
+                verifyRenderedSeek(transport, uri, local, remoteCaption, downloaded)
                 current.set(viewer)
                 assertDeniedBeforeOpening(transport, uri)
+                assertDeniedBeforeOpening(transport, remoteCaption.uri)
+                assertDeniedBeforeOpening(local, downloaded.configuration.uri)
             } finally {
                 database.close()
             }
@@ -123,7 +145,10 @@ class JellyfinAndroidIntegrationTest {
         }
     }
 
-    private suspend fun verifyRenderedSeek(transport: DataSource.Factory, uri: Uri) {
+    private suspend fun verifyRenderedSeek(
+        transport: DataSource.Factory, uri: Uri, local: DataSource.Factory,
+        remoteCaption: MediaItem.SubtitleConfiguration, downloaded: PreparedSubtitle,
+    ) {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             var player: ExoPlayer? = null
             var view: PlayerView? = null
@@ -131,7 +156,7 @@ class JellyfinAndroidIntegrationTest {
             try {
                 scenario.onActivity { activity ->
                     val exo = ExoPlayer.Builder(activity, DefaultRenderersFactory(activity).setEnableDecoderFallback(true))
-                        .setMediaSourceFactory(ProgressiveMediaSource.Factory(transport))
+                        .setMediaSourceFactory(SubtitleMediaSourceFactory(DefaultMediaSourceFactory(transport), local) { listOf(downloaded) })
                         .build()
                     player = exo
                     exo.addListener(observation)
@@ -141,7 +166,8 @@ class JellyfinAndroidIntegrationTest {
                         this.player = exo
                     }
                     activity.setContentView(view)
-                    exo.setMediaItem(MediaItem.fromUri(uri))
+                    exo.setMediaItem(MediaItem.Builder().setUri(uri)
+                        .setSubtitleConfigurations(listOf(remoteCaption, downloaded.configuration)).build())
                     exo.prepare()
                     exo.play()
                 }
@@ -149,6 +175,10 @@ class JellyfinAndroidIntegrationTest {
                 awaitPlayback(exo, observation, 500)
                 withContext(Dispatchers.Main) {
                     assertTrue("Jellyfin direct play must expose a seekable timeline.", exo.isCurrentMediaItemSeekable)
+                    val labels = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+                        .flatMap { group -> (0 until group.length).map { group.getTrackFormat(it).label } }
+                    assertTrue("Expected both the Jellyfin sidecar and downloaded caption.", labels.containsAll(
+                        listOf("Jellyfin NAS caption", "Downloaded caption")))
                     exo.seekTo(5_000)
                 }
                 awaitPlayback(exo, observation, 5_500)

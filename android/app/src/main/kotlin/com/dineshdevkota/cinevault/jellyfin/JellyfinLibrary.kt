@@ -2,6 +2,7 @@ package com.dineshdevkota.cinevault.jellyfin
 
 import androidx.room.withTransaction
 import com.dineshdevkota.cinevault.BuildConfig
+import com.dineshdevkota.cinevault.core.VideoFile
 import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.MovieEntity
@@ -30,6 +31,10 @@ internal fun jellyfinItemID(path: String): String? =
     path.takeIf { it.startsWith("jellyfin/") && it.endsWith(".mp4") }
         ?.removePrefix("jellyfin/")?.removeSuffix(".mp4")?.takeIf { DavAddress.safeComponent(it) }
 
+private fun JellyfinItem.tmdbID(): Int? =
+    providerIds.entries.firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
+        ?.value?.toIntOrNull()?.takeIf { it > 0 }
+
 internal fun jellyfinMovie(
     sourceId: String,
     item: JellyfinItem,
@@ -47,18 +52,23 @@ internal fun jellyfinMovie(
     val title = item.name.trim().takeIf(String::isNotEmpty) ?: return null
     val runtime = item.runtimeTicks?.takeIf { it > 0 } ?: 0L
     val path = "jellyfin/${item.id}.mp4"
+    // Keep only a safe release basename. Server filesystem directories never reach the local catalog.
+    val fileName = item.mediaPath?.substringAfterLast('/')?.substringAfterLast('\\')
+        ?.takeIf { it.length <= 512 && DavAddress.safeComponent(it) && VideoFile.isVideo(it) } ?: "$title.mp4"
     val record = old ?: MovieEntity(
-        sourceId = sourceId, filePath = path, fileName = "$title.mp4", fileSize = 0,
+        sourceId = sourceId, filePath = path, fileName = fileName, fileSize = 0,
         parsedTitle = title, parsedYear = item.year, title = title, year = item.year,
     )
     return record.copy(
-        fileName = "$title.mp4",
+        fileName = fileName,
         parsedTitle = title,
         parsedYear = item.year,
         title = if (record.isLocked) record.title else title,
         sortTitle = if (record.isLocked) record.sortTitle else WatchRules.sortTitle(title),
         year = if (record.isLocked) record.year else item.year,
         overview = item.overview,
+        tmdbId = if (episode) null else record.tmdbId.takeIf { record.isLocked } ?: item.tmdbID(),
+        seriesTmdbId = if (!episode) null else record.seriesTmdbId.takeIf { record.isLocked } ?: series?.tmdbID(),
         ageCertification = rating?.takeIf { FamilyPolicy.allowsRating(it, knownRatings.last(), episode) },
         certificationFetched = true,
         metadataFetched = true,

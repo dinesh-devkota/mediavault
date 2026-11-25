@@ -4,6 +4,7 @@ package com.dineshdevkota.cinevault.playback
 
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSchemeDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -40,27 +41,34 @@ internal fun jellyfinDataSources(
             chain.proceed(request.newBuilder().url(trusted.url)
                 .header("Authorization", checkNotNull(trusted.header("Authorization"))).build())
         }.build()
-    val factory = OkHttpDataSource.Factory(http)
-    return DataSource.Factory {
-        val delegate = factory.createDataSource()
-        object : DataSource by delegate {
-            override fun open(dataSpec: DataSpec): Long {
-                authorize()
-                if (dataSpec.uri.scheme != "https") throw IOException("The Jellyfin stream address must use HTTPS.")
-                val length = delegate.open(dataSpec)
-                try { authorize() }
-                catch (error: Exception) {
-                    try { delegate.close() }
-                    catch (closeError: Exception) { error.addSuppressed(closeError) }
-                    throw error
-                }
-                return length
-            }
+    return guardedJellyfinDataSources("https", OkHttpDataSource.Factory(http), authorize)
+}
 
-            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-                authorize()
-                return delegate.read(buffer, offset, length).also { authorize() }
+/** Only already validated app-owned caption bytes use this factory. Jellyfin URLs stay HTTPS-only. */
+internal fun jellyfinLocalSubtitleDataSources(authorize: () -> Unit): DataSource.Factory =
+    guardedJellyfinDataSources("data", DataSource.Factory { DataSchemeDataSource() }, authorize)
+
+private fun guardedJellyfinDataSources(
+    scheme: String, factory: DataSource.Factory, authorize: () -> Unit,
+): DataSource.Factory = DataSource.Factory {
+    val delegate = factory.createDataSource()
+    object : DataSource by delegate {
+        override fun open(dataSpec: DataSpec): Long {
+            authorize()
+            if (dataSpec.uri.scheme != scheme) throw IOException("This Jellyfin asset has an unsupported address.")
+            val length = delegate.open(dataSpec)
+            try { authorize() }
+            catch (error: Exception) {
+                try { delegate.close() }
+                catch (closeError: Exception) { error.addSuppressed(closeError) }
+                throw error
             }
+            return length
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            authorize()
+            return delegate.read(buffer, offset, length).also { authorize() }
         }
     }
 }
