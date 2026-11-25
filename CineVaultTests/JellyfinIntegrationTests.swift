@@ -148,6 +148,9 @@ final class JellyfinIntegrationTests: XCTestCase {
             if let error = player.error ?? player.currentItem?.error { throw error }
             try await clock.sleep(for: .milliseconds(150))
         }
-        XCTFail("Playback did not pass position \(target).")
+        let status = player.currentItem?.status.rawValue ?? -1
+        let waiting = player.reasonForWaitingToPlay?.rawValue ?? "none"
+        let errors = player.currentItem?.errorLog()?.events.map(\.errorStatusCode) ?? []
+        XCTFail("Playback did not pass position \(target). Item status \(status), waiting \(waiting), media errors \(errors).")
     }
 }

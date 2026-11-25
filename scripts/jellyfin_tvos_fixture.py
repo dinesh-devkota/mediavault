@@ -122,7 +122,8 @@ class Handler(BaseHTTPRequestHandler):
     def send_hls(self, path):
         name = path.rsplit("/", 1)[-1]
         if name == "master.m3u8":
-            self.send_body(200, b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant.m3u8?api_key=synthetic-and-removable\n",
+            self.send_body(200, b'#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000,CODECS="avc1.42c00a,mp4a.40.2"\n'
+                           b"variant.m3u8?api_key=synthetic-and-removable\n",
                            [("Content-Type", "application/vnd.apple.mpegurl")])
         elif self.server.hls and (name == "variant.m3u8" or re.fullmatch(r"segment\d+\.ts", name)):
             resource = self.server.hls / name
@@ -193,7 +194,9 @@ def main():
     if args.hls:
         hls = args.directory / "segments"
         hls.mkdir(exist_ok=True)
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(MEDIA), "-c", "copy",
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(MEDIA), "-f", "lavfi",
+                        "-i", "anullsrc=channel_layout=stereo:sample_rate=48000", "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "copy", "-c:a", "aac", "-shortest",
                         "-hls_time", "2", "-hls_playlist_type", "vod",
                         "-hls_segment_filename", str(hls / "segment%d.ts"), str(hls / "variant.m3u8")], check=True)
     with ThreadingHTTPServer(("127.0.0.1", 18896), Handler) as server:

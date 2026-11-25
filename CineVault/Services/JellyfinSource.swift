@@ -56,6 +56,11 @@ struct JellyfinSourceConnection: Sendable {
             "DirectPlayProfiles": [
                 { "Container": "mp4,m4v,mov", "Type": "Video", "VideoCodec": "h264,hevc", "AudioCodec": "aac,ac3,eac3,alac,mp3" }
             ],
+            "SubtitleProfiles": [
+                { "Format": "srt", "Method": "External" },
+                { "Format": "subrip", "Method": "External" },
+                { "Format": "vtt", "Method": "External" }
+            ],
             "TranscodingProfiles": [
                 {
                     "Container": "ts", "Type": "Video", "Context": "Streaming",

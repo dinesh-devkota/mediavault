@@ -360,6 +360,15 @@ struct JellyfinClient: Sendable {
     }
 
     func readHLS(_ url: URL, account: JellyfinAccount, range: String?) async throws -> JellyfinHLSResponse {
+        let requestedRange = try range.map { value -> (start: Int64, end: Int64?) in
+            let endpoints = value.dropFirst("bytes=".count).split(separator: "-", omittingEmptySubsequences: false)
+            guard value.hasPrefix("bytes="), endpoints.count == 2, let start = Int64(endpoints[0]), start >= 0 else {
+                throw JellyfinClientError.invalidResponse
+            }
+            if endpoints[1].isEmpty { return (start, nil) }
+            guard let end = Int64(endpoints[1]), end >= start else { throw JellyfinClientError.invalidResponse }
+            return (start, end)
+        }
         var request = try assetRequest(url, account: account)
         request.setValue(range, forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
@@ -371,18 +380,14 @@ struct JellyfinClient: Sendable {
         let requiredLength: Int64
         switch http.statusCode {
         case 200:
-            guard range == nil || range == "bytes=0-" else { throw JellyfinClientError.invalidResponse }
             contentRange = nil
             requiredLength = response.expectedContentLength
         case 206:
-            guard let range, range.hasPrefix("bytes="), let separator = range.firstIndex(of: "-"),
-                  let start = Int64(range.dropFirst("bytes=".count).prefix { $0 != "-" }),
+            guard let requestedRange,
                   let header = http.value(forHTTPHeaderField: "Content-Range"),
-                  let span = WebDAVTransport.parseRange(header), span.start == start,
+                  let span = WebDAVTransport.parseRange(header), span.start == requestedRange.start,
                   span.end - span.start < Int64(limit),
-                  let requestedEnd = range[range.index(after: separator)...].isEmpty ? span.total - 1 :
-                    Int64(range[range.index(after: separator)...]),
-                  span.end == min(requestedEnd, span.total - 1),
+                  span.end == min(requestedRange.end ?? span.total - 1, span.total - 1),
                   response.expectedContentLength < 0 || response.expectedContentLength == span.end - span.start + 1 else {
                 throw JellyfinClientError.invalidResponse
             }
@@ -401,6 +406,13 @@ struct JellyfinClient: Sendable {
         }
         guard !data.isEmpty, requiredLength < 0 || requiredLength == Int64(data.count) else {
             throw JellyfinClientError.invalidResponse
+        }
+        if contentRange == nil, let requestedRange {
+            let size = Int64(data.count)
+            guard requestedRange.start < size else { throw JellyfinClientError.status(416) }
+            let end = min(requestedRange.end ?? size - 1, size - 1)
+            let bytes = data.subdata(in: Int(requestedRange.start)..<Int(end + 1))
+            return JellyfinHLSResponse(data: bytes, contentRange: "bytes \(requestedRange.start)-\(end)/\(size)")
         }
         return JellyfinHLSResponse(data: data, contentRange: contentRange)
     }

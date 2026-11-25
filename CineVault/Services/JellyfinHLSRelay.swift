@@ -178,7 +178,12 @@ final class JellyfinHLSRelay: @unchecked Sendable {
                                                                    range: playlist ? nil : request.range)
                 try Task.checkCancellation()
                 self?.queue.async { [weak self] in self?.deliver(response, playlist: playlist, resource: resource, request: request, id: id) }
+            } catch JellyfinClientError.status(416) {
+                self?.queue.async { [weak self] in self?.reply(id, status: "416 Range Not Satisfiable") }
             } catch {
+                #if DEBUG
+                print("Jellyfin HLS test relay upstream error, code: \((error as NSError).code)")
+                #endif
                 self?.queue.async { [weak self] in self?.reply(id, status: "502 Bad Gateway") }
             }
         }
@@ -227,8 +232,16 @@ final class JellyfinHLSRelay: @unchecked Sendable {
         if let range { header += "Content-Range: \(range)\r\nAccept-Ranges: bytes\r\n" }
         var response = Data((header + "\r\n").utf8)
         if !headOnly { response.append(body) }
-        client.send(content: response, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] _ in
-            self?.close(id)
+        // finalMessage half-closes the stream after the response. A cancel at
+        // contentProcessed can reset the socket before a whole segment arrives.
+        client.send(content: response, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self, weak client] error in
+            guard let self, let client else { return }
+            guard error == nil else { self.close(id); return }
+            client.receive(minimumIncompleteLength: 1, maximumLength: 1) { [weak self] _, _, _, _ in self?.close(id) }
+            self.queue.asyncAfter(deadline: .now() + 2) { [weak self, weak client] in
+                guard let self, let client, self.clients[id] === client else { return }
+                self.close(id)
+            }
         })
     }
 
