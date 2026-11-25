@@ -110,6 +110,8 @@ dependencies {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk15on")
     }
     implementation(libs.media3.exoplayer)
+    implementation(libs.media3.hls)
+    implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)

@@ -103,6 +103,13 @@ public struct SubtitleFile: Identifiable, Equatable, Sendable {
     public let language: String?
     public let forced: Bool
     public let hearingImpaired: Bool
+    public init(path: String, language: String?, forced: Bool = false, hearingImpaired: Bool = false) {
+        self.path = path
+        self.language = language
+        self.forced = forced
+        self.hearingImpaired = hearingImpaired
+    }
+
     public var id: String { path }
     public var preference: String { ["local", language ?? "und", forced ? "forced" : "", hearingImpaired ? "sdh" : ""].joined(separator: "|") }
     public var label: String {

@@ -45,6 +45,10 @@ final class LibraryScanner: ObservableObject {
         status = "Scanning \(source.name)…"
         do {
             let config = try source.config()
+            if config.isJellyfin {
+                try await scanJellyfin(source, config: config, context: context)
+                return
+            }
             let state = LibraryScanState(source: source, context: context, config: config, saveContext: saveContext)
             let scannedFiles: [RemoteFile]
             if let scanWithProgress {
@@ -99,6 +103,80 @@ final class LibraryScanner: ObservableObject {
             let separator = reason.hasSuffix(".") ? " " : ". "
             status = "Scan failed for \(source.name): \(reason)\(separator)Items already found are kept. Retry from Sources."
         }
+    }
+
+    private func scanJellyfin(_ source: MediaSource, config: SourceConfig, context: ModelContext) async throws {
+        let household = HouseholdStore.shared
+        let session = household.sessionToken
+        guard household.isAdmin, JellyfinSourceConnection.validItemID(config.share) else { throw HouseholdError.denied }
+        let connection = try JellyfinSourceConnection(config: config)
+        var catalog: [(String, JellyfinCatalogItem)] = []
+        try await connection.client.catalog(connection.account, libraryID: config.share) { items in
+            guard household.sessionIsCurrent(session), household.isAdmin else { throw HouseholdError.denied }
+            for item in items {
+                if let path = JellyfinSourceConnection.mediaPath(item) { catalog.append((path, item)) }
+            }
+            self.status = "Scanning \(source.name): \(catalog.count) items…"
+        }
+        try Task.checkCancellation()
+        guard household.sessionIsCurrent(session), household.isAdmin,
+              !source.isDeleted, try source.config() == config else { throw SMBError.sourceChanged }
+
+        let indexed = source.movies.compactMap { movie -> (String, Movie)? in
+            guard let id = try? JellyfinSourceConnection.itemID(for: movie.filePath) else { return nil }
+            return (id, movie)
+        }
+        var existing = Dictionary(indexed, uniquingKeysWith: { first, _ in first })
+        let date = source.lastScanDate
+        var inserted: [Movie] = []
+        var undo: [() -> Void] = []
+        for (path, item) in catalog {
+            let movie: Movie
+            if let current = existing.removeValue(forKey: item.id) {
+                let previous = (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
+                                current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
+                                current.providerImageTag)
+                undo.append {
+                    (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
+                     current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
+                     current.providerImageTag) = previous
+                }
+                movie = current
+            } else {
+                movie = Movie(filePath: path, fileSize: 0, source: source)
+                movie.fileName = item.name
+                movie.parsedTitle = item.name
+                movie.setTitle(item.name)
+                movie.parsedYear = item.year
+                movie.year = item.year
+                movie.overview = item.overview
+                movie.metadataFetched = true
+                context.insert(movie)
+                inserted.append(movie)
+            }
+            movie.filePath = path
+            movie.isMissing = false
+            movie.seriesTitle = item.seriesName
+            movie.providerSeriesID = item.seriesID
+            movie.seasonNumber = item.season
+            movie.episodeNumber = item.number
+            movie.usContentRating = item.rating
+            movie.usContentRatingFetched = true
+            movie.providerImageTag = item.primaryImage?["Primary"]
+        }
+        for movie in existing.values where !movie.isMissing {
+            undo.append { movie.isMissing = false }
+            movie.isMissing = true
+        }
+        source.lastScanDate = Date()
+        do { try saveContext(context) }
+        catch {
+            for restore in undo.reversed() { restore() }
+            source.lastScanDate = date
+            for movie in inserted { context.delete(movie) }
+            throw error
+        }
+        status = "\(source.name): \(catalog.count) items (\(inserted.count) new)"
     }
 
     func scanAll(context: ModelContext) async {

@@ -151,5 +151,23 @@ then run the hosted tvOS build, simulator tests, and an end-to-end HTTPS scenari
 before calling this integration ready.
 
 Jellyfin implementation is tracked separately on `codex/mediavault-jellyfin`.
+
+The Android draft connects a single HTTPS Jellyfin movie or TV library from
+Sources using a password or Quick Connect. It stores the provider token with
+the existing Android Keystore encryption and imports movies and episodes with
+stable local records. Viewer access requires an explicit whole-library grant
+and still applies household rating limits. Android can request compatible
+direct play or HLS and load text subtitles from the same item. Local playback
+history stays profile-specific. Jellyfin session reports use the connected
+server account. The Android draft still needs a complete TV flow against an
+HTTPS fixture, server artwork, photos and finer-grained catalog permissions.
+
+The tvOS Jellyfin draft includes password and Quick Connect setup, Keychain
+token storage, rescanning with stable catalog IDs, and authenticated direct play,
+seeking, session reporting and text subtitle tracks. The simulator has a
+dedicated loopback HTTPS fixture. Photos appear in a source-specific album, and
+supported poster views fetch scoped artwork from the same server. Transcoded
+HLS still needs tvOS app wiring.
+
 Subsequent providers will each have a separate feature branch and validation.
 Keep each PR in draft while its own implementation and tests are incomplete.
