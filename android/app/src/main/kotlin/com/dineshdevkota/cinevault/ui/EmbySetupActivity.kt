@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -33,12 +34,16 @@ import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.emby.EmbyClient
 import com.dineshdevkota.cinevault.emby.EmbyConnection
+import com.dineshdevkota.cinevault.emby.EmbyDraftAuthorization
 import com.dineshdevkota.cinevault.emby.EmbyException
 import com.dineshdevkota.cinevault.emby.embyConnection
 import com.dineshdevkota.cinevault.emby.embyEndpoint
 import com.dineshdevkota.cinevault.emby.validEmbyIdentifier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -73,12 +78,21 @@ private fun EmbySetup(sourceId: String?, close: () -> Unit) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
-    var connection by remember { mutableStateOf<EmbyConnection?>(null) }
+    var connection by remember { mutableStateOf<EmbyDraftAuthorization?>(null) }
     var libraries by remember { mutableStateOf(emptyList<EmbyClient.Item>()) }
     var busy by remember { mutableStateOf(false) }
     var confirmingRemoval by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    fun discard(session: EmbyDraftAuthorization) = session.discard(container.scope) {
+        container.database.sources().get(draft)
+            ?.takeIf { it.sourceType == EMBY }?.encryptedPassword?.let(container.secrets::decrypt)
+    }
+
+    DisposableEffect(connection) {
+        val session = connection
+        onDispose { session?.let(::discard) }
+    }
     LaunchedEffect(active) { if (!active.admin) close() }
     LaunchedEffect(sourceId) {
         if (sourceId == null) return@LaunchedEffect
@@ -147,30 +161,41 @@ private fun EmbySetup(sourceId: String?, close: () -> Unit) {
                             val client = EmbyClient(address, draft, BuildConfig.VERSION_NAME)
                             val entered = password
                             password = ""
-                            val account = client.signIn(username.trim(), entered)
-                            authorize()
-                            val saved = existing
-                            if (saved != null && account.User.Id != saved.username) {
-                                throw EmbyException("Reconnect with the original Emby account, or add a separate source.")
-                            }
-                            val choices = client.libraries(account)
-                                .filter { validEmbyIdentifier(it.Id) && it.Name.isNotBlank() }
-                                .filter { it.CollectionType in setOf(null, "", "movies", "tvshows", "mixed", "homevideos", "photos") }
-                                .distinctBy { it.Id }
-                            libraries = if (saved == null) choices else choices.filter { it.Id == saved.share }
-                            if (libraries.isEmpty()) throw EmbyException("This account has no accessible movie, TV or photo libraries for this source.")
-                            authorize()
-                            endpoint = address
-                            connection = EmbyConnection(client, account)
+                            var temporary: EmbyDraftAuthorization? = null
+                            try {
+                                // Capture a late login response so a closed form can still revoke its new token.
+                                withContext(NonCancellable) {
+                                    val account = client.signIn(username.trim(), entered)
+                                    temporary = EmbyDraftAuthorization(EmbyConnection(client, account))
+                                }
+                                currentCoroutineContext().ensureActive()
+                                authorize()
+                                val authorized = checkNotNull(temporary)
+                                val account = authorized.connection.account
+                                val saved = existing
+                                if (saved != null && account.User.Id != saved.username) {
+                                    throw EmbyException("Reconnect with the original Emby account, or add a separate source.")
+                                }
+                                val choices = client.libraries(account)
+                                    .filter { validEmbyIdentifier(it.Id) && it.Name.isNotBlank() }
+                                    .filter { it.CollectionType in setOf(null, "", "movies", "tvshows", "mixed", "homevideos", "photos") }
+                                    .distinctBy { it.Id }
+                                libraries = if (saved == null) choices else choices.filter { it.Id == saved.share }
+                                if (libraries.isEmpty()) throw EmbyException("This account has no accessible movie, TV or photo libraries for this source.")
+                                authorize()
+                                endpoint = address
+                                connection = authorized
+                                temporary = null
+                            } finally { temporary?.let(::discard) }
                         }
                     }) { Text(if (existing == null) "Sign in and choose a library" else "Reconnect Emby") }
                 }
             } else {
-                item { Text("Choose a movie or TV library. Add another source to import a different library.") }
+                item { Text("Choose a movie, TV or photo library. Add another source to import a different library.") }
                 items(libraries, key = { it.Id }) { library ->
                     Button(enabled = !busy, onClick = {
                         submit {
-                            val signedIn = checkNotNull(connection).account
+                            val signedIn = checkNotNull(connection).connection.account
                             val saved = existing
                             val encrypted = withContext(Dispatchers.IO) { container.secrets.encrypt(signedIn.AccessToken) }
                             val source = SourceEntity(
@@ -191,8 +216,12 @@ private fun EmbySetup(sourceId: String?, close: () -> Unit) {
                 }
                 item {
                     OutlinedButton(enabled = !busy, onClick = {
-                        connection = null
-                        libraries = emptyList()
+                        submit {
+                            connection?.let(::discard)?.join()
+                            authorize()
+                            connection = null
+                            libraries = emptyList()
+                        }
                     }) { Text("Back to sign in") }
                 }
             }
