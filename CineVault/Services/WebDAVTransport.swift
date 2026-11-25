@@ -39,8 +39,11 @@ struct WebDAVAddress: Sendable {
         guard parts.allSatisfy(Self.isSafeComponent) else { throw WebDAVError.invalidPath }
         var url = endpoint
         for part in parts { url = url.appendingPathComponent(part, isDirectory: false) }
-        if directory && !parts.isEmpty { url = url.appendingPathComponent("", isDirectory: true) }
-        return url
+        guard directory else { return url }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw WebDAVError.invalidPath }
+        if !components.percentEncodedPath.hasSuffix("/") { components.percentEncodedPath += "/" }
+        guard let directoryURL = components.url else { throw WebDAVError.invalidPath }
+        return directoryURL
     }
 
     func relativePath(href: String, requested: URL) -> String? {

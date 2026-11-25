@@ -37,6 +37,8 @@ final class WebDAVTests: XCTestCase {
     func testAddressRejectsRedirectTargetsAndUnsafePaths() throws {
         let address = try WebDAVAddress("https://nas.example:5006/media")
         XCTAssertEqual(try address.url(for: "Film #1.mkv").absoluteString, "https://nas.example:5006/media/Film%20%231.mkv")
+        XCTAssertEqual(try address.url(for: "Kids #1", directory: true).absoluteString, "https://nas.example:5006/media/Kids%20%231/")
+        XCTAssertEqual(try address.url(for: "", directory: true).absoluteString, "https://nas.example:5006/media/")
         XCTAssertNil(address.relativePath(href: "/media/Kids%2Fprivate.mkv", requested: address.endpoint))
         XCTAssertNil(address.relativePath(href: "https://nas.example/media/Film.mkv", requested: address.endpoint))
         XCTAssertThrowsError(try address.url(for: "Kids/../private.mkv"))
@@ -99,7 +101,7 @@ private final class WebDAVTestProtocol: URLProtocol {
         if request.value(forHTTPHeaderField: "Authorization") != "Basic dmlld2VyOnNhbXBsZQ==" {
             status = 401
             body = Data()
-        } else if request.httpMethod == "PROPFIND", request.value(forHTTPHeaderField: "Depth") == "1", url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "media/Kids" {
+        } else if request.httpMethod == "PROPFIND", request.value(forHTTPHeaderField: "Depth") == "1", URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath == "/media/Kids/" {
             let urls = ["/media/Kids/", "/media/Kids/Film.mp4", "/media/Kids/Film.en.srt", "/media/Kids/Photo.jpg"]
             let rows = urls.map { path in
                 "<d:response><d:href>\(path)</d:href><d:propstat><d:prop><d:resourcetype>\(path.hasSuffix("/") ? "<d:collection/>" : "")</d:resourcetype><d:getcontentlength>10</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
