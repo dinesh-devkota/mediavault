@@ -162,5 +162,11 @@ history stays profile-specific. Jellyfin session reports use the connected
 server account. The Android draft still needs a complete TV flow against an
 HTTPS fixture, server artwork, photos and finer-grained catalog permissions.
 
+The tvOS Jellyfin draft includes password and Quick Connect setup, Keychain
+token storage, rescanning with stable catalog IDs, and authenticated direct play,
+seeking, session reporting and text subtitle tracks. The simulator has a
+dedicated loopback HTTPS fixture. HLS fallback, server artwork and photos still
+need tvOS app wiring.
+
 Subsequent providers will each have a separate feature branch and validation.
 Keep each PR in draft while its own implementation and tests are incomplete.

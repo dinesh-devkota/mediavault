@@ -1,3 +1,4 @@
+import CineVaultCore
 import Foundation
 
 struct JellyfinUser: Decodable, Sendable {
@@ -312,6 +313,22 @@ struct JellyfinClient: Sendable {
         }
         guard data.count == length else { throw JellyfinClientError.invalidResponse }
         return (data, range.total)
+    }
+
+    func fetchSubtitle(_ track: JellyfinSubtitle, account: JellyfinAccount) async throws -> SubtitleDocument {
+        let request = try assetRequest(track.url, account: account)
+        let (bytes, response) = try await Self.session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw JellyfinClientError.invalidResponse }
+        guard http.statusCode == 200 else { throw JellyfinClientError.status(http.statusCode) }
+        let limit = SubtitleDocument.maximumBytes
+        guard response.expectedContentLength <= Int64(limit) else { throw SubtitleError.tooLarge }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < limit else { throw SubtitleError.tooLarge }
+            data.append(byte)
+        }
+        return try SubtitleDocument.parse(data)
     }
 
     private func pathFor(_ parts: String...) throws -> String {

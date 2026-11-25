@@ -122,37 +122,53 @@ final class LibraryScanner: ObservableObject {
         guard household.sessionIsCurrent(session), household.isAdmin,
               !source.isDeleted, try source.config() == config else { throw SMBError.sourceChanged }
 
-        var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { first, _ in first })
-        let previous = existing.values.map { ($0, $0.isMissing) }
+        let indexed = source.movies.compactMap { movie -> (String, Movie)? in
+            guard let id = try? JellyfinSourceConnection.itemID(for: movie.filePath) else { return nil }
+            return (id, movie)
+        }
+        var existing = Dictionary(indexed, uniquingKeysWith: { first, _ in first })
         let date = source.lastScanDate
         var inserted: [Movie] = []
+        var undo: [() -> Void] = []
         for (path, item) in catalog {
-            if let movie = existing.removeValue(forKey: path) {
-                movie.isMissing = false
-                continue
+            let movie: Movie
+            if let current = existing.removeValue(forKey: item.id) {
+                let previous = (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
+                                current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched)
+                undo.append {
+                    (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
+                     current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched) = previous
+                }
+                movie = current
+            } else {
+                movie = Movie(filePath: path, fileSize: 0, source: source)
+                movie.fileName = item.name
+                movie.parsedTitle = item.name
+                movie.setTitle(item.name)
+                movie.parsedYear = item.year
+                movie.year = item.year
+                movie.overview = item.overview
+                movie.metadataFetched = true
+                context.insert(movie)
+                inserted.append(movie)
             }
-            let movie = Movie(filePath: path, fileSize: 0, source: source)
-            movie.fileName = item.name
-            movie.parsedTitle = item.name
-            movie.setTitle(item.name)
-            movie.parsedYear = item.year
-            movie.year = item.year
-            movie.overview = item.overview
+            movie.filePath = path
+            movie.isMissing = false
             movie.seriesTitle = item.seriesName
             movie.providerSeriesID = item.seriesID
             movie.seasonNumber = item.season
             movie.episodeNumber = item.number
             movie.usContentRating = item.rating
             movie.usContentRatingFetched = true
-            movie.metadataFetched = true
-            context.insert(movie)
-            inserted.append(movie)
         }
-        for movie in existing.values { movie.isMissing = true }
+        for movie in existing.values where !movie.isMissing {
+            undo.append { movie.isMissing = false }
+            movie.isMissing = true
+        }
         source.lastScanDate = Date()
         do { try saveContext(context) }
         catch {
-            for (movie, wasMissing) in previous { movie.isMissing = wasMissing }
+            for restore in undo.reversed() { restore() }
             source.lastScanDate = date
             for movie in inserted { context.delete(movie) }
             throw error

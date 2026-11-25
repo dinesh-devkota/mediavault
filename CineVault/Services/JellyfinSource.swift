@@ -17,7 +17,8 @@ struct JellyfinSourceConnection: Sendable {
     }
 
     static func videoPath(_ item: JellyfinCatalogItem) -> String? {
-        guard (item.type == "Movie" || item.type == "Episode"), validItemID(item.id) else { return nil }
+        guard (item.type == "Movie" || item.type == "Episode"), validItemID(item.id),
+              !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if item.type == "Episode" {
             guard let seriesID = item.seriesID, validItemID(seriesID),
                   let seriesName = item.seriesName, !seriesName.isEmpty,
@@ -67,17 +68,18 @@ actor JellyfinPlaybackReporter {
     private var reportedStart = false
     private var stopped = false
     private var tail: Task<Void, Never>?
+    private var generation = UUID()
 
     init(connection: JellyfinSourceConnection, playback: JellyfinPlayback) {
         self.connection = connection
         self.playback = playback
     }
 
-    func progress(seconds: Double) {
-        guard !stopped, let position = position(seconds) else { return }
+    func progress(seconds: Double, paused: Bool = false) {
+        guard !stopped, tail == nil, reportedStart || !paused, let position = position(seconds) else { return }
         let event: JellyfinPlaybackEvent = reportedStart ? .progress : .started
         reportedStart = true
-        send(event, position: position)
+        send(event, position: position, paused: paused)
     }
 
     func stop(seconds: Double) {
@@ -86,13 +88,16 @@ actor JellyfinPlaybackReporter {
         if reportedStart { send(.stopped, position: position(seconds) ?? 0) }
     }
 
-    private func send(_ event: JellyfinPlaybackEvent, position: Int64) {
+    private func send(_ event: JellyfinPlaybackEvent, position: Int64, paused: Bool = false) {
         let previous = tail
+        let id = UUID()
+        generation = id
         let connection = self.connection
         let playback = self.playback
         tail = Task {
             await previous?.value
-            try? await connection.client.report(connection.account, playback: playback, event: event, positionMillis: position)
+            try? await connection.client.report(connection.account, playback: playback, event: event, positionMillis: position, paused: paused)
+            if generation == id { tail = nil }
         }
     }
 

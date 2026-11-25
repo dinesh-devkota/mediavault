@@ -9,6 +9,7 @@ struct PlaybackDesignPreview: View {
     private static let suite = "com.dineshdevkota.cinevault.preview.playback"
     @State private var controller: PlaybackController?
     @State private var error: String?
+    @State private var productionPlaybackReady = false
     @StateObject private var fixture = Fixture()
     @EnvironmentObject private var services: PlaybackServices
 
@@ -35,15 +36,38 @@ struct PlaybackDesignPreview: View {
         deinit { try? Keychain.delete(credentialKey) }
     }
 
+    private var testsProductionControls: Bool {
+        ProcessInfo.processInfo.arguments.contains("--ui-preview-production-controls")
+    }
+
     var body: some View {
         Group {
             if let controller {
                 PlaybackScreen(controller: controller, services: services, defaults: fixture.defaults, library: { fixture.episodes })
                     .ignoresSafeArea()
                     .onAppear {
-                        guard !ProcessInfo.processInfo.arguments.contains("--ui-preview-production-controls") else { return }
+                        guard !testsProductionControls else { return }
                         controller.player.pause()
                         controller.player.seek(to: CMTime(seconds: 1, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                    }
+                    .task {
+                        guard testsProductionControls else { return }
+                        while !Task.isCancelled {
+                            if controller.player.timeControlStatus == .playing, controller.player.currentTime().seconds > 0.25 {
+                                productionPlaybackReady = true
+                                return
+                            }
+                            do { try await Task.sleep(for: .milliseconds(100)) }
+                            catch { return }
+                        }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if testsProductionControls && productionPlaybackReady {
+                            Text("Playback ready")
+                                .font(.caption)
+                                .accessibilityIdentifier("fixture-native-playback-ready")
+                                .allowsHitTesting(false)
+                        }
                     }
             } else if let error { Text(error).padding(80) }
             else { ProgressView("Opening playback fixture…") }

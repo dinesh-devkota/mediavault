@@ -17,6 +17,15 @@ On Android, they are encrypted with a key held in the Android Keystore.
 Media is read directly from your NAS for playback, not uploaded to a MediaVault server.
 Your NAS provider and network administrator may maintain their own connection logs.
 
+## Linked Jellyfin libraries
+
+When you link a Jellyfin library, MediaVault sends sign-in and catalog requests to
+the server you enter and saves the server token in protected device storage.
+Playback, subtitle requests, and Jellyfin session reports go directly to that server.
+A report includes the item, playback position, and player state, so the Jellyfin
+server may retain viewing data under its connected account. MediaVault keeps its
+own resume positions and Watchlist separate for each household profile.
+
 ## Optional household profiles
 
 Household profiles are local to this installation. Names, allowed folders and

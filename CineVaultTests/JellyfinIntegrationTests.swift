@@ -38,6 +38,14 @@ final class JellyfinIntegrationTests: XCTestCase {
         XCTAssertEqual(movie.usContentRating, "G")
         XCTAssertFalse(movie.isWatched)
 
+        let restricted = HouseholdProfile(name: "Fixture viewer")
+        XCTAssertFalse(HouseholdPolicy.allowsPath(profile: restricted, sourceID: source.id, path: movie.filePath, caseSensitive: true))
+        let permitted = HouseholdProfile(name: "Fixture viewer", allowedFolders: [
+            HouseholdFolder(sourceID: source.id, path: "", caseSensitive: true),
+        ])
+        XCTAssertTrue(HouseholdPolicy.allowsPath(profile: permitted, sourceID: source.id, path: movie.filePath, caseSensitive: true))
+        XCTAssertFalse(HouseholdPolicy.allowsPath(profile: permitted, sourceID: UUID(), path: movie.filePath, caseSensitive: true))
+
         let connection = try JellyfinSourceConnection(config: source.config())
         let playback = try await connection.directPlayback(path: movie.filePath)
         let header = try await connection.client.readDirect(playback, account: account, offset: 4, length: 4)
@@ -47,6 +55,14 @@ final class JellyfinIntegrationTests: XCTestCase {
         let controller = try XCTUnwrap(prepared)
         defer { controller.stop() }
         let player = controller.player
+        controller.subtitles.start()
+        let subtitleTimeout = ContinuousClock.now.advanced(by: .seconds(15))
+        while controller.subtitles.local.isEmpty, ContinuousClock.now < subtitleTimeout {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let track = try XCTUnwrap(controller.subtitles.local.first)
+        XCTAssertEqual(track.language, "en")
+        controller.subtitles.select(track.id)
         player.play()
         try await waitForPlayback(player, past: 0.5)
         let sought = expectation(description: "Seek completes")
@@ -58,6 +74,20 @@ final class JellyfinIntegrationTests: XCTestCase {
         await fulfillment(of: [sought], timeout: 25)
         player.play()
         try await waitForPlayback(player, past: 8.5)
+        let captionTimeout = ContinuousClock.now.advanced(by: .seconds(2))
+        while controller.subtitles.caption.isEmpty, ContinuousClock.now < captionTimeout {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(controller.subtitles.caption, "Fixture Jellyfin caption.")
+        controller.stop()
+        let originalID = movie.id
+        movie.isWatchlisted = true
+        try context.save()
+        await scanner.scan(source, context: context)
+        let refreshed = try XCTUnwrap(source.movies.first)
+        XCTAssertEqual(source.movies.count, 1)
+        XCTAssertEqual(refreshed.id, originalID)
+        XCTAssertTrue(refreshed.isWatchlisted)
     }
 
     private func waitForPlayback(_ player: AVPlayer, past target: Double) async throws {

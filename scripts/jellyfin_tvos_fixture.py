@@ -55,7 +55,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/jellyfin/Items/fixture-movie/PlaybackInfo" and data.get("UserId") == "fixture-user":
             self.send_json({"PlaySessionId": "fixture-playback", "MediaSources": [
-                {"Id": "fixture-media-source", "SupportsDirectPlay": True},
+                {"Id": "fixture-media-source", "SupportsDirectPlay": True, "MediaStreams": [
+                    {"Type": "Subtitle", "Index": 2, "IsTextSubtitleStream": True, "Language": "en"},
+                ]},
             ]})
         elif path in {"/jellyfin/Sessions/Playing", "/jellyfin/Sessions/Playing/Progress",
                       "/jellyfin/Sessions/Playing/Stopped", "/jellyfin/Sessions/Logout"}:
@@ -79,6 +81,9 @@ class Handler(BaseHTTPRequestHandler):
         elif (parts.path == "/jellyfin/Videos/fixture-movie/stream" and query.get("static") == ["true"]
               and query.get("playSessionId") == ["fixture-playback"]):
             self.send_range()
+        elif parts.path == "/jellyfin/Videos/fixture-movie/fixture-media-source/Subtitles/2/Stream.vtt":
+            self.send_body(200, b"WEBVTT\n\n00:00:07.000 --> 00:00:11.000\nFixture Jellyfin caption.\n",
+                           [("Content-Type", "text/vtt")])
         else:
             self.send_body(404)
 

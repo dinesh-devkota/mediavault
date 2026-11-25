@@ -171,6 +171,7 @@ final class PlaybackController: ObservableObject {
     private var finishedPlayback = false
     private var stopped = false
     private var jellyfinReporter: JellyfinPlaybackReporter?
+    private var playbackStateObservation: NSKeyValueObservation?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
@@ -203,6 +204,7 @@ final class PlaybackController: ObservableObject {
         let config = try sourceConfig(source)
         let path = movie.filePath
         var reportSession: JellyfinPlaybackReporter?
+        var providerTracks: PlaybackSubtitles.ProviderTracks?
         let reader: SMBResourceLoader.Reader?
         if config.isJellyfin {
             let connection = try JellyfinSourceConnection(config: config)
@@ -212,6 +214,15 @@ final class PlaybackController: ObservableObject {
                 throw PlaybackPreparationError.fileUnavailable
             }
             reportSession = JellyfinPlaybackReporter(connection: connection, playback: stream)
+            let tracks = Dictionary(stream.subtitles.prefix(64).map { ("jellyfin-caption-\($0.index)", $0) },
+                                    uniquingKeysWith: { first, _ in first })
+            let choices = tracks.keys.sorted {
+                (tracks[$0]?.index ?? 0) < (tracks[$1]?.index ?? 0)
+            }.map { id in SubtitleFile(path: id, language: tracks[id]?.language) }
+            providerTracks = PlaybackSubtitles.ProviderTracks(files: choices, read: { file in
+                guard let track = tracks[file.path] else { throw JellyfinClientError.invalidResponse }
+                return try await connection.client.fetchSubtitle(track, account: connection.account)
+            })
             reader = SMBResourceLoader.Reader(
                 size: { try await connection.client.readDirect(stream, account: connection.account, offset: 0, length: 1).size },
                 read: { try await connection.client.readDirect(stream, account: connection.account, offset: $0, length: $1).data }
@@ -230,7 +241,8 @@ final class PlaybackController: ObservableObject {
                     throw PlaybackPreparationError.fileUnavailable
                 }
                 let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset, household: household)
-                controller.jellyfinReporter = reportSession
+                controller.subtitles.providerTracks = providerTracks
+                if let reportSession { controller.attachJellyfinReporter(reportSession) }
                 return controller
             } catch {
                 asset.cancelLoading()
@@ -365,6 +377,19 @@ final class PlaybackController: ObservableObject {
         }
     }
 
+    private func attachJellyfinReporter(_ reporter: JellyfinPlaybackReporter) {
+        jellyfinReporter = reporter
+        playbackStateObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.stopped, self.validateAccess() else { return }
+                let state = self.player.timeControlStatus
+                if state == .playing || state == .paused {
+                    await reporter.progress(seconds: self.player.currentTime().seconds, paused: state == .paused)
+                }
+            }
+        }
+    }
+
     private func finish() {
         guard !stopped, validateAccess() else { return }
         finishedPlayback = true
@@ -415,6 +440,8 @@ final class PlaybackController: ObservableObject {
         player.currentItem?.externalMetadata = []
         player.replaceCurrentItem(with: nil)
         asset.cancelLoading()
+        playbackStateObservation?.invalidate()
+        playbackStateObservation = nil
         itemObservation?.invalidate()
         itemObservation = nil
         if let timeObserver { player.removeTimeObserver(timeObserver) }
