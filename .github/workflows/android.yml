@@ -10,6 +10,7 @@ on:
       - "scripts/start_webdav_fixture.sh"
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
+      - "scripts/test_jellyfin_fixture.py"
       - "CineVaultTests/Fixtures/**"
   pull_request:
     paths:
@@ -20,6 +21,7 @@ on:
       - "scripts/start_webdav_fixture.sh"
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
+      - "scripts/test_jellyfin_fixture.py"
       - "CineVaultTests/Fixtures/**"
   workflow_dispatch:
 
@@ -145,8 +147,11 @@ jobs:
                   detail = (problem.get("message", "") + "\n" + (problem.text or ""))[:4000]
                   detail = detail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
                   print(f"::error title=Android runtime test::{case.get('classname')}.{case.get('name')}: {detail}")
+              elif case.find("skipped") is None and case.get("classname", "").endswith(".JellyfinAndroidIntegrationTest"):
+                  print(f"{case.get('classname')}.{case.get('name')} passed")
           required = {"TVNavigationTest", "SecretBoxInstrumentedTest", "LibraryDatabaseTest", "MetadataMutationTest",
                       "LibraryScannerTest", "SmbDataSourceContractTest", "SmbIntegrationTest", "SmbPlaybackTest",
+                      "JellyfinAndroidIntegrationTest", "JellyfinSetupNavigationTest",
                       "WatchlistMigrationTest", "WatchlistNavigationTest", "NasBrowserIntegrationTest",
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",
@@ -180,6 +185,7 @@ jobs:
             android/app/build/outputs/androidTest-results/
             ${{ runner.temp }}/android-runtime-results/
             ${{ runner.temp }}/android-nas-fixture.log
+            ${{ runner.temp }}/jellyfin-android.log
             ${{ runner.temp }}/android-webdav-fixture/server.log
           if-no-files-found: error
           retention-days: 7

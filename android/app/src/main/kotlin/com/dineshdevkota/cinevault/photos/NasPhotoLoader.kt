@@ -17,6 +17,11 @@ import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SecretBox
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
+import com.dineshdevkota.cinevault.jellyfin.jellyfinConnection
+import com.dineshdevkota.cinevault.jellyfin.jellyfinItemID
+import com.dineshdevkota.cinevault.jellyfin.jellyfinPhotoID
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.hierynomus.security.bc.BCSecurityProvider
@@ -29,15 +34,18 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import java.io.File
+import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
 class PhotoLoadException(message: String) : Exception(message)
 
-/** Local-only image loading. Neither source credentials nor photo bytes enter an HTTP/image URL. */
+/** Bounded image loading. Source credentials stay out of URLs and decoded images stay in memory. */
 class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
     private val secrets: SecretBox, private val smb: SmbService = photoService(),
     private val family: com.dineshdevkota.cinevault.family.FamilyStore,
+    private val fixtureHttp: OkHttpClient? = null,
     private val openFile: (SourceConfig, String) -> com.dineshdevkota.cinevault.smb.RemoteHandle = smb::open) {
     private val cacheDirectory = File(context.cacheDir, "nas-photos").apply {
         mkdirs()
@@ -45,29 +53,45 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
         listFiles()?.filter { it.isFile && it.name.startsWith("image-") && it.name.endsWith(".tmp") }?.forEach { it.delete() }
     }
     private val slots = Semaphore(2)
-    private class CacheKey(val photoId: String, val path: String, val source: SourceEntity, val fileSize: Long, val edge: Int) {
-        override fun equals(other: Any?): Boolean = other is CacheKey && photoId == other.photoId &&
-            path == other.path && source == other.source && fileSize == other.fileSize && edge == other.edge
-        override fun hashCode(): Int = arrayOf(photoId, path, source, fileSize, edge).contentHashCode()
-    }
+    private data class CacheKey(
+        val photoId: String, val path: String, val source: SourceEntity, val fileSize: Long,
+        val edge: Int, val artwork: JellyfinImage?,
+    )
     private val cache = object : LruCache<CacheKey, Bitmap>(24 * 1024 * 1024) {
         override fun sizeOf(key: CacheKey, value: Bitmap): Int = value.allocationByteCount
     }
 
-    suspend fun load(photoId: String, thumbnail: Boolean = false): Bitmap = withContext(Dispatchers.IO) {
+    suspend fun load(photoId: String, thumbnail: Boolean = false): Bitmap =
+        loadImage(photoId, if (thumbnail) PhotoDecodePolicy.THUMBNAIL_EDGE else PhotoDecodePolicy.VIEWER_EDGE)
+
+    internal suspend fun loadArtwork(mediaId: String, width: Int, image: JellyfinImage): Bitmap =
+        loadImage(mediaId, width, image)
+
+    private suspend fun loadImage(photoId: String, edge: Int, artwork: JellyfinImage? = null): Bitmap = withContext(Dispatchers.IO) {
         val session = family.current
         slots.withPermit {
             currentCoroutineContext().ensureActive()
             val photo = database.movies().get(photoId) ?: throw PhotoLoadException("This photo is no longer in the library.")
             check(family.isCurrent(session) && family.permits(photo)) { "This photo is unavailable for this profile." }
-            val source = database.sources().get(photo.sourceId) ?: throw PhotoLoadException("This photo's NAS source was removed.")
-            val config = source.config(secrets)
-            validate(photo, config)
-            val edge = if (thumbnail) PhotoDecodePolicy.THUMBNAIL_EDGE else PhotoDecodePolicy.VIEWER_EDGE
-            // Source changes and completed rescans invalidate decoded content without putting secrets in a key.
-            val key = CacheKey(photo.id, photo.filePath, source, photo.fileSize, edge)
+            val source = database.sources().get(photo.sourceId) ?: throw PhotoLoadException("This image's source was removed.")
+            val providerItem = if (source.sourceType == JELLYFIN) {
+                if (artwork == null) jellyfinPhotoID(photo.filePath) else jellyfinItemID(photo.filePath)
+            } else null
+            val config = source.takeIf { it.sourceType != JELLYFIN && artwork == null }?.config(secrets)
+            fun validateItem(item: MovieEntity) {
+                if (config != null) validate(item, config)
+                else if (providerItem == null || item.isMissing || item.isHidden) {
+                    throw PhotoLoadException("This image is unavailable.")
+                }
+            }
+            fun authorize(item: MovieEntity) {
+                check(family.isCurrent(session) && family.permits(item)) { "This image is unavailable for this profile." }
+            }
+            validateItem(photo)
+            // Source changes and completed rescans invalidate decoded content.
+            val key = CacheKey(photo.id, photo.filePath, source, photo.fileSize, edge, artwork)
             cache.get(key)?.let {
-                check(family.isCurrent(session) && family.permits(photo)) { "Your household session has locked." }
+                authorize(photo)
                 return@withPermit it
             }
             val temporary = File.createTempFile("image-", ".tmp", cacheDirectory)
@@ -75,41 +99,55 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             try {
                 val loadContext = currentCoroutineContext()
                 runInterruptible {
-                    check(family.isCurrent(session) && family.permits(photo)) { "Your household session has locked." }
-                    openFile(config, photo.filePath).use { remote ->
-                    check(family.isCurrent(session) && family.permits(photo)) { "Your household session has locked." }
-                    if (remote.length > PhotoDecodePolicy.MAX_FILE_BYTES) throw PhotoLoadException("This photo is larger than the 64 MB viewing limit.")
-                    remote.stream(0).use { input ->
+                    authorize(photo)
+                    fun copy(input: InputStream, length: Long) {
+                        if (length > PhotoDecodePolicy.MAX_FILE_BYTES) throw PhotoLoadException("This image is larger than the 64 MB viewing limit.")
                         temporary.outputStream().use { output ->
                             val buffer = ByteArray(64 * 1024)
                             var total = 0L
                             while (true) {
                                 loadContext.ensureActive()
-                                check(family.isCurrent(session)) { "Your household session has locked." }
+                                authorize(photo)
                                 val read = input.read(buffer)
-                                check(family.isCurrent(session)) { "Your household session has locked." }
+                                authorize(photo)
                                 if (read < 0) break
                                 total += read
-                                if (total > PhotoDecodePolicy.MAX_FILE_BYTES) throw PhotoLoadException("This photo is larger than the 64 MB viewing limit.")
+                                if (total > PhotoDecodePolicy.MAX_FILE_BYTES) throw PhotoLoadException("This image is larger than the 64 MB viewing limit.")
                                 output.write(buffer, 0, read)
                             }
                         }
                     }
-                } }
+                    if (providerItem != null) {
+                        val connection = source.jellyfinConnection(secrets, fixtureHttp)
+                        connection.client.openImage(connection.session, providerItem, artwork ?: JellyfinImage.Primary, edge).use { response ->
+                            authorize(photo)
+                            val body = response.body
+                            if (!response.isSuccessful || body?.contentType()?.type != "image") {
+                                throw PhotoLoadException("Jellyfin could not load this image.")
+                            }
+                            body.byteStream().use { copy(it, body.contentLength()) }
+                        }
+                    } else {
+                        openFile(checkNotNull(config), photo.filePath).use { remote ->
+                            authorize(photo)
+                            remote.stream(0).use { copy(it, remote.length) }
+                        }
+                    }
+                }
                 currentCoroutineContext().ensureActive()
                 decoded = if (Build.VERSION.SDK_INT >= 28) decodeModern(temporary, edge) else decodeLegacy(temporary, edge)
                 currentCoroutineContext().ensureActive()
-                // A source edit/ignore can finish during an SMB read. Do not display the old reply.
+                // Recheck the database after decoding in case the item or source changed during the read.
                 val currentPhoto = database.movies().get(photoId)
                     ?: throw PhotoLoadException("This photo was removed from the library.")
                 val currentSource = database.sources().get(source.id)
-                    ?: throw PhotoLoadException("This photo's NAS source was removed.")
+                    ?: throw PhotoLoadException("This image's source was removed.")
                 if (currentSource.copy(name = source.name, lastScanAt = source.lastScanAt) != source ||
                     currentPhoto.sourceId != photo.sourceId || currentPhoto.filePath != photo.filePath) {
-                    throw PhotoLoadException("The NAS source changed. Open this photo again.")
+                    throw PhotoLoadException("The image source changed. Open it again.")
                 }
-                validate(currentPhoto, config)
-                check(family.isCurrent(session) && family.permits(currentPhoto)) { "This photo is unavailable for this profile." }
+                validateItem(currentPhoto)
+                authorize(currentPhoto)
                 val bitmap = requireNotNull(decoded)
                 if (bitmap.allocationByteCount > PhotoDecodePolicy.MAX_DECODED_PIXELS * 4) {
                     throw PhotoLoadException("This photo needs more memory than this viewer allows.")

@@ -31,6 +31,7 @@ final class MediaSource {
     }
 
     var isWebDAV: Bool { sourceProtocol == "webdav" }
+    var isJellyfin: Bool { sourceProtocol == "jellyfin" }
 
     private var passwordAccount: String { "source-\(id.uuidString)" }
 
@@ -47,7 +48,7 @@ final class MediaSource {
         if !username.isEmpty { secret = try password() }
         return SourceConfig(id: id, host: host, port: port, share: share, rootPath: rootPath,
                             username: username, password: secret, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [],
-                            isWebDAV: isWebDAV)
+                            isWebDAV: isWebDAV, isJellyfin: isJellyfin)
     }
 
     func isIgnored(filePath: String) -> Bool {
@@ -96,13 +97,14 @@ struct SourceConfig: Sendable, Hashable {
     let ignoredFolders: [String]
     let ignoredFiles: [String]
     let isWebDAV: Bool
+    let isJellyfin: Bool
 
     init(id: UUID, host: String, port: Int? = nil, share: String, rootPath: String,
          username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = [],
-         isWebDAV: Bool = false) {
+         isWebDAV: Bool = false, isJellyfin: Bool = false) {
         self.id = id; self.host = host; self.port = port; self.share = share; self.rootPath = rootPath
         self.username = username; self.password = password; self.ignoredFolders = ignoredFolders
-        self.ignoredFiles = ignoredFiles; self.isWebDAV = isWebDAV
+        self.ignoredFiles = ignoredFiles; self.isWebDAV = isWebDAV; self.isJellyfin = isJellyfin
     }
 
     func excludesDirectory(_ path: String) -> Bool {
@@ -114,7 +116,7 @@ struct SourceConfig: Sendable, Hashable {
     }
 
     var serverURL: URL? {
-        (try? NASAddress.parse(host, port: port))?.serverURL
+        isJellyfin ? nil : (try? NASAddress.parse(host, port: port))?.serverURL
     }
 }
 
@@ -135,6 +137,7 @@ final class Movie {
     }
     var seriesKey: String? {
         guard let info = episodeInfo else { return nil }
+        if let providerSeriesID, let source { return "jellyfin:\(source.id.uuidString):\(providerSeriesID)" }
         if let seriesTMDBID { return "tmdb:\(seriesTMDBID)" }
         return "local:\(TitleMatcher.normalize(info.seriesTitle))|\(info.year.map(String.init) ?? "")"
     }
@@ -153,6 +156,8 @@ final class Movie {
     var tmdbID: Int?
     var seriesTitle: String?
     var seriesTMDBID: Int?
+    var providerSeriesID: String?
+    var providerImageTag: String?
     var seasonNumber: Int?
     var episodeNumber: Int?
     var seasonPosterPath: String?

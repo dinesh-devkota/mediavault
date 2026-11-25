@@ -1,6 +1,7 @@
 import CineVaultCore
 import SwiftData
 import SwiftUI
+import UIKit
 
 enum LibrarySort: String, CaseIterable, Identifiable {
     case title = "Title", recentlyAdded = "Recently Added", year = "Year", rating = "Rating", lastPlayed = "Last Played"
@@ -751,10 +752,14 @@ struct PosterView: View {
                         .lineLimit(3)
                         .padding(.horizontal, 18)
                 }
-                AsyncImage(url: TMDB.imageURL(movie.posterPath, size: "w342")) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Color.clear
+                if let tag = movie.providerImageTag, movie.source?.isJellyfin == true {
+                    JellyfinPosterArtwork(movie: movie, tag: tag)
+                } else {
+                    AsyncImage(url: TMDB.imageURL(movie.posterPath, size: "w342")) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Color.clear
+                    }
                 }
             }
             .frame(width: CinemaTheme.posterWidth, height: CinemaTheme.posterHeight)
@@ -793,5 +798,34 @@ struct PosterView: View {
         .frame(width: CinemaTheme.posterWidth, alignment: .leading)
         .scaleEffect(isFocused ? 1.04 : 1)
         .animation(.easeOut(duration: 0.18), value: isFocused)
+    }
+}
+
+
+private struct JellyfinPosterArtwork: View {
+    let movie: Movie
+    let tag: String
+    @ObservedObject private var household = HouseholdStore.shared
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image, LibrarySearch.isAvailable(movie) {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+            }
+        }
+        .task(id: "\(movie.id)/\(movie.filePath)/\(tag)/\(household.sessionToken)") {
+            image = nil
+            let session = household.sessionToken
+            guard LibrarySearch.isAvailable(movie), let source = movie.source,
+                  let config = try? source.config(), config.isJellyfin else { return }
+            let path = movie.filePath
+            guard let decoded = try? await PhotoImageLoader.shared.image(
+                config: config, path: path, knownSize: 0, maxPixelSize: PhotoImageLoader.thumbnailPixels,
+                revision: source.lastScanDate, artworkTag: tag),
+                !Task.isCancelled, household.sessionIsCurrent(session),
+                LibrarySearch.isAvailable(movie), movie.filePath == path, movie.providerImageTag == tag else { return }
+            image = decoded
+        }
     }
 }

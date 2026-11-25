@@ -32,6 +32,7 @@ jobs:
         run: |
           python -m unittest discover -s scripts/tests -p test_xcresult_report.py
           brew install xcodegen
+          command -v ffmpeg >/dev/null || brew install ffmpeg
           python -m pip install -r scripts/nas-test-requirements.txt
       - name: Generate project
         run: |
@@ -60,7 +61,7 @@ jobs:
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
-      - name: Test against local SMB and WebDAV fixtures
+      - name: Test against local SMB, WebDAV, and Jellyfin fixtures
         env:
           UI_ONLY: ${{ inputs.ui_only || false }}
         run: |
@@ -68,10 +69,12 @@ jobs:
           DEVICE='${{ steps.simulator.outputs.device }}'
           python scripts/nas_fixture.py "$RUNNER_TEMP/nas-fixture" >"$RUNNER_TEMP/nas-fixture.log" 2>&1 &
           SERVER_PID=$!
-          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          python scripts/jellyfin_tvos_fixture.py "$RUNNER_TEMP/jellyfin-fixture" --hls >"$RUNNER_TEMP/jellyfin-fixture.log" 2>&1 &
+          JELLYFIN_PID=$!
+          trap 'kill "$SERVER_PID" "$JELLYFIN_PID" 2>/dev/null || true' EXIT
           bash scripts/start_webdav_fixture.sh "$RUNNER_TEMP/webdav-fixture"
           WEBDAV_PID=$(cat "$RUNNER_TEMP/webdav-fixture/server.pid")
-          trap 'kill "$SERVER_PID" "$WEBDAV_PID" 2>/dev/null || true' EXIT
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" 2>/dev/null || true' EXIT
           for attempt in {1..30}; do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               cat "$RUNNER_TEMP/nas-fixture.log" >&2
@@ -85,8 +88,18 @@ jobs:
             cat "$RUNNER_TEMP/nas-fixture.log" >&2
             exit 1
           fi
+          for attempt in {1..30}; do
+            if ! kill -0 "$JELLYFIN_PID" 2>/dev/null; then
+              cat "$RUNNER_TEMP/jellyfin-fixture.log" >&2
+              exit 1
+            fi
+            if curl --silent --fail --cacert "$RUNNER_TEMP/jellyfin-fixture/fixture.pem" https://127.0.0.1:18896/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl --silent --show-error --fail --cacert "$RUNNER_TEMP/jellyfin-fixture/fixture.pem" https://127.0.0.1:18896/health >/dev/null
           xcrun simctl boot "$DEVICE"
           xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/jellyfin-fixture/fixture.cer"
           # Install the ephemeral fixture's trust anchor only on this simulator.
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
           # Bash 3.2 treats an empty array as unset under nounset. Keep the full
@@ -132,6 +145,7 @@ jobs:
           name: nas-integration-diagnostics
           path: |
             ${{ runner.temp }}/nas-fixture.log
+            ${{ runner.temp }}/jellyfin-fixture.log
             ${{ runner.temp }}/webdav-fixture/server.log
             ${{ runner.temp }}/nas-results.xcresult
           if-no-files-found: warn
