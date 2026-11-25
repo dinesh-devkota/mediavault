@@ -13,7 +13,7 @@ concurrency:
 jobs:
   core-tests:
     name: Core package tests
-    runs-on: macos-15-intel
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: swift test
@@ -26,7 +26,7 @@ jobs:
 
   build:
     name: Build tvOS app (unsigned)
-    runs-on: macos-15-intel
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
