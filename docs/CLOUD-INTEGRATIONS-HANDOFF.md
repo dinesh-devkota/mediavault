@@ -167,10 +167,11 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   The Apple TV simulator ran 199 tests with zero failures or skips, including
   Emby source entry, catalog and range validation, and household photo access.
   Authenticated Android HLS passed rendering and seek and has been ported into
-  the draft. The combined Android check, integration against current
-  development and Apple TV transcoding are still open.
+  the draft. Its combined Android TV suite passed 97 tests with zero failures
+  or skips. Integration against current development and Apple TV transcoding
+  are still open.
   [Emby](https://github.com/dinesh-devkota/mediavault/pull/3)
-  · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45673892183)
+  · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45680172178)
   · [Apple build](https://github.com/dinesh-devkota/mediavault/actions/runs/45678384113)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45678390628)
   · [Android HLS](https://github.com/dinesh-devkota/mediavault/actions/runs/45677454484)
@@ -263,8 +264,9 @@ authorization. The unsigned iOS 26.5 build passed. The previous simulator
 checkpoint passed 188 of 189, including native playback and seeking, household
 access and the underlying HTTPS WebDAV transport. The WebDAV touch journey is
 being verified again against the current library accessibility fixes. Keep the
-branch in draft through the iPhone and Apple TV checks on the Jellyfin-inclusive
-development base. The draft currently uses a separate iPhone bundle ID.
+branch in draft through the iPhone checks on the Jellyfin-inclusive
+development base. The same candidate passed all 206 Apple TV simulator
+cases with zero failures or skips. The draft uses a separate iPhone bundle ID.
 [Current iPhone PR](https://github.com/dinesh-devkota/mediavault/pull/16)
 · [iPhone simulator](https://github.com/dinesh-devkota/mediavault/actions/runs/45680750211)
 · [Apple TV regression](https://github.com/dinesh-devkota/mediavault/actions/runs/45680750202)
