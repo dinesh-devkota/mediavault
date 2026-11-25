@@ -95,6 +95,7 @@ private fun CollectionsScreen() {
                 items(cards, key = { it.id }) { item ->
                     when (item) {
                         is CollectionItem.Movie -> PosterCard(item.movie, onClick = { MovieDetailActivity.start(context, item.movie.id) },
+                            cardModifier = Modifier.testTag("collection-movie:${item.movie.id}"),
                             versionCount = selected.movies.count { movieVersionKey(it) == movieVersionKey(item.movie) })
                         is CollectionItem.Show -> TVArtworkCard(item.show.title, "${item.show.seasons.size} seasons", item.show.posterPath,
                             artworkMovie = item.show.episodes.firstOrNull(), onClick = { selectedShow = item.show.id })

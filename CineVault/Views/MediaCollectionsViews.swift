@@ -219,7 +219,7 @@ import SwiftUI
                     case .movie(let movie):
                         VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedItem == item.id, compact: compact)
                     case .show(let show):
-                        NavigationLink { TVShowDestination(episodes: show.episodes, initialShowID: show.id) } label: {
+                        NavigationLink { TVShowDestination(episodes: show.episodes, initialShowID: show.id).movieDestination() } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons", path: show.posterPath,
                                 localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedItem == item.id, compact: compact)
                         }

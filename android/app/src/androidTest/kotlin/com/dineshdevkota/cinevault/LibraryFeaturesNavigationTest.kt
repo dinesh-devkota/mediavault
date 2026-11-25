@@ -48,7 +48,7 @@ class LibraryFeaturesNavigationTest {
             val alternate = copies.single { it.edition == "Directors Cut" }
             val intent = Intent(app, MovieDetailActivity::class.java).putExtra("movie_id", original.id)
             ActivityScenario.launch<MovieDetailActivity>(intent).use { detail ->
-                visible(hasText("Library Feature") and !hasClickAction())
+                visible(hasTestTag("detail-title")).assertTextEquals("Library Feature")
                 activate(hasTestTag("choose-version"))
                 visible(hasText("Choose a version"))
                 capture("library-version-picker")
@@ -64,7 +64,7 @@ class LibraryFeaturesNavigationTest {
                 assertEquals(listOf(original.id), container.collections.observeCustom().first().single { it.id == collectionId }.movieIds)
                 detail.onActivity { MediaCollectionsActivity.start(it) }
                 activate(hasTestTag("collection:Fixture Favorites"))
-                visible(hasText("Library Feature"))
+                visible(hasTestTag("collection-movie:${original.id}"))
                 activate(hasText("Edit collection") and hasClickAction())
                 fill("Collection name", "Weekend Films")
                 activate(hasText("Save name") and hasClickAction())
@@ -76,7 +76,7 @@ class LibraryFeaturesNavigationTest {
                 activate(hasTestTag("detail-collections"))
                 activate(hasTestTag("collection-choice:Weekend Films"))
                 withTimeout(15000) { container.collections.observeCustom().first { it.any { collection -> collection.id == collectionId && collection.movieIds.isEmpty() } } }
-                visible(hasText("Library Feature") and !hasClickAction())
+                visible(hasTestTag("detail-title")).assertTextEquals("Library Feature")
             }
         } finally {
             collectionId?.let { container.collections.delete(it) }
@@ -86,11 +86,19 @@ class LibraryFeaturesNavigationTest {
 
     private fun visible(matcher: SemanticsMatcher): SemanticsNodeInteraction {
         val node = compose.onNode(matcher)
-        compose.waitUntil(timeoutMillis = 20000) {
-            runCatching {
-                runCatching { node.performScrollTo() }
-                node.assertIsDisplayed(); true
-            }.getOrDefault(false)
+        var lastFailure: Throwable? = null
+        try {
+            compose.waitUntil(timeoutMillis = 20000) {
+                runCatching {
+                    runCatching { node.performScrollTo() }
+                    node.assertIsDisplayed(); true
+                }.onFailure { lastFailure = it }.getOrDefault(false)
+            }
+        } catch (timeout: ComposeTimeoutException) {
+            val tree = runCatching { compose.onRoot(useUnmergedTree = true).printToString(maxDepth = 14) }.getOrDefault("No single active Compose root")
+            runCatching { capture("library-failure") }
+            runCatching { File(File(app.getExternalFilesDir(null), "test-artifacts"), "library-failure-${if (tv) "tv" else "phone"}.txt").writeText(tree) }
+            throw AssertionError("Could not display $matcher. Last assertion: ${lastFailure?.message}\n$tree", timeout)
         }
         return node
     }

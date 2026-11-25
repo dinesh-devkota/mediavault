@@ -141,6 +141,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                 )
                 Text(
                     current.title,
+                    modifier = Modifier.testTag("detail-title"),
                     style = MaterialTheme.typography.displaySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
