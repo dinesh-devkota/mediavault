@@ -52,7 +52,9 @@ struct PlexAccountClient: Sendable {
     }
 
     let linkPage = URL(string: "https://plex.tv/link")!
+    typealias Exchange = @Sendable (URLRequest, Int, Int) async throws -> (Data, HTTPURLResponse)
     private let deviceID: String
+    private let transport: Exchange
     private static let endpoint = URL(string: "https://plex.tv/api/v2")!
     private static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -64,9 +66,12 @@ struct PlexAccountClient: Sendable {
         return URLSession(configuration: config, delegate: PlexRedirectDelegate(), delegateQueue: nil)
     }()
 
-    init(deviceID: String) throws {
+    init(deviceID: String, exchange: Exchange? = nil) throws {
         guard UUID(uuidString: deviceID) != nil else { throw PlexAccountError.invalidIdentity }
         self.deviceID = deviceID
+        transport = exchange ?? { request, limit, status in
+            try await Self.exchange(request, limit: limit, expectedStatus: status)
+        }
     }
 
     func beginLink() async throws -> LinkCode {
@@ -82,7 +87,9 @@ struct PlexAccountClient: Sendable {
         guard pin.id > 0 else { throw PlexAccountError.invalidResponse }
         let data = try await send("pins/\(pin.id)", query: [URLQueryItem(name: "code", value: pin.code)])
         let status = try JSONDecoder().decode(LinkStatus.self, from: data)
-        return status.authToken.flatMap { $0.isEmpty ? nil : $0 }
+        guard let token = status.authToken, !token.isEmpty else { return nil }
+        guard Self.isValidToken(token) else { throw PlexAccountError.invalidResponse }
+        return token
     }
 
     func listServers(accountToken: String) async throws -> [Server] {
@@ -110,23 +117,34 @@ struct PlexAccountClient: Sendable {
         request.setValue("Apple TV", forHTTPHeaderField: "X-Plex-Device")
         request.setValue(deviceID, forHTTPHeaderField: "X-Plex-Client-Identifier")
         if let token {
-            guard (1...4096).contains(token.utf8.count), token.utf8.allSatisfy({ (33...126).contains($0) }) else {
+            guard Self.isValidToken(token) else {
                 throw PlexAccountError.invalidResponse
             }
             request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         }
-        let (bytes, response) = try await Self.session.bytes(for: request)
+        let (data, _) = try await transport(request, 4 * 1024 * 1024, 200)
+        return data
+    }
+
+    static func isValidToken(_ token: String) -> Bool {
+        (1...4096).contains(token.utf8.count) && token.utf8.allSatisfy { (33...126).contains($0) }
+    }
+
+    static func exchange(_ request: URLRequest, limit: Int, expectedStatus: Int) async throws -> (Data, HTTPURLResponse) {
+        let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
-        let limit = 4 * 1024 * 1024
         guard let http = response as? HTTPURLResponse, response.expectedContentLength <= Int64(limit) else {
             throw PlexAccountError.invalidResponse
         }
-        guard (200..<300).contains(http.statusCode) else { throw PlexAccountError.status(http.statusCode) }
+        let isCreated = expectedStatus == 200 && request.httpMethod == "POST" && http.statusCode == 201
+        guard http.statusCode == expectedStatus || isCreated else {
+            throw PlexAccountError.status(http.statusCode)
+        }
         var data = Data()
         for try await byte in bytes {
             guard data.count < limit else { throw PlexAccountError.invalidResponse }
             data.append(byte)
         }
-        return data
+        return (data, http)
     }
 }
