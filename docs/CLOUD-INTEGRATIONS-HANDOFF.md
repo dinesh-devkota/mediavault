@@ -146,12 +146,21 @@ The tvOS WebDAV implementation routes listing, scans, ranged playback, photos
 and subtitle reads through the existing file facade. Setup, folder browsing,
 editing, connection checks and removal use the existing source editor and
 Keychain. Viewer grants for WebDAV are exact-case and are never created by
-source setup. Validate the optional SwiftData field against a pre-change store,
-then run the hosted tvOS build, simulator tests, and an end-to-end HTTPS scenario
-before calling this integration ready.
+source setup. The simulator suite now checks that a pre-change store still opens as SMB and
+that WebDAV configuration and case-sensitive exclusions survive reopening a
+store. Cloud Android validation passed 94 core tests, 108 app tests, debug lint
+and debug assembly. Hosted Android builds and unsigned tvOS builds passed.
+Hosted simulator results and a full TV-to-HTTPS-server journey are still needed.
 
 Jellyfin implementation is tracked separately on `codex/mediavault-jellyfin`.
-Subsequent providers will each have a separate feature branch and validation.
+Both clients have the sign-in, Quick Connect, catalog, artwork and subtitle
+address, playback negotiation, and session reporting calls. A disposable
+Jellyfin 12.4.0 instance verified the Android client's sign-in, movie listing,
+direct-play negotiation, successful range read, reporting and sign-out. These
+clients are not connected to the TV app's setup, secure account storage,
+household-scoped import, or player. Emby, Plex, NFS, OneDrive, Dropbox and
+Google Drive have not been implemented. Subsequent providers will each have
+a separate feature branch and validation.
 Keep each PR in draft while its own implementation and tests are incomplete.
 
 ## tvOS submission readiness
