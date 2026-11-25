@@ -1,5 +1,6 @@
 package com.dineshdevkota.cinevault.emby
 
+import com.dineshdevkota.cinevault.core.SubtitleSidecars
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,7 @@ class EmbyClient internal constructor(
         val ProductionYear: Int? = null,
         val RunTimeTicks: Long? = null,
         val CollectionType: String? = null,
+        val ProviderIds: Map<String, String>? = null,
     )
 
     @Serializable
@@ -61,6 +63,27 @@ class EmbyClient internal constructor(
         @SerialName("Id") val id: String? = null,
         @SerialName("SupportsDirectPlay") val supportsDirectPlay: Boolean = false,
         @SerialName("Container") val container: String? = null,
+        @SerialName("MediaStreams") val streams: List<MediaStream>? = null,
+    )
+
+    @Serializable
+    private data class MediaStream(
+        val Type: String? = null,
+        val Index: Int? = null,
+        val IsTextSubtitleStream: Boolean? = null,
+        val IsExternal: Boolean? = null,
+        val Language: String? = null,
+        val DisplayTitle: String? = null,
+        val IsForced: Boolean? = null,
+        val IsHearingImpaired: Boolean? = null,
+    )
+
+    data class TextSubtitle(
+        val index: Int,
+        val language: String?,
+        val title: String?,
+        val forced: Boolean,
+        val hearingImpaired: Boolean,
     )
 
     class DirectPlayback internal constructor(
@@ -70,6 +93,7 @@ class EmbyClient internal constructor(
         internal val mediaSourceId: String,
         internal val sessionId: String,
         val container: String,
+        val textSubtitles: List<TextSubtitle> = emptyList(),
     )
 
     data class ByteRange(val bytes: ByteArray, val totalLength: Long)
@@ -107,7 +131,7 @@ class EmbyClient internal constructor(
         while (offset < 250_000) {
             val page = json.decodeFromString<Page>(send(listOf("Users", account.User.Id, "Items"), account, mapOf(
                 "ParentId" to libraryId, "Recursive" to "true", "EnableUserData" to "false",
-                "IncludeItemTypes" to "Movie,Series,Season,Episode,Audio,Photo", "Fields" to "Overview",
+                "IncludeItemTypes" to "Movie,Series,Season,Episode,Audio,Photo", "Fields" to "Overview,ProviderIds",
                 "SortBy" to "SortName", "StartIndex" to offset.toString(), "Limit" to "100",
             )))
             if (page.Items.size > 100 || page.Items.any { it.Id.isBlank() || !seen.add(it.Id) }) invalidCatalog()
@@ -139,7 +163,16 @@ class EmbyClient internal constructor(
             source.supportsDirectPlay && source.container?.lowercase() in containers &&
                 source.id?.let(::headerValue) == true
         } ?: throw EmbyException("Emby did not offer a compatible direct-play source.")
-        return DirectPlayback(this, account, itemId, requireNotNull(media.id), sessionId, requireNotNull(media.container))
+        val subtitles = media.streams.orEmpty().take(128).mapNotNull { stream ->
+            val index = stream.Index?.takeIf { it >= 0 } ?: return@mapNotNull null
+            if (stream.Type != "Subtitle" || stream.IsTextSubtitleStream != true || stream.IsExternal != true) {
+                return@mapNotNull null
+            }
+            TextSubtitle(index, stream.Language?.take(16), stream.DisplayTitle?.take(100),
+                stream.IsForced == true, stream.IsHearingImpaired == true)
+        }.distinctBy(TextSubtitle::index)
+        return DirectPlayback(this, account, itemId, requireNotNull(media.id), sessionId,
+            requireNotNull(media.container), subtitles)
     }
 
     suspend fun read(account: Account, playback: DirectPlayback, offset: Long, length: Int): ByteRange =
@@ -173,6 +206,20 @@ class EmbyClient internal constructor(
             val bytes = source.readByteArray()
             if (bytes.size != length) throw EmbyException("Emby ended the byte range early.")
             ByteRange(bytes, total)
+        }
+    }
+
+    suspend fun textSubtitle(account: Account, playback: DirectPlayback, track: TextSubtitle): ByteArray {
+        require(playback.owner === this && playback.account === account && track in playback.textSubtitles)
+        val request = request(
+            listOf("Videos", playback.itemId, playback.mediaSourceId, "Subtitles", track.index.toString(), "Stream.srt"),
+            account,
+        ).header("Accept", "application/x-subrip").build()
+        return execute(request) { response ->
+            if (!response.isSuccessful) throw EmbyException("Emby returned HTTP ${response.code}.", response.code)
+            val source = response.body?.source() ?: throw EmbyException("Emby returned an empty subtitle.")
+            if (source.request(SubtitleSidecars.MAX_BYTES.toLong() + 1)) throw EmbyException("The Emby subtitle is too large.")
+            source.readByteArray()
         }
     }
 

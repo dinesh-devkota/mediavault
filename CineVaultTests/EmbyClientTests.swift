@@ -50,7 +50,7 @@ final class EmbyClientTests: XCTestCase {
             [
                 {"Id":"Video","Name":"Upstairs","Type":"Movie","ProductionYear":2023,"OfficialRating":"PG"},
                 {"Id":"video","Name":"Downstairs","Type":"Movie","OfficialRating":"R"},
-                {"Id":"show","Name":"Example Show","Type":"Series","OfficialRating":"tv-pg"},
+                {"Id":"show","Name":"Example Show","Type":"Series","OfficialRating":"tv-pg","ProviderIds":{"Tmdb":"101"}},
                 {"Id":"pilot","Name":"Pilot","Type":"Episode","SeriesId":"show","ParentIndexNumber":1,"IndexNumber":1,"OfficialRating":"TV-MA"},
                 {"Id":"bad","Name":"No episode number","Type":"Episode","SeriesId":"show","ParentIndexNumber":1},
                 {"Id":"../bad","Name":"Unsafe ID","Type":"Movie"}
@@ -61,6 +61,7 @@ final class EmbyClientTests: XCTestCase {
         XCTAssertEqual(videos.map(\.id), ["Video", "video", "pilot"])
         XCTAssertEqual(videos.map(\.rating), ["PG", "R", "TV-PG"])
         XCTAssertEqual(videos.last?.seriesTitle, "Example Show")
+        XCTAssertEqual(videos.last?.seriesTMDBID, 101)
         XCTAssertEqual(videos.last?.season, 1)
         XCTAssertEqual(videos.last?.episode, 1)
         XCTAssertEqual(try EmbySourceConnection.itemID(for: EmbySourceConnection.path("Video")), "Video")

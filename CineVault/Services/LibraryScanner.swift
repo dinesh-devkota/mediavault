@@ -125,13 +125,17 @@ final class LibraryScanner: ObservableObject {
         }
         let videos = EmbyCatalogVideo.videos(items)
         var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { first, _ in first })
-        let previous = existing.values.map { ($0, $0.isMissing, $0.usContentRating) }
+        let previous = existing.values.map { ($0, $0.isMissing, $0.usContentRating, $0.tmdbID, $0.seriesTMDBID) }
         let scanDate = source.lastScanDate
         var inserted: [Movie] = []
         for video in videos {
             let path = EmbySourceConnection.path(video.id)
             if let movie = existing.removeValue(forKey: path) {
                 movie.usContentRating = video.rating
+                if !movie.isLocked {
+                    movie.tmdbID = video.tmdbID
+                    movie.seriesTMDBID = video.seriesTMDBID
+                }
                 movie.isMissing = false
                 continue
             }
@@ -145,6 +149,8 @@ final class LibraryScanner: ObservableObject {
             movie.runtimeMinutes = video.runtimeMinutes
             movie.seriesTitle = video.seriesTitle
             movie.providerSeriesID = video.seriesID
+            movie.tmdbID = video.tmdbID
+            movie.seriesTMDBID = video.seriesTMDBID
             movie.seasonNumber = video.season
             movie.episodeNumber = video.episode
             movie.usContentRating = video.rating
@@ -157,9 +163,11 @@ final class LibraryScanner: ObservableObject {
         source.lastScanDate = Date()
         do { try saveContext(context) }
         catch {
-            for (movie, wasMissing, rating) in previous {
+            for (movie, wasMissing, rating, tmdbID, seriesTMDBID) in previous {
                 movie.isMissing = wasMissing
                 movie.usContentRating = rating
+                movie.tmdbID = tmdbID
+                movie.seriesTMDBID = seriesTMDBID
             }
             source.lastScanDate = scanDate
             for movie in inserted { context.delete(movie) }

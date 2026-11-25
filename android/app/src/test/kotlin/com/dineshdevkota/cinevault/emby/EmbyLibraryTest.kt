@@ -10,9 +10,10 @@ class EmbyLibraryTest {
     @Test fun importsStableEpisodeIdentityAndUsesSeriesAgeRating() {
         val movie = EmbyClient.Item("episode-id", "Pilot", "Episode", SeriesId = "series-id",
             SeriesName = "Fixture Show", ParentIndexNumber = 1, IndexNumber = 2, OfficialRating = "TV-G")
-        val series = EmbyClient.Item("series-id", "Fixture Show", "Series", OfficialRating = "TV-MA")
+        val series = EmbyClient.Item("series-id", "Fixture Show", "Series", OfficialRating = "TV-MA", ProviderIds = mapOf("Tmdb" to "101"))
         val item = checkNotNull(embyMovie("source-id", movie, series, null))
         assertEquals("TV-MA", item.ageCertification)
+        assertEquals(101, item.seriesTmdbId)
         assertEquals("episode-id", embyItemId(item.filePath))
         assertEquals(1, item.episodeInfo?.season)
         assertEquals(2, item.episodeInfo?.episode)

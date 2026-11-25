@@ -38,6 +38,10 @@ internal fun embyItemId(path: String): String? =
     path.takeIf { it.startsWith("emby/") && it.endsWith(".mp4") }
         ?.removePrefix("emby/")?.removeSuffix(".mp4")?.takeIf(::validEmbyIdentifier)
 
+private fun EmbyClient.Item?.subtitleIdentity(): Int? =
+    this?.ProviderIds?.entries?.firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
+        ?.value?.toIntOrNull()?.takeIf { it > 0 }
+
 private fun embyPath(id: String) = "emby/$id.mp4"
 
 internal fun embyMovie(sourceId: String, item: EmbyClient.Item, series: EmbyClient.Item?, prior: MovieEntity?): MovieEntity? {
@@ -63,6 +67,8 @@ internal fun embyMovie(sourceId: String, item: EmbyClient.Item, series: EmbyClie
         sortTitle = if (movie.isLocked) movie.sortTitle else WatchRules.sortTitle(title),
         year = if (movie.isLocked) movie.year else item.ProductionYear,
         overview = item.Overview,
+        tmdbId = if (episode) null else if (movie.isLocked) movie.tmdbId else item.subtitleIdentity(),
+        seriesTmdbId = if (!episode) null else if (movie.isLocked) movie.seriesTmdbId else series.subtitleIdentity(),
         seriesTitle = seriesName,
         seasonNumber = item.ParentIndexNumber.takeIf { episode },
         episodeNumber = item.IndexNumber.takeIf { episode },

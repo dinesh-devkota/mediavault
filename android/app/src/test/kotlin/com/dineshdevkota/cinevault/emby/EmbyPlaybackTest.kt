@@ -70,6 +70,32 @@ class EmbyPlaybackTest {
         }
     }
 
+    @Test fun downloadsOnlyAdvertisedExternalTextSubtitlesFromTheNegotiatedSource() = runBlocking {
+        MockWebServer().use { socket ->
+            socket.enqueue(MockResponse().setBody(
+                """{"PlaySessionId":"session","MediaSources":[{"Id":"source","Container":"mp4","SupportsDirectPlay":true,"MediaStreams":[
+                {"Type":"Subtitle","Index":2,"IsTextSubtitleStream":true,"IsExternal":false},
+                {"Type":"Subtitle","Index":3,"IsTextSubtitleStream":true,"IsExternal":true,"Language":"eng"},
+                {"Type":"Subtitle","Index":4,"IsTextSubtitleStream":false,"IsExternal":true}]}]}""",
+            ))
+            val text = "1\n00:00:00,100 --> 00:00:02,500\nEmby fixture\n"
+            socket.enqueue(MockResponse().setBody(text))
+            val client = client(socket)
+            val account = EmbyClient.Account("fixture-token", EmbyClient.User("viewer", "Viewer"))
+            val playback = client.directPlayback(account, "movie-a", setOf("mp4"))
+            assertEquals(listOf(3), playback.textSubtitles.map { it.index })
+            assertArrayEquals(text.toByteArray(), client.textSubtitle(account, playback, playback.textSubtitles.single()))
+            socket.takeRequest()
+            val request = socket.takeRequest()
+            assertEquals("/emby/Videos/movie-a/source/Subtitles/3/Stream.srt", request.path)
+            assertEquals("fixture-token", request.getHeader("X-Emby-Token"))
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { client.textSubtitle(account, playback, playback.textSubtitles.single().copy(index = 4)) }
+            }
+            assertEquals(2, socket.requestCount)
+        }
+    }
+
     @Test fun ignoresNoRangeAndRejectsIncorrectRangeAndRedirect() {
         MockWebServer().use { socket ->
             socket.enqueue(playbackResponse())

@@ -20,6 +20,8 @@ class EmbyLiveServerTest {
             client.catalog(account, library.Id) { catalog += it }
             val movie = catalog.single { it.Type == "Movie" && it.Name.startsWith("Fixture Movie") }
             val playback = client.directPlayback(account, movie.Id, setOf("mp4"))
+            val subtitle = client.textSubtitle(account, playback, playback.textSubtitles.single())
+            assertTrue(subtitle.toString(Charsets.UTF_8).contains("Hello from Emby fixture"))
             client.report(account, playback, EmbyClient.PlaybackEvent.STARTED, 0)
             try {
                 val first = client.read(account, playback, 0, 16)

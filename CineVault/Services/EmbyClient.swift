@@ -41,7 +41,7 @@ struct EmbyClient: Sendable {
 
         enum CodingKeys: String, CodingKey {
             case Id, Name, SeriesId, SeriesName, SeasonId, ParentIndexNumber, IndexNumber, Overview, OfficialRating
-            case ImageTags, ProductionYear, RunTimeTicks, CollectionType
+            case ImageTags, ProductionYear, RunTimeTicks, CollectionType, ProviderIds
             case type = "Type"
         }
         let SeriesId: String?
@@ -55,6 +55,7 @@ struct EmbyClient: Sendable {
         let ProductionYear: Int?
         let RunTimeTicks: Int64?
         let CollectionType: String?
+        let ProviderIds: [String: String]?
     }
 
     private struct Page: Decodable {
@@ -184,7 +185,7 @@ struct EmbyClient: Sendable {
                 URLQueryItem(name: "ParentId", value: libraryID),
                 URLQueryItem(name: "Recursive", value: "true"),
                 URLQueryItem(name: "IncludeItemTypes", value: "Movie,Series,Season,Episode,Audio,Photo"),
-                URLQueryItem(name: "Fields", value: "Overview"),
+                URLQueryItem(name: "Fields", value: "Overview,ProviderIds"),
                 URLQueryItem(name: "EnableUserData", value: "false"),
                 URLQueryItem(name: "SortBy", value: "SortName"),
                 URLQueryItem(name: "StartIndex", value: String(offset)),

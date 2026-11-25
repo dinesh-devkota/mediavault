@@ -53,6 +53,8 @@ struct EmbyCatalogVideo {
     let overview: String?
     let runtimeMinutes: Int?
     let rating: String?
+    let tmdbID: Int?
+    let seriesTMDBID: Int?
     let seriesID: String?
     let seriesTitle: String?
     let season: Int?
@@ -75,8 +77,12 @@ struct EmbyCatalogVideo {
             let rating = item.type == "Episode" ? show?.OfficialRating : item.OfficialRating
             let normalized = rating?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             let runtime = item.RunTimeTicks.flatMap { $0 >= 0 ? Int(exactly: $0 / 600_000_000) : nil }
+            let ids = item.type == "Episode" ? show?.ProviderIds : item.ProviderIds
+            let providerID = ids?.first(where: { $0.key.caseInsensitiveCompare("tmdb") == .orderedSame })?.value
+            let id = providerID.flatMap { Int($0) }.flatMap { $0 > 0 ? $0 : nil }
             return Self(id: item.Id, title: item.Name, year: item.ProductionYear,
                         overview: item.Overview, runtimeMinutes: runtime, rating: normalized,
+                        tmdbID: item.type == "Movie" ? id : nil, seriesTMDBID: item.type == "Episode" ? id : nil,
                         seriesID: item.type == "Episode" ? item.SeriesId : nil,
                         seriesTitle: item.type == "Episode" ? show?.Name ?? item.SeriesName : nil,
                         season: item.type == "Episode" ? item.ParentIndexNumber : nil,

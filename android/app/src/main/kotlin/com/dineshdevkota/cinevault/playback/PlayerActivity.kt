@@ -279,6 +279,7 @@ class PlayerActivity : ComponentActivity() {
                     finish()
                     return@repeatOnLifecycle
                 }
+                if (emby != null) preparedSubtitles = discoverEmbySubtitles(loaded, emby) + downloaded
                 val permitted = container.library.get(movieId)
                 if (isFinishing || !container.family.isCurrent(householdSession) ||
                     !sameSource(container.database.sources().get(loaded.source.id), loaded.source) ||
@@ -457,6 +458,34 @@ class PlayerActivity : ComponentActivity() {
                 // The profile's local resume state is authoritative, even if Emby reporting is unavailable.
             }
         }
+    }
+
+    private suspend fun discoverEmbySubtitles(loaded: Target, emby: EmbyPlaying): List<PreparedSubtitle> {
+        val language = container.settings.subtitleLanguage
+        val tracks = emby.playback.textSubtitles.sortedBy { !SubtitleTracks.sameLanguage(it.language, language) }
+        val worker = container.scope.async(Dispatchers.IO) {
+            tracks.take(4).mapNotNull { track ->
+                requirePlaybackAccess(loaded.movie)
+                try {
+                    val data = emby.connection.client.textSubtitle(emby.connection.account, emby.playback, track)
+                    requirePlaybackAccess(loaded.movie)
+                    SubtitleTracks.configuration(data, "application/x-subrip", track.language,
+                        track.title ?: track.language ?: "Emby subtitle ${track.index}", "emby:${track.index}",
+                        track.forced, track.hearingImpaired)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) { null }
+            }
+        }
+        return try {
+            val result = withTimeoutOrNull(2_500) { worker.await() }
+            subtitleNotice = when {
+                result == null -> "Emby subtitle lookup took too long. Reopen this video to try again."
+                tracks.size > 4 -> "The player loaded up to four Emby subtitle tracks."
+                else -> null
+            }
+            result.orEmpty()
+        } finally { worker.cancel() }
     }
 
     private suspend fun discoverSubtitles(loaded: Target): List<PreparedSubtitle> {

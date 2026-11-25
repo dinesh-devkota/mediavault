@@ -95,6 +95,7 @@ def main():
             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "4", "-c:v", "libx264",
             "-c:a", "aac", "-movflags", "+faststart", str(movie),
         ], check=True)
+        movie.with_suffix(".en.srt").write_text("1\n00:00:00,100 --> 00:00:02,500\nHello from Emby fixture\n")
         subprocess.run([
             "docker", "run", "-d", "--rm", "--name", name, "--publish", f"127.0.0.1:{PORT}:8096",
             "--env", f"UID={os.getuid()}", "--env", f"GID={os.getgid()}",
