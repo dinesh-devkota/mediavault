@@ -4,6 +4,7 @@ enum TVRemoteDirection {
     case up, down, left, right
 }
 
+@MainActor
 extension View {
     func onTVExit(_ action: @escaping () -> Void) -> some View {
         #if os(tvOS)

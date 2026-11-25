@@ -11,7 +11,7 @@ COUNT_KEYS = ("totalTestCount", "passedTests", "failedTests", "skippedTests")
 
 def annotation(message):
     escaped = str(message)[:4000].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    print(f"::error title=tvOS simulator tests::{escaped}")
+    print(f"::error title=XCTest simulator tests::{escaped}")
 
 
 def report(path):
@@ -24,7 +24,7 @@ def report(path):
         annotation(f"Missing or invalid XCTest summary: {error}")
         return 1
 
-    message = "Apple TV simulator tests: " + json.dumps(counts, sort_keys=True)
+    message = "XCTest simulator tests: " + json.dumps(counts, sort_keys=True)
     print(message)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:

@@ -49,7 +49,6 @@ targets:
         NSBonjourServices: ["_smb._tcp"]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-          NSAllowsArbitraryLoadsForMedia: true
   CineVaultTests:
     type: bundle.unit-test
     platform: iOS

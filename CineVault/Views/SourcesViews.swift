@@ -360,9 +360,6 @@ struct SourceEditorView: View {
 }
 
 struct SettingsView: View {
-    #if os(iOS)
-    private static let privacyPolicy = URL(string: "https://github.com/dinesh-devkota/mediavault/blob/main/docs/PRIVACY.md")!
-    #endif
     @AppStorage(ContinuousPlayback.enabledKey) private var continuousTV = false
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var playbackServices: PlaybackServices
@@ -434,7 +431,7 @@ struct SettingsView: View {
                 Text("MediaVault plays MP4/M4V/MOV directly from your NAS over SMB. Other video containers require conversion to a supported container and compatible codecs.")
                     .font(.caption)
                 #if os(iOS)
-                Link("Privacy policy", destination: Self.privacyPolicy)
+                PhonePrivacyPolicyLink()
                 #endif
                 Text("This product uses the TMDB API but is not endorsed or certified by TMDB.").font(.caption)
             }

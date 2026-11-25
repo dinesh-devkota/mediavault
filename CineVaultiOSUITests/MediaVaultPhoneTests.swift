@@ -6,6 +6,7 @@ final class MediaVaultPhoneTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    @MainActor
     func testConnectAndImportWebDAVFromSources() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test-empty-library"]
@@ -46,6 +47,24 @@ final class MediaVaultPhoneTests: XCTestCase {
         XCTAssertTrue(film.waitForExistence(timeout: 25), "Expected the scan to import the fixture movie.")
     }
 
+    @MainActor
+    func testViewerOnlySeesAllowedTitlesOnPhone() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview-household"]
+        app.launch()
+
+        let kids = app.buttons["household-profile-Kids"]
+        XCTAssertTrue(kids.waitForExistence(timeout: 30))
+        kids.tap()
+
+        XCTAssertTrue(app.tabBars.buttons["Profile"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.tabBars.buttons["Manage"].exists)
+        XCTAssertTrue(app.staticTexts["Family Adventure"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Restricted Feature"].exists)
+        XCTAssertFalse(app.staticTexts["Unrated Feature"].exists)
+    }
+
+    @MainActor
     func testNativePlaybackAndSubtitleControls() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-playback", "--ui-preview-production-controls"]
