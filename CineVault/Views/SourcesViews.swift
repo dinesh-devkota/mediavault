@@ -130,7 +130,10 @@ struct SourceEditorView: View {
             if busy || message != nil || scanner.isScanning {
                 Section {
                     if busy { ProgressView(progress) }
-                    if let message { Text(message).foregroundStyle(.secondary) }
+                    if let message {
+                        Text(message).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("source-connection-message")
+                    }
                     if scanner.isScanning { Text("A library scan is running. Editing will be available when it finishes.").foregroundStyle(.secondary) }
                 }
             }

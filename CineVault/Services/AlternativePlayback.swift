@@ -187,6 +187,7 @@ struct AlternativePlayerView: View {
     @ObservedObject var controller: PlaybackController
     @ObservedObject var playback: AlternativePlayback
     @ObservedObject private var subtitles: PlaybackSubtitles
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     let close: () -> Void
     @State private var started = false
     @State private var seekValue = 0.0
@@ -252,6 +253,7 @@ struct AlternativePlayerView: View {
             #endif
             .buttonStyle(.bordered)
             .opacity(controlsVisible ? 1 : 0).allowsHitTesting(controlsVisible).disabled(!controlsVisible)
+            .accessibilityHidden(!controlsVisible)
             #if CINEVAULT_COMMERCIAL
             if let session = controller.externalCommercialSession {
                 ExternalPlaybackAccessView(session: session, close: close)
@@ -270,6 +272,7 @@ struct AlternativePlayerView: View {
         .onChange(of: playback.playing) { _, _ in revealControls() }
         .onChange(of: subtitles.presented) { _, _ in revealControls() }
         .onChange(of: controller.audioSelectionPresented) { _, _ in revealControls() }
+        .onChange(of: voiceOverEnabled) { _, _ in revealControls() }
         .onDisappear { controlsTask?.cancel() }
         .sheet(isPresented: $controller.audioSelectionPresented) {
             NavigationStack {
@@ -308,10 +311,10 @@ struct AlternativePlayerView: View {
         let wasHidden = !controlsVisible
         controlsVisible = true; videoFocused = false
         if wasHidden { focusedControl = .playPause }
-        guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing else { return }
+        guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing, !voiceOverEnabled else { return }
         controlsTask = Task { @MainActor in
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing else { return }
+            guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing, !voiceOverEnabled else { return }
             withAnimation(.easeOut(duration: 0.2)) { controlsVisible = false }; focusedControl = nil; videoFocused = true
         }
     }
