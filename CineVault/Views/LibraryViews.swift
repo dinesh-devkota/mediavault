@@ -502,7 +502,7 @@ private struct SearchResultsView: View {
                 let key = "show:\(result.id)"
                 NavigationLink(value: SearchShowSelection(result.show)) {
                     TVShowArtwork(title: result.show.title, subtitle: result.subtitle,
-                        path: result.show.posterPath, localMovie: result.show.episodes.first, localPath: result.show.episodes.first?.localPosterPath, focused: focusedResult == key)
+                        path: result.show.posterPath, localMovie: result.show.episodes.first(where: { $0.localPosterPath != nil }), localPath: result.show.episodes.compactMap(\.localPosterPath).first, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -564,7 +564,6 @@ struct PosterGrid: View {
                 .buttonStyle(ArtworkButtonStyle())
                 .focusEffectDisabled()
                 .focused($focusedMovie, equals: movie.id)
-                .accessibilityLabel(movie.title)
             }
         }
         .padding(.vertical, 24)

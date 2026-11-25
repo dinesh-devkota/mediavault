@@ -19,3 +19,7 @@ __pycache__/
 *.py[cod]
 /commercial/
 /project.commercial-tests.yml
+
+/project.commercial-local.yml
+/project.ios-commercial-tests.yml
+/project.ios-commercial-local.yml

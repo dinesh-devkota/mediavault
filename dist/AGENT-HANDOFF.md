@@ -7,6 +7,49 @@ below retain their original names. Development work remains on
 `dinesh-devkota-sonepar-build-cinevault-tvos-app`; the workspace and private
 `CineVaultCommercial` repository retain their existing names.
 
+## Active library/playback work — November 25, 2026
+
+The owner explicitly requires feature parity on **Apple TV, iPhone, Android TV,
+and Android phones**. Work is isolated on `codex/mediavault-library-playback`,
+PR [19](https://github.com/dinesh-devkota/mediavault/pull/19), based on the iPhone
+integration branch at `3becf4e` (which includes development's WebDAV, Jellyfin,
+and Android phone work). Do not reset the owner's original checkouts.
+
+Public worktree: `D:\CineVault\.worktrees\mediavault-library-playback`.
+Implementation checkpoint: `777ea11`. Version **1.5.0, build 7**. This adds
+local NFO/XML and companion artwork, profile-specific custom collections,
+NFO/TMDB franchise groups, conservative alternate-version grouping, and an
+official pinned VideoLAN fallback on both Apple platforms. Files retain their
+individual histories; metadata import is read-only. See `docs/PLAYBACK-ENGINE.md`
+and `docs/TESTING.md` for dependency and fixture details.
+
+Hosted checks for this implementation are **pending**, not completed. Earlier
+baseline `1a93387` passed Apple TV (206 total tests), Android phone and the PR's
+Android TV checks. Its iPhone suite passed195/196; the failing source-import
+journey exposed generic folder names replacing `Film.mp4` with `Movies`.
+That parser issue and test diagnostics are corrected in `777ea11`. A duplicate
+Android baseline run hit Maven429 and a photo-viewer timeout; the identical PR
+run passed. New workflow concurrency groups avoid duplicate push/PR runs.
+
+Android local core/app tests and debug lint/build passed before the final narrow
+metadata review corrections; latest XML contains101core+135app cases without
+failures. Final build and hosted runtime/visual checks must still be confirmed.
+Never run the disposable test fixture against the owner's installed emulator.
+
+The private companion branch is `codex/mediavault-playback-engines` at
+`5cd626eba6ce3b534ec1f0b3e74cc7cbfe0bb6c0`, in
+`D:\CineVaultCommercial\.worktrees\mediavault-playback-engines`. It adds genuine
+engine-neutral usage accounting and iPhone build/test support. Its five project
+generator checks pass; Swift and licensed simulator validation remain pending.
+The commercial workflow keeps its trusted-main and required-review safeguards;
+use a fresh exact-revision, build-only approval. Do not enable store upload.
+
+The owner has Windows and an Apple TV, without a Mac or active Apple Developer
+membership. Do not ask for those details again or claim installation on physical
+Apple hardware. No production NAS files, app data, or credentials were reset.
+
+## Historical handoffs
+
 Current updates are appended chronologically below. The original November 1
 snapshot is retained for history and is superseded by later owner decisions.
 

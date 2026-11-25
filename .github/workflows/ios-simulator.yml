@@ -71,7 +71,10 @@ jobs:
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-phone" \
-            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing 2>&1 | tee "$RUNNER_TEMP/iphone-build.log" | tail -n 160
+      - name: Report compiler errors
+        if: failure()
+        run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/iphone-build.log" || true
       - name: Test against local SMB, WebDAV, and Jellyfin fixtures
         run: |
           set -euo pipefail
@@ -107,7 +110,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/cinevault-phone" \
             -resultBundlePath "$RUNNER_TEMP/iphone-results.xcresult" \
             -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES \
-            test-without-building | tail -n 200
+            test-without-building 2>&1 | tee "$RUNNER_TEMP/iphone-tests.log" | tail -n 200
       - name: Report simulator tests
         if: always()
         run: |
@@ -177,7 +180,10 @@ jobs:
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
             -destination 'generic/platform=iOS' -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/cinevault-phone-release" \
-            CODE_SIGNING_ALLOWED=NO build | tail -n 160
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/iphone-release.log" | tail -n 160
+      - name: Report release compiler errors
+        if: failure()
+        run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/iphone-release.log" || true
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -185,6 +191,9 @@ jobs:
           if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/iphone-results.xcresult
+            ${{ runner.temp }}/iphone-build.log
+            ${{ runner.temp }}/iphone-release.log
+            ${{ runner.temp }}/iphone-tests.log
             ${{ runner.temp }}/nas-fixture.log
             ${{ runner.temp }}/webdav-fixture/server.log
             ${{ runner.temp }}/jellyfin-fixture/server.log

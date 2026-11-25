@@ -186,7 +186,7 @@ import SwiftUI
                     case .show(let show):
                         NavigationLink { TVShowDestination(episodes: show.episodes, initialShowID: show.id) } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons", path: show.posterPath,
-                                localMovie: show.episodes.first, localPath: show.episodes.first?.localPosterPath, focused: focusedItem == item.id)
+                                localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedItem == item.id)
                         }
                     }
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: item.id)

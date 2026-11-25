@@ -53,7 +53,7 @@ final class AlternativePlayback: ObservableObject {
         engine.timeChangeUpdateInterval = 0.1
         let parser = VLCMediaParser(library: engine.libraryInstance, timeout: 30_000)
         self.parser = parser
-        guard parser.queueMedia(media, options: VLCMediaParsingOptions(rawValue: 1)) == 0 else { throw PlaybackPreparationError.unsupportedFormat }
+        guard parser.queue(media, options: VLCMediaParsingOptions(rawValue: 1)) == 0 else { throw PlaybackPreparationError.unsupportedFormat }
         defer { parser.cancelAllParsing(); self.parser = nil }
         let deadline = ContinuousClock.now.advanced(by: .seconds(35))
         while media.parsedStatus == .none || media.parsedStatus == .pending {

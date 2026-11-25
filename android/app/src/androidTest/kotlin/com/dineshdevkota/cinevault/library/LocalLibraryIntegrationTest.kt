@@ -43,7 +43,7 @@ class LocalLibraryIntegrationTest {
         try {
             db.sources().upsert(source)
             db.movies().insert(MovieEntity(id = "video", sourceId = source.id, filePath = "Movie.mp4", fileName = "Movie.mp4", fileSize = 1000,
-                title = "Movie", parsedTitle = "Movie"))
+                title = "Movie", parsedTitle = "Movie", year = null, parsedYear = null))
             importer.importSource(source.id)
             assertEquals("PG", db.movies().get("video")!!.ageCertification)
             offline = true; importer.importSource(source.id)

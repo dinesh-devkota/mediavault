@@ -321,7 +321,7 @@ struct CollectionPosterRow: View {
                                         TVShowDestination(episodes: show.episodes, initialShowID: show.id)
                                     } label: {
                                         TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
-                                            path: show.posterPath, localMovie: show.episodes.first, localPath: show.episodes.first?.localPosterPath, focused: focusedItem == item.id)
+                                            path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedItem == item.id)
                                     }
                                     .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: item.id)
                                 }
@@ -351,7 +351,7 @@ struct TVShowRow: View {
                             TVShowDestination(episodes: episodes, initialShowID: show.id)
                         } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
-                                path: show.posterPath, localMovie: show.episodes.first, localPath: show.episodes.first?.localPosterPath, focused: focusedShow == show.id)
+                                path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedShow == show.id)
                         }
                         .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedShow, equals: show.id)
                     }
