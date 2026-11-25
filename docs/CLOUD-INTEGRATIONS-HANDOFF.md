@@ -191,7 +191,8 @@ bundle when the Windows checkout is unavailable.
 ## tvOS submission readiness
 
 The development merge gate is the hosted device-emulation suites. App Store
-submission also needs a signed archive, physical Apple TV validation, active
+submission also needs a signed archive built with the current required SDK,
+physical Apple TV validation, active
 Apple Developer membership and current provider approvals. Apple makes the
 App Review decision. This work covers unsigned public builds and documented
 checks.
@@ -216,5 +217,6 @@ checks.
   binary's privacy manifests and export-compliance declaration.
 
 [App Review guidelines](https://developer.apple.com/app-store/review/guidelines/)
+[App Store SDK requirements](https://developer.apple.com/news/upcoming-requirements/)
 [App privacy details](https://developer.apple.com/app-store/app-privacy-details/)
 [Export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/)

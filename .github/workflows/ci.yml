@@ -26,7 +26,7 @@ jobs:
 
   build:
     name: Build tvOS app (unsigned)
-    runs-on: macos-15-intel
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
@@ -37,7 +37,13 @@ jobs:
           xcodegen generate
       - name: Build
         run: |
-          set -o pipefail
+          set -euo pipefail
+          SDK_VERSION=$(xcrun --sdk appletvos --show-sdk-version)
+          if [[ "${SDK_VERSION%%.*}" -lt 26 ]]; then
+            echo "App Store builds require tvOS SDK 26 or newer. Found $SDK_VERSION." >&2
+            exit 1
+          fi
+          xcodebuild -version
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
             -destination 'generic/platform=tvOS' \
             -configuration Release \
