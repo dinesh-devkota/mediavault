@@ -8,10 +8,10 @@ final class AlternativePlaybackRemoteTests: XCTestCase {
         app.launchArguments = ["--ui-preview-alternative-playback"]
         app.launch()
         defer { capture("MKV remote journey final state", app) }
-        wait(app, "The real MKV decoder advances", timeout: 45) { app.staticTexts["fixture-alternative-ready"].label == "Playback advanced" }
+        wait(app, "The real MKV decoder advances", timeout: 45) { app.staticTexts["fixture-alternative-ready"].exists && app.staticTexts["fixture-alternative-ready"].label == "Playback advanced" }
         let remote = XCUIRemote.shared
         remote.press(.playPause)
-        wait(app, "Remote pauses playback") { app.staticTexts["fixture-alternative-state"].label == "Paused" }
+        wait(app, "Remote pauses playback") { app.staticTexts["fixture-alternative-state"].exists && app.staticTexts["fixture-alternative-state"].label == "Paused" }
         let first = seconds(app)
         select(app.buttons["alternative-forward"], app)
         wait(app, "Remote skips forward in MKV") { self.seconds(app) >= first + 8 }
@@ -45,7 +45,7 @@ final class AlternativePlaybackRemoteTests: XCTestCase {
         wait(app, "Back dismisses audio without stopping the session") { !app.buttons["playback-audio-done"].exists && app.buttons["alternative-play-pause"].exists }
         let resume = seconds(app)
         remote.press(.playPause)
-        wait(app, "Remote resumes the same MKV session") { app.staticTexts["fixture-alternative-state"].label == "Playing" && self.seconds(app) > resume + 0.5 }
+        wait(app, "Remote resumes the same MKV session") { app.staticTexts["fixture-alternative-state"].exists && app.staticTexts["fixture-alternative-state"].label == "Playing" && self.seconds(app) > resume + 0.5 }
         capture("MKV resumes after subtitle and audio sheets", app)
         remote.press(.menu)
         XCTAssertTrue(app.staticTexts["fixture-alternative-closed"].waitForExistence(timeout: 10), app.debugDescription)
@@ -71,7 +71,8 @@ final class AlternativePlaybackRemoteTests: XCTestCase {
         XCUIRemote.shared.press(.select)
     }
     @MainActor private func seconds(_ app: XCUIApplication) -> Double {
-        Double(app.staticTexts["fixture-alternative-seconds"].label) ?? -1
+        let item = app.staticTexts["fixture-alternative-seconds"]
+        return item.exists ? Double(item.label) ?? -1 : -1
     }
     @MainActor private func waitSelected(_ item: XCUIElement, _ app: XCUIApplication) {
         wait(app, "The chosen track is selected") { item.exists && (item.value as? String)?.hasPrefix("Selected") == true }

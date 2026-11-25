@@ -140,12 +140,13 @@ import SwiftUI
                     Text(collection.name).font(.largeTitle.bold())
                     Text("\(collection.titleCount) \(collection.titleCount == 1 ? "title" : "titles")").foregroundStyle(.secondary)
                     BulkWatchControl(title: "Select titles", scope: collection.name, movies: collection.movies, startsSelected: false, groupShows: true)
+                        .foregroundStyle(.black)
                     if collection.customID != nil {
                         CinemaTheme.actionLayout {
                             Button("Manage titles") { managing = true }.accessibilityIdentifier("collection-manage")
                             Button("Rename") { name = collection.name; renaming = true }
                             Button("Delete collection", role: .destructive) { confirmingDelete = true }
-                        }
+                        }.foregroundStyle(.black)
                     }
                     #endif
                     if let error { Text(error).foregroundStyle(.orange) }
@@ -154,7 +155,7 @@ import SwiftUI
                     } else { CollectionLibraryGrid(movies: LibrarySort.year.sorted(collection.movies)) }
                 } else { Text("This collection is no longer available.") }
                 #if os(tvOS)
-                Button("Back") { dismiss() }
+                Button("Back") { dismiss() }.foregroundStyle(.black)
                 #endif
             }.padding(CinemaTheme.edgeInset)
         }

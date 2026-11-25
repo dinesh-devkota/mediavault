@@ -149,7 +149,7 @@ enum PlaybackPreparationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedFormat:
-            return "This device’s native player cannot play this file's container or audio/video codecs. Use a supported container with compatible codecs."
+            return "This file could not be opened with the available players. Check the source connection or try another version with compatible audio and video."
         case .fileUnavailable:
             return "This file is missing or ignored by its NAS source. Include it again and rescan before playing."
         }

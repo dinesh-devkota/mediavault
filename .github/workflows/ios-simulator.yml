@@ -179,7 +179,7 @@ jobs:
             ${{ runner.temp }}/iphone-summary.json
             ${{ runner.temp }}/iphone-tests.json
       - name: Build unsigned iPhone release
-        if: always() && steps.project.outcome == 'success'
+        if: ${{ !cancelled() && steps.project.outcome == 'success' }}
         run: |
           set -euo pipefail
           xcodebuild -version

@@ -70,7 +70,8 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         wait(app, "Transport controls are tappable") { app.buttons["alternative-play-pause"].isHittable }
     }
     @MainActor private func seconds(_ app: XCUIApplication) -> Double {
-        Double(app.staticTexts["fixture-alternative-seconds"].label) ?? -1
+        let item = app.staticTexts["fixture-alternative-seconds"]
+        return item.exists ? Double(item.label) ?? -1 : -1
     }
     @MainActor private func waitLabel(_ item: XCUIElement, _ label: String, _ app: XCUIApplication, timeout: Double = 10) {
         wait(app, "Expected " + label, timeout: timeout) { item.exists && item.label == label }
