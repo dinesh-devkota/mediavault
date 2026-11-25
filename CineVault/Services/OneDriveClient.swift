@@ -52,6 +52,15 @@ struct OneDriveClient: Sendable {
         enum CodingKeys: String, CodingKey { case value; case next = "@odata.nextLink" }
     }
 
+    private struct DownloadItem: Decodable {
+        let id: String
+        let downloadURL: URL?
+        enum CodingKeys: String, CodingKey {
+            case id
+            case downloadURL = "@microsoft.graph.downloadUrl"
+        }
+    }
+
     private struct OAuthError: Decodable { let error: String }
     private static let scope = "https://graph.microsoft.com/Files.Read offline_access"
     private static let session: URLSession = {
@@ -117,10 +126,7 @@ struct OneDriveClient: Sendable {
     func listChildren(folderID: String? = nil, accessToken: String, onPage: ([Entry]) async throws -> Void) async throws {
         var endpoint = URL(string: "https://graph.microsoft.com/v1.0/me/drive")!
         if let folderID {
-            guard !folderID.isEmpty, folderID.utf8.allSatisfy({
-                (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) ||
-                    $0 == 33 || $0 == 45 || $0 == 95
-            }) else { throw OneDriveError.invalidResponse }
+            guard Self.isItemID(folderID) else { throw OneDriveError.invalidResponse }
             endpoint.appendPathComponent("items")
             endpoint.appendPathComponent(folderID)
         } else {
@@ -145,6 +151,64 @@ struct OneDriveClient: Sendable {
             let page = try JSONDecoder().decode(GraphPage.self, from: data)
             try await onPage(page.value)
             next = page.next
+        }
+    }
+
+    /// Resolve a fresh signed link so subsequent seeks do not depend on an expired link.
+    func read(fileID: String, offset: Int64, length: Int, accessToken: String) async throws -> Data {
+        guard Self.isItemID(fileID), offset >= 0, (1...8 * 1024 * 1024).contains(length),
+              offset <= Int64.max - Int64(length), !accessToken.isEmpty,
+              accessToken.utf8.allSatisfy({ (33...126).contains($0) }) else { throw OneDriveError.invalidResponse }
+        let endpoint = URL(string: "https://graph.microsoft.com/v1.0/me/drive/items")!.appendingPathComponent(fileID)
+        guard var url = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else { throw OneDriveError.invalidResponse }
+        url.queryItems = [URLQueryItem(name: "$select", value: "id,@microsoft.graph.downloadUrl")]
+        guard let metadataURL = url.url else { throw OneDriveError.invalidResponse }
+
+        var metadata = URLRequest(url: metadataURL)
+        metadata.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        let (data, status) = try await Self.send(metadata)
+        guard status == 200 else { throw OneDriveError.rejected(status) }
+        let item = try JSONDecoder().decode(DownloadItem.self, from: data)
+        guard item.id == fileID, let link = item.downloadURL,
+              let parts = URLComponents(url: link, resolvingAgainstBaseURL: false),
+              parts.scheme == "https", parts.host?.isEmpty == false,
+              parts.user == nil, parts.password == nil, parts.fragment == nil,
+              parts.port == nil || parts.port == 443 else { throw OneDriveError.invalidResponse }
+
+        let end = offset + Int64(length) - 1
+        var request = URLRequest(url: link)
+        // The link is already signed; the Graph bearer credential stays on graph.microsoft.com.
+        request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let (bytes, response) = try await Self.session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw OneDriveError.invalidResponse }
+        guard http.statusCode == 206 else { throw OneDriveError.rejected(http.statusCode) }
+        guard let range = http.value(forHTTPHeaderField: "Content-Range"),
+              Self.matchesRange(range, offset: offset, end: end),
+              response.expectedContentLength < 0 || response.expectedContentLength == Int64(length),
+              http.value(forHTTPHeaderField: "Content-Encoding").map({ $0.lowercased() == "identity" }) ?? true else {
+            throw OneDriveError.invalidResponse
+        }
+        var result = Data()
+        for try await byte in bytes {
+            guard result.count < length else { throw OneDriveError.invalidResponse }
+            result.append(byte)
+        }
+        guard result.count == length else { throw OneDriveError.invalidResponse }
+        return result
+    }
+
+    static func matchesRange(_ header: String, offset: Int64, end: Int64) -> Bool {
+        let prefix = "bytes \(offset)-\(end)/"
+        guard header.hasPrefix(prefix), let total = Int64(header.dropFirst(prefix.count)) else { return false }
+        return total > end && header == prefix + String(total)
+    }
+
+    private static func isItemID(_ value: String) -> Bool {
+        (1...256).contains(value.utf8.count) && value.utf8.allSatisfy {
+            (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) ||
+                $0 == 33 || $0 == 45 || $0 == 95
         }
     }
 
