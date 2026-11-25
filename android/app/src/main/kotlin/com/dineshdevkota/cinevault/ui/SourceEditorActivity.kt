@@ -132,12 +132,13 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
         Column(Modifier.padding(ScreenPadding)) { NasStatusPanel("Opening source…", working = true) }
         return
     }
+    val isTv = LocalTvLayout.current
     val firstField = remember { FocusRequester() }
     var firstFieldReady by remember { mutableStateOf(false) }
     var initialFocusSet by remember { mutableStateOf(false) }
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     LaunchedEffect(firstFieldReady, windowFocused) {
-        if (firstFieldReady && windowFocused && !initialFocusSet) initialFocusSet = firstField.requestFocus()
+        if (isTv && firstFieldReady && windowFocused && !initialFocusSet) initialFocusSet = firstField.requestFocus()
     }
 
     // This pure validation also gates browsing, so a malformed nonempty port cannot silently
@@ -228,8 +229,8 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
         if (busy) NasStatusPanel(workDescription, working = true)
         else if (scanning) NasStatusPanel("Library scan in progress", scanStatus ?: "You can save these changes after the scan finishes.", working = true)
         message?.let { NasStatusPanel(if (messageIsError) "Connection needs attention" else "Connection verified", it, error = messageIsError) }
-        Row(horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val server: @Composable (Modifier) -> Unit = { modifier ->
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Server", style = MaterialTheme.typography.titleMedium)
                 TvTextField(
                     name,
@@ -261,7 +262,9 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
                 TvTextField(username, { message = null; username = it }, "Username (empty for guest)", Modifier.fillMaxWidth(), enabled = !busy)
                 TvTextField(password, { message = null; password = it }, "Password", Modifier.fillMaxWidth(), isPassword = true, enabled = !busy)
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        }
+        val folder: @Composable (Modifier) -> Unit = { modifier ->
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Media folder", style = MaterialTheme.typography.titleMedium)
                 if (!webdav) TvTextField(share, { if (share != it) clearExclusionsForSourceChange(); share = it }, "Share (e.g. media)", Modifier.fillMaxWidth(), enabled = !busy)
                 NasRootFolderPicker(browseConfig, browsingEnabled, ::changeRoot)
@@ -276,10 +279,17 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
                 )
             }
         }
+        if (isTv) Row(horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+            server(Modifier.weight(1f))
+            folder(Modifier.weight(1f))
+        } else {
+            server(Modifier.fillMaxWidth())
+            folder(Modifier.fillMaxWidth())
+        }
         exclusionsNotice?.let { Text(it, color = SecondaryText) }
         IgnoredFoldersEditor(browseConfig, ignoredFolders, ignoredFiles,
             { ignoredFolders = it }, { ignoredFiles = it }, browsingEnabled)
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        AdaptiveActions() {
             OutlinedButton(
                 enabled = idle,
                 onClick = {
@@ -339,7 +349,7 @@ private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: 
                 verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Text("Remove ${existing?.name.orEmpty()}?", style = MaterialTheme.typography.headlineSmall)
                 Text("This removes its library entries and saved playback progress from this device. Media files stay on the NAS.", color = SecondaryText)
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                AdaptiveActions() {
                     Button(onClick = { confirmRemoval = false }) { Text("Keep source") }
                     OutlinedButton(onClick = {
                         confirmRemoval = false

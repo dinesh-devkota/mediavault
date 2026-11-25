@@ -20,6 +20,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.annotation.OptIn
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -49,6 +51,7 @@ import com.dineshdevkota.cinevault.ui.ContinueWatchingItem
 import com.dineshdevkota.cinevault.ui.nextEpisodeFor
 import com.dineshdevkota.cinevault.ui.PlaybackSettingsActivity
 import com.dineshdevkota.cinevault.ui.languageName
+import com.dineshdevkota.cinevault.ui.isTelevision
 import com.dineshdevkota.cinevault.ui.chooseSubtitleLanguage
 import com.dineshdevkota.cinevault.subtitles.SubDlClient
 import com.dineshdevkota.cinevault.subtitles.SubDlSearchQuery
@@ -165,6 +168,7 @@ class PlayerActivity : ComponentActivity() {
             }
         }
         playerView = PlayerView(this).apply {
+            id = com.dineshdevkota.cinevault.R.id.playback_view
             setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
             setShowNextButton(false)
             setShowPreviousButton(false)
@@ -175,7 +179,8 @@ class PlayerActivity : ComponentActivity() {
         }
         // One menu keeps online choices and NAS lookup notices accessible from both subtitle controls.
         playerView.findViewById<View>(androidx.media3.ui.R.id.exo_subtitle)?.setOnClickListener { showSubtitleMenu() }
-        val spacing = (24 * resources.displayMetrics.density).toInt()
+        val isTv = resources.configuration.isTelevision()
+        val spacing = ((if (isTv) 24 else 12) * resources.displayMetrics.density).toInt()
         titleLabel = TextView(this).apply { setTextColor(Color.WHITE); textSize = 24f; maxLines = 2 }
         detailLabel = TextView(this).apply { setTextColor(Color.LTGRAY); textSize = 15f; maxLines = 3 }
         information = LinearLayout(this).apply {
@@ -203,6 +208,13 @@ class PlayerActivity : ComponentActivity() {
             addView(playerView, FrameLayout.LayoutParams(-1, -1))
             addView(information, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         }
+        if (!isTv) {
+            ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, insets ->
+                val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                insets
+            }
+        }
         setContentView(rootView)
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility -> information.visibility = visibility })
         playerView.requestFocus()
@@ -214,7 +226,7 @@ class PlayerActivity : ComponentActivity() {
         }
         onBackPressedDispatcher.addCallback(this) {
             // First Back hides the on-screen controls, the next one leaves the player.
-            if (endHandled) finish()
+            if (!isTv || endHandled) finish()
             else if (playerView.isControllerFullyVisible && player?.playerError == null) playerView.hideController() else finish()
         }
         lifecycleScope.launch {
