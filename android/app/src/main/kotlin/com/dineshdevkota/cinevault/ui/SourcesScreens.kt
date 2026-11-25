@@ -35,6 +35,7 @@ import com.dineshdevkota.cinevault.BuildConfig
 import com.dineshdevkota.cinevault.core.NasAddress
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,8 +57,9 @@ fun SourcesTab(movies: List<MovieEntity>) {
     ) {
         item { ScreenHeader("Sources", kicker = "YOUR NAS") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            AdaptiveActions() {
                 Button(onClick = { NasSetupActivity.start(context) }) { Text("Add NAS Source") }
+                OutlinedButton(onClick = { JellyfinSetupActivity.start(context) }) { Text("Connect Jellyfin") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
                     enabled = !scanning && sources.isNotEmpty(),
@@ -84,7 +86,10 @@ fun SourcesTab(movies: List<MovieEntity>) {
                 count = counts[source.id] ?: 0,
                 scanning = scanning,
                 onScan = { container.scope.launch { container.scanner.scan(source.id) } },
-                onEdit = { SourceEditorActivity.start(context, source.id) },
+                onEdit = {
+                    if (source.sourceType == JELLYFIN) JellyfinSetupActivity.start(context, source.id)
+                    else SourceEditorActivity.start(context, source.id)
+                },
             )
         }
     }
@@ -92,12 +97,8 @@ fun SourcesTab(movies: List<MovieEntity>) {
 
 @Composable
 private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onScan: () -> Unit, onEdit: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(SurfaceColor).padding(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
+    val details: @Composable (Modifier) -> Unit = { modifier ->
+        Column(modifier) {
             Text(source.name, style = MaterialTheme.typography.titleMedium)
             Text(sourceUrl(source), style = MaterialTheme.typography.bodyMedium, color = SecondaryText)
             Text(
@@ -106,12 +107,25 @@ private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onSca
                 color = SecondaryText,
             )
         }
+    }
+    val controls: @Composable () -> Unit = {
         OutlinedButton(onClick = onScan, enabled = !scanning) { Text("Scan") }
         OutlinedButton(onClick = onEdit) { Text("Edit") }
+    }
+    val card = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(SurfaceColor).padding(20.dp)
+    if (LocalTvLayout.current) Row(
+        card, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        details(Modifier.weight(1f))
+        controls()
+    } else Column(card, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        details(Modifier.fillMaxWidth())
+        AdaptiveActions(content = controls)
     }
 }
 
 fun sourceUrl(source: SourceEntity): String {
+    if (source.sourceType == JELLYFIN) return source.host
     if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
     return "smb://" + listOf(address.authority, source.share, source.rootPath).filter { it.isNotEmpty() }.joinToString("/")
@@ -158,7 +172,7 @@ fun SettingsTab() {
             trailing = "Version ${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}") }
         item { HouseholdButton() }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            AdaptiveActions() {
                 OutlinedButton(onClick = { MediaGuideActivity.start(context) }) { Text("Media Guide & Help") }
                 OutlinedButton(onClick = { PlaybackSettingsActivity.start(context) }) { Text("Playback & Subtitles") }
             }
@@ -176,7 +190,7 @@ fun SettingsTab() {
             )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            AdaptiveActions() {
                 Button(enabled = keyLoaded && !saving, onClick = {
                     val newKey = apiKey
                     saving = true

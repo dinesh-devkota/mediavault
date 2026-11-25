@@ -148,20 +148,28 @@ Both ran the respective HTTPS WebDAV playback and seek test.
 · [Android TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662322559)
 · [Apple TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662323021)
 
-- Jellyfin has TV setup with password or Quick Connect, encrypted provider
-  credentials, selectable libraries, protected catalog import, server photos,
-  artwork and captions, and separate local profile history. Hosted tests
-  played and sought the direct stream on both platforms. The Android setup
-  and artwork checkpoint passed 97 emulator tests. tvOS HLS and optional
-  SubDL search using imported provider IDs have independent draft checkpoints.
-  [Jellyfin](https://github.com/dinesh-devkota/mediavault/pull/2)
-  · [Android TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662973340)
-  · [Apple TV direct playback run](https://github.com/dinesh-devkota/mediavault/actions/runs/45660978470)
-  · [Apple TV HLS](https://github.com/dinesh-devkota/mediavault/pull/10)
-- Emby has client fixtures for both platforms and Android app wiring for source
-  setup, library import and protected direct playback. Apple app integration,
-  HLS, and other provider media types still need work.
+- Jellyfin merged into development at
+  `942b1f289715d4b66650acc7dda8da038a5794a4` after both TV suites passed on
+  `5e4890c7be62328bd7f00c2192e5a25ba275e0bc`. It includes HTTPS setup,
+  password and Quick Connect, protected credentials, selectable libraries,
+  profile-scoped imports, server photos and artwork, direct playback, HLS
+  fallback and seeking, text subtitle streams, and optional SubDL searches
+  by movie or parent-series identity. Android TV passed 98 cases and Apple TV
+  passed 206, with zero failures or skips. The Android phone regression suite
+  also passed.
+  [Merged Jellyfin PR](https://github.com/dinesh-devkota/mediavault/pull/15)
+  · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45672958713)
+  · [Apple TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45676870744)
+- Emby has TV setup and secure storage, household-scoped catalog import,
+  direct-play range reads, photos and artwork, and provider text captions.
+  Android TV passed the photos and captions checkpoint. The unsigned Apple
+  build passed on Xcode 26 after restoring the required household core.
+  The full Apple TV simulator gate is open. Authenticated Android HLS passed
+  rendering and seek on its isolated branch. Apple TV transcoding is open.
   [Emby](https://github.com/dinesh-devkota/mediavault/pull/3)
+  · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45673892183)
+  · [Apple build](https://github.com/dinesh-devkota/mediavault/actions/runs/45678384113)
+  · [Android HLS](https://github.com/dinesh-devkota/mediavault/actions/runs/45677454484)
 - Plex has protected account PIN, server discovery, catalog, and byte reads
   in provider clients. Full TV setup, protected player wiring and a signed-in
   QA account are still needed.
@@ -184,18 +192,27 @@ Both ran the respective HTTPS WebDAV playback and seek test.
 The user authorized provider merges to development after the exact source
 branch passes both hosted emulator/simulator suites, including its named
 provider tests. Retain draft status while implementation or coverage remains
-incomplete. Android phone and iPhone support have their own branches and
-touch-screen test requirements. Keep the Windows handoff as a verified Git
-bundle when the Windows checkout is unavailable.
+incomplete. The Windows checkout was unavailable from cloud. The verified
+Git bundle contains development and the separate provider and platform refs.
+
+## Subtitle files and downloads
+
+For SMB and WebDAV, place an SRT or WebVTT file next to its video with the same
+base name. Use names such as `Movie.en.srt` and `Movie.es.vtt`. For Jellyfin,
+MediaVault can play text tracks that the server publishes. Optional SubDL
+downloads use the key linked in Settings and require matched metadata. The app
+prefers available local or server tracks and caches downloads in the player.
+Automated SubDL verification used synthetic search and download responses.
 
 ## tvOS submission readiness
 
 The development merge gate is the hosted device-emulation suites. App Store
-submission also needs a signed archive built with the current required SDK,
-physical Apple TV validation, active
-Apple Developer membership and current provider approvals. Apple makes the
-App Review decision. This work covers unsigned public builds and documented
-checks.
+submission also needs a signed archive built with Apple's current SDK,
+physical-device validation, active Apple Developer membership and current
+provider approvals. Apple decides approval. The public tvOS release checkpoint
+passed on the current SDK and verified the bundled privacy manifest and policy.
+[Apple release build](https://github.com/dinesh-devkota/mediavault/actions/runs/45671952006/job/139409305009)
+· [Privacy and release readiness PR](https://github.com/dinesh-devkota/mediavault/pull/14)
 
 - Give reviewers a reachable, dedicated test service with temporary least-
   privilege credentials and synthetic media the project is authorized to
@@ -217,6 +234,35 @@ checks.
   binary's privacy manifests and export-compliance declaration.
 
 [App Review guidelines](https://developer.apple.com/app-store/review/guidelines/)
-[App Store SDK requirements](https://developer.apple.com/news/upcoming-requirements/)
 [App privacy details](https://developer.apple.com/app-store/app-privacy-details/)
+[App Store SDK requirements](https://developer.apple.com/news/upcoming-requirements/)
 [Export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/)
+
+## Android phone branch
+
+`codex/mediavault-android-phone` branches from Android TV WebDAV/household checkpoint `1cbd47977ed07222cf6a44400c10a5757b3d5221`. The same Android app exposes a phone launcher and a TV launcher. Phone layouts use touch Material buttons, persistent navigation, compact library and form layouts, and safe areas for the system bars and keyboard. Existing TV navigation and transport are covered by their existing checks.
+
+The separate Android phone workflow runs a clean API 36 phone emulator against the synthetic SMB fixture. It verifies launcher discovery, touch source-form validation, credential entry, folder selection and scan, opening the imported movie and seeking through native playback controls. Phone WebDAV reuses the shared implementation and source editor. This phone smoke covers SMB; WebDAV transport has its existing Android TV fixture. Physical phone testing and app distribution remain separate.
+
+
+The phone branch merged at `97478bae735f6822789d7d8922fdf0d70a053ad3` after
+two Pixel 6 touch journeys and 94 Android TV emulator tests passed. The
+merged Jellyfin branch also passed the phone regression suite.
+[Phone PR](https://github.com/dinesh-devkota/mediavault/pull/12)
+· [Phone emulator run](https://github.com/dinesh-devkota/mediavault/actions/runs/45667689612)
+
+## iPhone
+
+The iPhone draft has an iOS target sharing the existing source and playback
+services, with touch navigation, native AVPlayer controls and household
+authorization. The unsigned iOS 26.5 build passed. The previous simulator
+checkpoint passed 188 of 189, including native playback and seeking, household
+access and the underlying HTTPS WebDAV transport. The WebDAV touch journey is
+being verified again against the current library accessibility fixes. Keep the
+branch in draft through the current iPhone and Apple TV regression checks.
+[Draft iPhone PR](https://github.com/dinesh-devkota/mediavault/pull/11)
+
+## Repository display name
+
+The app displays MediaVault. GitHub rejected the case-only repository rename
+because the integration lacks Administration write permission.

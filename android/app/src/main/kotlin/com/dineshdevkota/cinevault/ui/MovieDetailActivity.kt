@@ -46,6 +46,7 @@ import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.playback.PlayerActivity
 import com.dineshdevkota.cinevault.playback.PlaybackValidator
 import kotlinx.coroutines.launch
@@ -93,11 +94,13 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
     val sourceName by produceState<String?>(null, current.sourceId) {
         value = database.sources().get(current.sourceId)?.name
     }
+    val isTv = LocalTvLayout.current
     val actions = remember { FocusRequester() }
-    LaunchedEffect(playbackRejection) { actions.requestFocus() }
+    LaunchedEffect(playbackRejection) { if (isTv) actions.requestFocus() }
 
     Box(Modifier.fillMaxSize()) {
-        Artwork(Tmdb.imageUrl(current.backdropPath, "w1280"), "", Modifier.fillMaxSize())
+        MediaArtwork(current, Tmdb.imageUrl(current.backdropPath, "w1280"), "", Modifier.fillMaxSize(),
+            width = 1280, kind = JellyfinImage.Backdrop)
         Box(
             Modifier.fillMaxSize().background(
                 Brush.horizontalGradient(
@@ -108,14 +111,16 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
             ),
         )
         Row(
-            Modifier.fillMaxSize().padding(horizontal = 72.dp, vertical = 48.dp),
+            Modifier.fillMaxSize().padding(horizontal = if (isTv) 72.dp else ScreenPadding, vertical = if (isTv) 48.dp else 16.dp),
             horizontalArrangement = Arrangement.spacedBy(48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Artwork(
+            if (isTv) MediaArtwork(
+                current,
                 Tmdb.imageUrl(current.posterPath, "w500"),
                 current.title,
                 Modifier.width(240.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)),
+                width = 500,
             )
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()),
@@ -123,6 +128,10 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
             ) {
                 OutlinedButton(onClick = onClose,
                     modifier = if (playbackRejection != null) Modifier.focusRequester(actions) else Modifier) { Text("Back") }
+                if (!isTv && current.posterPath != null) Artwork(
+                    Tmdb.imageUrl(current.posterPath, "w500"), current.title,
+                    Modifier.width(104.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)),
+                )
                 Text(
                     "MEDIAVAULT  /  ${current.mediaKind.label.uppercase(Locale.ROOT)}",
                     style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 3.sp),
@@ -183,7 +192,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                     }
                 }
                 if (current.episodeInfo != null) NextEpisodeButton(current)
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                AdaptiveActions() {
                     OutlinedButton(
                         enabled = !updatingWatchlist,
                         onClick = {
@@ -227,7 +236,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                         Text(if (current.isWatched) "Mark Unwatched" else "Mark Watched")
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                AdaptiveActions() {
                     OutlinedButton(onClick = { scope.launch { context.container.library.setHidden(current.id, !current.isHidden) } }) {
                         Text(if (current.isHidden) "Unhide" else "Hide")
                     }

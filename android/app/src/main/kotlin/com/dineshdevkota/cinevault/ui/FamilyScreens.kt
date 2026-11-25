@@ -19,6 +19,7 @@ import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.family.*
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.smb.NasBrowser
 import com.dineshdevkota.cinevault.smb.SmbService
 import kotlinx.coroutines.CancellationException
@@ -71,7 +72,7 @@ fun ProfilePicker() {
     LazyColumn(Modifier.fillMaxSize().testTag("household-picker"), contentPadding = PaddingValues(ScreenPadding),
         verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { Text("Who's watching?", style = MaterialTheme.typography.headlineLarge) }
-        item { Text("Your library and viewing progress stay with your profile on this TV.", color = SecondaryText) }
+        item { Text("Your library and viewing progress stay with your profile on this device.", color = SecondaryText) }
         if (session.damaged) item {
             Text("Household controls could not be read. Close and reopen MediaVault to retry. Your library stays locked.", color = ErrorText)
         }
@@ -105,7 +106,7 @@ private fun PinPrompt(title: String, onCancel: () -> Unit, verify: suspend (Stri
     Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         Text(title, style = MaterialTheme.typography.headlineMedium)
         PinField(pin, { pin = it }, "Six-digit PIN", enabled = !busy)
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        AdaptiveActions() {
             Button(enabled = PinVerifier.valid(pin) && !busy, onClick = {
                 val submitted = pin; val requestEpoch = promptEpoch; pin = ""; busy = true
                 scope.launch {
@@ -133,7 +134,7 @@ fun HouseholdButton() {
     val context = LocalContext.current
     val family = context.container.family
     val session by family.session.collectAsStateWithLifecycle()
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    AdaptiveActions() {
         OutlinedButton(onClick = { FamilyActivity.start(context) }) { Text("Household profiles") }
         if (session.enabled) OutlinedButton(onClick = { family.lock() }) { Text("Switch profile · ${session.profile?.name.orEmpty()}") }
     }
@@ -168,7 +169,7 @@ private fun FamilySettings(onClose: () -> Unit) {
     }
     LazyColumn(contentPadding = PaddingValues(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { Text("Your household", style = MaterialTheme.typography.headlineLarge) }
-        item { Text("Profiles live on this TV. Admin manages media and permissions. Each viewer has a separate Watchlist and viewing history.", color = SecondaryText) }
+        item { Text("Profiles live on this device. Admin manages media and permissions. Each viewer has a separate Watchlist and viewing history.", color = SecondaryText) }
         item { OutlinedButton(onClick = { family.lock() }) { Text("Switch profile") } }
         if (!authorized) item {
             Button(onClick = { verifying = true }) { Text("Manage profiles · Admin PIN") }
@@ -266,7 +267,7 @@ private fun ProfileEditor(original: HouseholdProfile, onClose: () -> Unit) {
                 }
             } }
             sources.forEach { source -> item(key = source.id) { PermissionFolderPicker(source) { folder ->
-                val grant = FolderAccess(source.id, folder, caseSensitive = source.sourceType == "webdav")
+                val grant = FolderAccess(source.id, folder, caseSensitive = source.sourceType in setOf("webdav", JELLYFIN))
                 if (grant !in draft.folders) draft = draft.copy(folders = draft.folders + grant)
             } } }
             item { RatingSelector("US movies", FamilyPolicy.movieRatings, draft.movieLimit) { draft = draft.copy(movieLimit = it) } }
@@ -316,6 +317,10 @@ private fun RatingSelector(label: String, values: List<String>, selected: String
 
 @Composable
 private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> Unit) {
+    if (source.sourceType == JELLYFIN) {
+        OutlinedButton(onClick = { onSelect("") }) { Text("Allow Jellyfin library · ${source.name}") }
+        return
+    }
     val container = LocalContext.current.container
     var expanded by remember { mutableStateOf(false) }
     var path by remember(source.id) { mutableStateOf(source.rootPath.replace('\\', '/').trim('/')) }

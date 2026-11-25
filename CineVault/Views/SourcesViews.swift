@@ -52,10 +52,16 @@ struct SourcesView: View {
         }
         .navigationTitle("Sources")
         .sheet(isPresented: $adding) { NASSetupView() }
-        .sheet(item: $editing) { source in NavigationStack { SourceEditorView(source: source) } }
+        .sheet(item: $editing) { source in
+            NavigationStack {
+                if source.isJellyfin { JellyfinSourceEditor(source: source) }
+                else { SourceEditorView(source: source) }
+            }
+        }
     }
 
     private func location(of source: MediaSource) -> String {
+        if source.isJellyfin { return source.host }
         if source.isWebDAV { return [source.host, source.rootPath].filter { !$0.isEmpty }.joined(separator: " / ") }
         let address = (try? NASAddress.parse(source.host, port: source.port))?.authority ?? "NAS"
         return ([address, source.share, source.rootPath].filter { !$0.isEmpty }).joined(separator: " / ")
