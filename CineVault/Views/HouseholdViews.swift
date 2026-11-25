@@ -242,12 +242,12 @@ struct HouseholdProfileEditor: View {
                     Text("Includes: \(HouseholdPolicy.tvRatings.prefix(index + 1).joined(separator: ", "))").font(.caption).foregroundStyle(.secondary)
                 }
             } header: { Text("Age ratings") } footer: {
-                Text("With a rating limit, unknown or unrated videos stay hidden until TMDB supplies a US rating. TV limits use the show’s rating; individual episodes can differ. Photos and music follow folder access only.")
+                Text("With a rating limit, unknown or unrated videos stay hidden until a US rating is available. TV limits use the show’s rating; individual episodes can differ. Photos and music follow folder access only.")
             }
             Section {
                 if sources.isEmpty { Text("Add a NAS source first, then choose folders for this viewer.") }
                 ForEach(sources) { source in
-                    NavigationLink("Choose folders in \(source.name)") {
+                    NavigationLink("\(source.isEmby ? "Manage access to" : "Choose folders in") \(source.name)") {
                         HouseholdFolderChooser(source: source, allowed: $profile.allowedFolders)
                     }
                 }
@@ -259,7 +259,7 @@ struct HouseholdProfileEditor: View {
                     }
                 }
             } header: { Text("Allowed folders").accessibilityIdentifier("household-folder-permissions") } footer: {
-                Text("Allowed folders include their subfolders. New NAS sources are hidden until you allow them. These choices never move or delete files.")
+                Text("Allowed folders include their subfolders. New sources are hidden until you allow them. These choices never move or delete files.")
             }
             Section {
                 SecureField("Confirm Admin PIN to save changes", text: $adminPIN).keyboardType(.numberPad)
@@ -308,9 +308,14 @@ private struct HouseholdFolderChooser: View {
     var body: some View {
         List {
             Section {
-                Text("Allow all current and future folders in this source, or browse to choose a smaller folder.").font(.caption)
-                Button("Allow entire source: \(source.name)") { add(source.rootPath) }
-                if let configuration {
+                if source.isEmby {
+                    Text("Allow access to the selected Emby library. This viewer’s rating limits still apply.").font(.caption)
+                    Button("Allow library: \(source.name)") { add("") }
+                } else {
+                    Text("Allow all current and future folders in this source, or browse to choose a smaller folder.").font(.caption)
+                    Button("Allow entire source: \(source.name)") { add(source.rootPath) }
+                }
+                if !source.isEmby, let configuration {
                     NavigationLink("Browse folders") {
                         NASPathPicker(configuration: configuration, mode: .household) { path, _ in add(path) }
                     }
@@ -321,6 +326,7 @@ private struct HouseholdFolderChooser: View {
         }.navigationTitle(source.name)
             .onAppear {
                 guard HouseholdStore.shared.isAdmin else { dismiss(); return }
+                guard !source.isEmby else { return }
                 do { configuration = try source.config() } catch { self.error = error.localizedDescription }
             }
     }

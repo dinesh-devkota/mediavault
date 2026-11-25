@@ -7,7 +7,7 @@ import SwiftUI
 import CineVaultCommercial
 #endif
 
-/// Streams a NAS file into AVPlayer by answering byte-range requests with SMB reads,
+/// Streams an SMB or Emby video into AVPlayer through authorized byte-range reads,
 /// so playback starts immediately and seeking works without downloading the file.
 final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     static let scheme = "cinevault-smb"
@@ -15,16 +15,24 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
 
     fileprivate let config: SourceConfig
     private let path: String
+    private let emby: EmbySourceConnection?
+    private let embyPlayback: EmbyClient.DirectPlayback?
+    private let stillAvailable: (@MainActor () -> Bool)?
     private let household: HouseholdStore
     private let householdSession: UUID
     private let queue = DispatchQueue(label: "cinevault.resource-loader")
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var sizeTask: Task<Int64, Error>?
 
-    init(config: SourceConfig, path: String, household: HouseholdStore = .shared) {
+    init(config: SourceConfig, path: String, household: HouseholdStore = .shared,
+         emby: EmbySourceConnection? = nil, embyPlayback: EmbyClient.DirectPlayback? = nil,
+         stillAvailable: (@MainActor () -> Bool)? = nil) {
         self.household = household; householdSession = household.sessionToken
         self.config = config
         self.path = path
+        self.emby = emby
+        self.embyPlayback = embyPlayback
+        self.stillAvailable = stillAvailable
     }
 
     deinit {
@@ -48,9 +56,10 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         if let existing = self.sizeTask {
             sizeTask = existing
         } else {
-            let config = self.config
-            let path = self.path
-            sizeTask = Task { try await SMBService.shared.fileSize(config, path: path) }
+            sizeTask = Task { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try await self.fileSize()
+            }
             self.sizeTask = sizeTask
         }
         tasks[key] = Task { [weak self] in
@@ -69,7 +78,8 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             let size = try await sizeTask.value
             try Task.checkCancellation()
             if let info = request.contentInformationRequest {
-                info.contentType = MediaFile.contentType(path: path)
+                let mediaPath = embyPlayback.map { "video.\($0.container.lowercased())" } ?? path
+                info.contentType = MediaFile.contentType(path: mediaPath)
                 info.contentLength = size
                 info.isByteRangeAccessSupported = true
             }
@@ -99,18 +109,47 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         }
     }
 
-    func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
+    private func verifyAccess() async throws {
         guard household.sessionIsCurrent(householdSession),
-              household.allowsPath(sourceID: config.id, path: path) else { throw PlaybackPreparationError.fileUnavailable }
+              household.allowsPath(sourceID: config.id, path: path, entireSourceOnly: config.isEmby) else {
+            throw PlaybackPreparationError.fileUnavailable
+        }
+        if let stillAvailable {
+            let available = await stillAvailable()
+            guard available, household.sessionIsCurrent(householdSession) else { throw PlaybackPreparationError.fileUnavailable }
+        }
+    }
+
+    private func fileSize() async throws -> Int64 {
+        try await verifyAccess()
+        let size: Int64
+        if let emby, let embyPlayback {
+            size = try await emby.client.read(emby.account, playback: embyPlayback, offset: 0, length: 1).totalLength
+        } else {
+            guard !config.isEmby else { throw PlaybackPreparationError.fileUnavailable }
+            size = try await SMBService.shared.fileSize(config, path: path)
+        }
+        try await verifyAccess()
+        return size
+    }
+
+    func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
+        try await verifyAccess()
         guard start >= 0, end >= start else { throw SMBError.invalidByteRange }
         var offset = start
         while offset < end {
             try Task.checkCancellation()
             let length = Int(min(Self.chunkSize, end - offset))
-            let data = try await SMBService.shared.read(config, path: path, offset: offset, length: length)
+            try await verifyAccess()
+            let data: Data
+            if let emby, let embyPlayback {
+                data = try await emby.client.read(emby.account, playback: embyPlayback, offset: offset, length: length).bytes
+            } else {
+                guard !config.isEmby else { throw PlaybackPreparationError.fileUnavailable }
+                data = try await SMBService.shared.read(config, path: path, offset: offset, length: length)
+            }
             try Task.checkCancellation()
-            guard household.sessionIsCurrent(householdSession),
-                  household.allowsPath(sourceID: config.id, path: path) else { throw PlaybackPreparationError.fileUnavailable }
+            try await verifyAccess()
             guard !data.isEmpty else { throw SMBError.unexpectedEndOfFile }
             respond(data)
             offset += Int64(data.count)
@@ -128,7 +167,7 @@ enum PlaybackPreparationError: LocalizedError {
         case .unsupportedFormat:
             return "Apple TV's native player cannot play this file's container or audio/video codecs. Use a supported container with compatible codecs."
         case .fileUnavailable:
-            return "This file is missing or ignored by its NAS source. Include it again and rescan before playing."
+            return "This item is unavailable. Check access to its source and rescan before playing."
         }
     }
 }
@@ -145,6 +184,7 @@ final class PlaybackController: ObservableObject {
     private let loader: SMBResourceLoader
     private let asset: AVURLAsset
     let movie: Movie
+    private var embyReporter: EmbyPlaybackReporter?
     private var finishedPlayback = false
     private var stopped = false
     private var timeObserver: Any?
@@ -171,14 +211,34 @@ final class PlaybackController: ObservableObject {
     /// Check the actual asset before creating a player or changing playback history.
     static func prepare(movie: Movie, resume: Bool, services: PlaybackServices,
                         defaults: UserDefaults = .standard,
-                        sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() },
+                        sourceConfig: @escaping (MediaSource) throws -> SourceConfig = { try $0.config() },
                         loadPlayable: (AVURLAsset) async throws -> Bool = { try await $0.load(.isPlayable) },
                         household: HouseholdStore = .shared) async throws -> PlaybackController? {
         let householdSession = household.sessionToken
         guard let source = try playbackSource(for: movie, household: household) else { return nil }
         let config = try sourceConfig(source)
         let path = movie.filePath
-        let loader = SMBResourceLoader(config: config, path: path, household: household)
+        let loader: SMBResourceLoader
+        var reporter: EmbyPlaybackReporter?
+        if config.isEmby {
+            let connection = try EmbySourceConnection(config: config)
+            let playback = try await connection.directPlayback(path: path)
+            try Task.checkCancellation()
+            guard household.sessionIsCurrent(householdSession),
+                  let currentSource = try playbackSource(for: movie, household: household), currentSource === source,
+                  movie.filePath == path, try sourceConfig(currentSource) == config else {
+                throw PlaybackPreparationError.fileUnavailable
+            }
+            loader = SMBResourceLoader(config: config, path: path, household: household, emby: connection,
+                                       embyPlayback: playback, stillAvailable: { [weak movie, weak source] in
+                guard let movie, let source, !source.isDeleted, !movie.isDeleted,
+                      movie.source === source, movie.filePath == path else { return false }
+                return household.allows(movie) && LibrarySearch.isAvailable(movie) && (try? sourceConfig(source)) == config
+            })
+            if household.isAdmin { reporter = EmbyPlaybackReporter(connection: connection, playback: playback) }
+        } else {
+            loader = SMBResourceLoader(config: config, path: path, household: household)
+        }
         let asset = loader.makeAsset()
         return try await withTaskCancellationHandler {
             do {
@@ -190,7 +250,9 @@ final class PlaybackController: ObservableObject {
                       movie.filePath == path, try sourceConfig(currentSource) == config else {
                     throw PlaybackPreparationError.fileUnavailable
                 }
-                return PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset, household: household)
+                let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset, household: household)
+                controller.embyReporter = reporter
+                return controller
             } catch {
                 asset.cancelLoading()
                 throw error
@@ -204,7 +266,9 @@ final class PlaybackController: ObservableObject {
           defaults: UserDefaults = .standard,
           sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() }, household: HouseholdStore = .shared) throws {
         guard let source = try Self.playbackSource(for: movie, household: household) else { return nil }
-        let loader = SMBResourceLoader(config: try sourceConfig(source), path: movie.filePath, household: household)
+        let config = try sourceConfig(source)
+        guard !config.isEmby else { throw EmbyError.unsupportedPlayback }
+        let loader = SMBResourceLoader(config: config, path: movie.filePath, household: household)
         self.init(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: loader.makeAsset(), household: household)
     }
 
@@ -238,7 +302,7 @@ final class PlaybackController: ObservableObject {
             let message = item.error?.localizedDescription ?? "The native player could not decode this file."
             Task { @MainActor [weak self] in
                 guard let self, !self.stopped else { return }
-                self.playbackError = "Playback could not continue. Check the NAS connection and the file's codecs. \(message)"
+                self.playbackError = "Playback could not continue. Check the source connection and the file's codecs. \(message)"
                 self.didEndNaturally = false
                 self.player.pause()
             }
@@ -261,7 +325,7 @@ final class PlaybackController: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, !self.stopped else { return }
                 self.didEndNaturally = false
-                self.playbackError = "Playback could not continue. Check the NAS connection and try again."
+                self.playbackError = "Playback could not continue. Check the source connection and try again."
                 self.player.pause()
             }
         }
@@ -305,7 +369,12 @@ final class PlaybackController: ObservableObject {
     }
 
     func record(time: Double) {
-        guard !stopped, validateAccess(), !finishedPlayback, time.isFinite, time > 0 else { return }
+        guard !stopped, validateAccess(), time.isFinite else { return }
+        if let embyReporter {
+            let paused = player.rate == 0
+            Task { await embyReporter.progress(time, paused: paused) }
+        }
+        guard !finishedPlayback, time > 0 else { return }
         let boundary = player.currentItem?.forwardPlaybackEndTime
         let limit = boundary.flatMap { $0.isValid && $0.seconds.isFinite ? $0.seconds : nil }
         let position = limit.map { min(time, $0) } ?? time
@@ -358,6 +427,11 @@ final class PlaybackController: ObservableObject {
         #endif
         if saveProgress { record(time: player.currentTime().seconds) }
         stopped = true
+        if let embyReporter {
+            let position = player.currentTime().seconds
+            Task { await embyReporter.stop(position) }
+            self.embyReporter = nil
+        }
         subtitles.stop()
         artworkTask?.cancel()
         artworkTask = nil

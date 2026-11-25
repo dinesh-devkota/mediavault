@@ -1,0 +1,129 @@
+import Foundation
+
+struct EmbySourceConnection: Sendable {
+    let client: EmbyClient
+    let account: EmbyClient.Account
+
+    static func client(endpoint: String, sourceID: UUID) throws -> EmbyClient {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        return try EmbyClient(endpoint: endpoint, deviceID: sourceID.uuidString, appVersion: version)
+    }
+
+    init(config: SourceConfig) throws {
+        guard config.isEmby, !config.password.isEmpty, Self.validID(config.username) else {
+            throw EmbyError.invalidResponse
+        }
+        client = try Self.client(endpoint: config.host, sourceID: config.id)
+        account = .init(AccessToken: config.password, User: .init(Id: config.username, Name: ""))
+    }
+
+    static func validID(_ id: String) -> Bool {
+        (1...128).contains(id.utf8.count) && id.utf8.allSatisfy {
+            (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95
+        }
+    }
+
+    static func path(_ id: String) -> String { "emby/\(id).mp4" }
+
+    static func itemID(for path: String) throws -> String {
+        guard path.hasPrefix("emby/"), path.hasSuffix(".mp4") else { throw EmbyError.invalidCatalog }
+        let id = String(path.dropFirst(5).dropLast(4))
+        guard validID(id) else { throw EmbyError.invalidCatalog }
+        return id
+    }
+
+    static func libraries(_ values: [EmbyClient.Item]) -> [EmbyClient.Item] {
+        var seen: Set<String> = []
+        return values.filter {
+            validID($0.Id) && !$0.Name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                ["movies", "tvshows", "mixed", ""].contains($0.CollectionType ?? "") &&
+                seen.insert($0.Id).inserted
+        }
+    }
+
+    func directPlayback(path: String) async throws -> EmbyClient.DirectPlayback {
+        try await client.directPlayback(account, itemID: Self.itemID(for: path), containers: ["mp4", "m4v", "mov"])
+    }
+}
+
+struct EmbyCatalogVideo {
+    let id: String
+    let title: String
+    let year: Int?
+    let overview: String?
+    let runtimeMinutes: Int?
+    let rating: String?
+    let seriesID: String?
+    let seriesTitle: String?
+    let season: Int?
+    let episode: Int?
+
+    static func videos(_ items: [EmbyClient.Item]) -> [Self] {
+        let series = Dictionary(items.filter { $0.type == "Series" }.map { ($0.Id, $0) },
+                                uniquingKeysWith: { first, _ in first })
+        return items.compactMap { item in
+            guard EmbySourceConnection.validID(item.Id), !item.Name.isEmpty else { return nil }
+            let show: EmbyClient.Item?
+            if item.type == "Episode" {
+                guard let id = item.SeriesId, EmbySourceConnection.validID(id),
+                      let name = series[id]?.Name ?? item.SeriesName, !name.isEmpty,
+                      let season = item.ParentIndexNumber, (0...999).contains(season),
+                      let episode = item.IndexNumber, (0...999).contains(episode) else { return nil }
+                show = series[id]
+            } else if item.type == "Movie" { show = nil }
+            else { return nil }
+            let rating = item.type == "Episode" ? show?.OfficialRating : item.OfficialRating
+            let normalized = rating?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let runtime = item.RunTimeTicks.flatMap { $0 >= 0 ? Int(exactly: $0 / 600_000_000) : nil }
+            return Self(id: item.Id, title: item.Name, year: item.ProductionYear,
+                        overview: item.Overview, runtimeMinutes: runtime, rating: normalized,
+                        seriesID: item.type == "Episode" ? item.SeriesId : nil,
+                        seriesTitle: item.type == "Episode" ? show?.Name ?? item.SeriesName : nil,
+                        season: item.type == "Episode" ? item.ParentIndexNumber : nil,
+                        episode: item.type == "Episode" ? item.IndexNumber : nil)
+        }
+    }
+}
+
+/// Serializes heartbeats and the terminal event for the owner's linked Emby account.
+actor EmbyPlaybackReporter {
+    private let connection: EmbySourceConnection
+    private let playback: EmbyClient.DirectPlayback
+    private var began = false
+    private var stopped = false
+    private var tail: Task<Void, Never>?
+
+    init(connection: EmbySourceConnection, playback: EmbyClient.DirectPlayback) {
+        self.connection = connection
+        self.playback = playback
+    }
+
+    func progress(_ seconds: Double, paused: Bool) {
+        guard !stopped, let position = Self.milliseconds(seconds), began || !paused else { return }
+        let event: EmbyClient.PlaybackEvent = began ? .progress : .started
+        began = true
+        send(event, position, paused: paused)
+    }
+
+    func stop(_ seconds: Double) {
+        guard !stopped else { return }
+        stopped = true
+        if began { send(.stopped, Self.milliseconds(seconds) ?? 0, paused: false) }
+    }
+
+    private func send(_ event: EmbyClient.PlaybackEvent, _ position: Int64, paused: Bool) {
+        let previous = tail
+        let connection = self.connection
+        let playback = self.playback
+        tail = Task {
+            await previous?.value
+            try? await connection.client.report(connection.account, playback: playback, event: event,
+                                                positionMillis: position, paused: paused)
+        }
+    }
+
+    private static func milliseconds(_ seconds: Double) -> Int64? {
+        guard seconds.isFinite, (0...1_000_000_000).contains(seconds) else { return nil }
+        return Int64(seconds * 1_000)
+    }
+}

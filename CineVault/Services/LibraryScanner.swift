@@ -45,6 +45,10 @@ final class LibraryScanner: ObservableObject {
         status = "Scanning \(source.name)…"
         do {
             let config = try source.config()
+            if config.isEmby {
+                try await scanEmby(source, config: config, context: context)
+                return
+            }
             let state = LibraryScanState(source: source, context: context, config: config, saveContext: saveContext)
             let scannedFiles: [RemoteFile]
             if let scanWithProgress {
@@ -99,6 +103,69 @@ final class LibraryScanner: ObservableObject {
             let separator = reason.hasSuffix(".") ? " " : ". "
             status = "Scan failed for \(source.name): \(reason)\(separator)Items already found are kept. Retry from Sources."
         }
+    }
+
+    private func scanEmby(_ source: MediaSource, config: SourceConfig, context: ModelContext) async throws {
+        let household = HouseholdStore.shared
+        let session = household.sessionToken
+        guard household.isAdmin, EmbySourceConnection.validID(config.share) else { throw HouseholdError.denied }
+        let connection = try EmbySourceConnection(config: config)
+        var items: [EmbyClient.Item] = []
+        try await connection.client.catalog(connection.account, libraryID: config.share) { page in
+            guard household.sessionIsCurrent(session), household.isAdmin,
+                  !source.isDeleted, source.modelContext != nil, try source.config() == config else {
+                throw SMBError.sourceChanged
+            }
+            items.append(contentsOf: page)
+        }
+        try Task.checkCancellation()
+        guard household.sessionIsCurrent(session), household.isAdmin,
+              !source.isDeleted, source.modelContext != nil, try source.config() == config else {
+            throw SMBError.sourceChanged
+        }
+        let videos = EmbyCatalogVideo.videos(items)
+        var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { first, _ in first })
+        let previous = existing.values.map { ($0, $0.isMissing, $0.usContentRating) }
+        let scanDate = source.lastScanDate
+        var inserted: [Movie] = []
+        for video in videos {
+            let path = EmbySourceConnection.path(video.id)
+            if let movie = existing.removeValue(forKey: path) {
+                movie.usContentRating = video.rating
+                movie.isMissing = false
+                continue
+            }
+            let movie = Movie(filePath: path, fileSize: 0, source: source)
+            movie.fileName = video.title + ".mp4"
+            movie.parsedTitle = video.title
+            movie.parsedYear = video.year
+            movie.setTitle(video.title)
+            movie.year = video.year
+            movie.overview = video.overview
+            movie.runtimeMinutes = video.runtimeMinutes
+            movie.seriesTitle = video.seriesTitle
+            movie.providerSeriesID = video.seriesID
+            movie.seasonNumber = video.season
+            movie.episodeNumber = video.episode
+            movie.usContentRating = video.rating
+            movie.usContentRatingFetched = true
+            movie.metadataFetched = true
+            context.insert(movie)
+            inserted.append(movie)
+        }
+        for movie in existing.values { movie.isMissing = true }
+        source.lastScanDate = Date()
+        do { try saveContext(context) }
+        catch {
+            for (movie, wasMissing, rating) in previous {
+                movie.isMissing = wasMissing
+                movie.usContentRating = rating
+            }
+            source.lastScanDate = scanDate
+            for movie in inserted { context.delete(movie) }
+            throw error
+        }
+        status = "\(source.name): \(videos.count) videos (\(inserted.count) new)"
     }
 
     func scanAll(context: ModelContext) async {

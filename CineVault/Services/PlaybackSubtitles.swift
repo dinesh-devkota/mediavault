@@ -130,7 +130,9 @@ final class PlaybackSubtitles: ObservableObject {
                 self.embedded = (self.group?.options ?? []).enumerated().map { Embedded(id: $0.offset, option: $0.element) }
                 self.nativeLoaded = true
                 self.nativeSelection = NativeSubtitleSelectionTracker(current: self.currentNativeSelection)
-                self.local = try await LocalSubtitleService.discover(config: self.config, videoPath: self.path, preferredLanguage: self.preferredLanguage)
+                if !self.config.isEmby {
+                    self.local = try await LocalSubtitleService.discover(config: self.config, videoPath: self.path, preferredLanguage: self.preferredLanguage)
+                }
                 try Task.checkCancellation()
                 guard self.sourceUnchanged else { throw SMBError.sourceChanged }
                 self.loading = false

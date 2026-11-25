@@ -7,6 +7,7 @@ final class MediaSource {
     var id: UUID = UUID()
     var name: String = ""
     var host: String = ""
+    var sourceProtocol: String?
     var port: Int?
     var share: String = ""
     /// Folder inside the share to scan, e.g. "Movies". Empty scans the whole share.
@@ -29,6 +30,8 @@ final class MediaSource {
         self.username = username
     }
 
+    var isEmby: Bool { sourceProtocol == "emby" }
+
     private var passwordAccount: String { "source-\(id.uuidString)" }
 
     func password() throws -> String {
@@ -43,7 +46,7 @@ final class MediaSource {
         var secret = ""
         if !username.isEmpty { secret = try password() }
         return SourceConfig(id: id, host: host, port: port, share: share, rootPath: rootPath,
-                            username: username, password: secret, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [])
+                            username: username, password: secret, sourceProtocol: sourceProtocol, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [])
     }
 
     func isIgnored(filePath: String) -> Bool {
@@ -87,13 +90,15 @@ struct SourceConfig: Sendable, Hashable {
     let rootPath: String
     let username: String
     let password: String
+    let sourceProtocol: String?
+    var isEmby: Bool { sourceProtocol == "emby" }
     let ignoredFolders: [String]
     let ignoredFiles: [String]
 
     init(id: UUID, host: String, port: Int? = nil, share: String, rootPath: String,
-         username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = []) {
+         username: String, password: String, sourceProtocol: String? = nil, ignoredFolders: [String] = [], ignoredFiles: [String] = []) {
         self.id = id; self.host = host; self.port = port; self.share = share; self.rootPath = rootPath
-        self.username = username; self.password = password; self.ignoredFolders = ignoredFolders
+        self.username = username; self.password = password; self.sourceProtocol = sourceProtocol; self.ignoredFolders = ignoredFolders
         self.ignoredFiles = ignoredFiles
     }
 
@@ -127,6 +132,9 @@ final class Movie {
     }
     var seriesKey: String? {
         guard let info = episodeInfo else { return nil }
+        if let providerSeriesID, let source, let sourceProtocol = source.sourceProtocol {
+            return "\(sourceProtocol):\(source.id.uuidString):\(providerSeriesID)"
+        }
         if let seriesTMDBID { return "tmdb:\(seriesTMDBID)" }
         return "local:\(TitleMatcher.normalize(info.seriesTitle))|\(info.year.map(String.init) ?? "")"
     }
@@ -145,6 +153,7 @@ final class Movie {
     var tmdbID: Int?
     var seriesTitle: String?
     var seriesTMDBID: Int?
+    var providerSeriesID: String?
     var seasonNumber: Int?
     var episodeNumber: Int?
     var seasonPosterPath: String?

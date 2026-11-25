@@ -11,11 +11,17 @@ struct SourcesView: View {
     @Query(sort: \MediaSource.name) private var sources: [MediaSource]
     @State private var editing: MediaSource?
     @State private var adding = false
+    @State private var addingEmby = false
+    @ObservedObject private var household = HouseholdStore.shared
 
     var body: some View {
         List {
             Section {
                 Button { adding = true } label: { Label("Add NAS", systemImage: "plus") }.buttonStyle(.borderedProminent)
+                if household.isAdmin {
+                    Button { addingEmby = true } label: { Label("Add Emby Library", systemImage: "play.rectangle") }
+                        .accessibilityIdentifier("add-emby-source")
+                }
                 if sources.isEmpty {
                     Text("Connect a NAS, choose your media folder, and MediaVault will add its movies, shows, music and photos.")
                         .foregroundStyle(.secondary)
@@ -52,10 +58,17 @@ struct SourcesView: View {
         }
         .navigationTitle("Sources")
         .sheet(isPresented: $adding) { NASSetupView() }
-        .sheet(item: $editing) { source in NavigationStack { SourceEditorView(source: source) } }
+        .sheet(isPresented: $addingEmby) { NavigationStack { EmbySourceEditor(source: nil) } }
+        .sheet(item: $editing) { source in
+            NavigationStack {
+                if source.isEmby { EmbySourceEditor(source: source) }
+                else { SourceEditorView(source: source) }
+            }
+        }
     }
 
     private func location(of source: MediaSource) -> String {
+        if source.isEmby { return "Emby · " + source.host }
         let address = (try? NASAddress.parse(source.host, port: source.port))?.authority ?? "NAS"
         return ([address, source.share, source.rootPath].filter { !$0.isEmpty }).joined(separator: " / ")
     }

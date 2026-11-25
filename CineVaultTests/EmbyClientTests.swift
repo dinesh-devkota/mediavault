@@ -30,6 +30,45 @@ final class EmbyClientTests: XCTestCase {
         try await client.signOut(account)
     }
 
+    func testCatalogKeepsCaseSensitiveIDsAndUsesSeriesRatingForEpisodes() throws {
+        let data = Data("""
+            [
+                {"Id":"Video","Name":"Upstairs","Type":"Movie","ProductionYear":2023,"OfficialRating":"PG"},
+                {"Id":"video","Name":"Downstairs","Type":"Movie","OfficialRating":"R"},
+                {"Id":"show","Name":"Example Show","Type":"Series","OfficialRating":"tv-pg"},
+                {"Id":"pilot","Name":"Pilot","Type":"Episode","SeriesId":"show","ParentIndexNumber":1,"IndexNumber":1,"OfficialRating":"TV-MA"},
+                {"Id":"bad","Name":"No episode number","Type":"Episode","SeriesId":"show","ParentIndexNumber":1},
+                {"Id":"../bad","Name":"Unsafe ID","Type":"Movie"}
+            ]
+            """.utf8)
+        let items = try JSONDecoder().decode([EmbyClient.Item].self, from: data)
+        let videos = EmbyCatalogVideo.videos(items)
+        XCTAssertEqual(videos.map(\.id), ["Video", "video", "pilot"])
+        XCTAssertEqual(videos.map(\.rating), ["PG", "R", "TV-PG"])
+        XCTAssertEqual(videos.last?.seriesTitle, "Example Show")
+        XCTAssertEqual(videos.last?.season, 1)
+        XCTAssertEqual(videos.last?.episode, 1)
+        XCTAssertEqual(try EmbySourceConnection.itemID(for: EmbySourceConnection.path("Video")), "Video")
+        XCTAssertEqual(try EmbySourceConnection.itemID(for: EmbySourceConnection.path("video")), "video")
+        XCTAssertThrowsError(try EmbySourceConnection.itemID(for: "other/Video.mp4"))
+        XCTAssertThrowsError(try EmbySourceConnection.itemID(for: "emby/a/Video.mp4"))
+    }
+
+    func testEmbyRequiresAnExplicitEntireLibraryGrant() {
+        let sourceID = UUID()
+        var viewer = HouseholdProfile(name: "Viewer")
+        let canRead = { (profile: HouseholdProfile) in
+            HouseholdPolicy.allowsPath(profile: profile, sourceID: sourceID, path: "emby/Video.mp4", entireSourceOnly: true)
+        }
+        XCTAssertFalse(canRead(viewer))
+        viewer.allowedFolders = [HouseholdFolder(sourceID: sourceID, path: "emby")]
+        XCTAssertFalse(canRead(viewer))
+        viewer.allowedFolders = [HouseholdFolder(sourceID: UUID(), path: "")]
+        XCTAssertFalse(canRead(viewer))
+        viewer.allowedFolders = [HouseholdFolder(sourceID: sourceID, path: "")]
+        XCTAssertTrue(canRead(viewer))
+    }
+
     func testFixtureRejectsUnrangedOrMalformedResponse() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [EmbyFixture.self]

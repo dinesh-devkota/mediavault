@@ -74,12 +74,13 @@ enum HouseholdError: LocalizedError {
 enum HouseholdPolicy {
     static let movieRatings = ["G", "PG", "PG-13", "R", "NC-17"]
     static let tvRatings = ["TV-Y", "TV-G", "TV-Y7", "TV-PG", "TV-14", "TV-MA"]
-    static func allowsPath(profile: HouseholdProfile, sourceID: UUID?, path: String) -> Bool {
+    static func allowsPath(profile: HouseholdProfile, sourceID: UUID?, path: String, entireSourceOnly: Bool = false) -> Bool {
         if profile.isAdmin { return true }
         guard let sourceID, let file = ScanExclusions.normalizeFile(path: path)?.lowercased() else { return false }
         return profile.allowedFolders.contains {
             guard $0.sourceID == sourceID else { return false }
             if $0.path.isEmpty { return true }
+            guard !entireSourceOnly else { return false }
             guard let folder = ScanExclusions.normalizeFolder(path: $0.path)?.lowercased() else { return false }
             return file.hasPrefix(folder + "/")
         }
@@ -371,17 +372,17 @@ final class HouseholdStore: ObservableObject {
             try persist(next); lock()
         }
     }
-    func allowsPath(sourceID: UUID?, path: String) -> Bool {
+    func allowsPath(sourceID: UUID?, path: String, entireSourceOnly: Bool = false) -> Bool {
         synced {
             guard !storageFailure else { return false }
             guard configured else { return true }
             guard let current else { return false }
-            return HouseholdPolicy.allowsPath(profile: current, sourceID: sourceID, path: path)
+            return HouseholdPolicy.allowsPath(profile: current, sourceID: sourceID, path: path, entireSourceOnly: entireSourceOnly)
         }
     }
     func allows(_ movie: Movie) -> Bool {
         synced {
-            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath) else { return false }
+            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath, entireSourceOnly: movie.source?.isEmby == true) else { return false }
             guard let current, !current.isAdmin else { return !isLocked }
             guard !movie.isHidden else { return false }
             if MediaFile.isAudio(path: movie.filePath) || MediaFile.isPhoto(path: movie.filePath) { return true }

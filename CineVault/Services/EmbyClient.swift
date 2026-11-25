@@ -40,7 +40,8 @@ struct EmbyClient: Sendable {
         let type: String
 
         enum CodingKeys: String, CodingKey {
-            case Id, Name, SeriesId, SeasonId, ParentIndexNumber, IndexNumber, Overview, OfficialRating, ImageTags
+            case Id, Name, SeriesId, SeriesName, SeasonId, ParentIndexNumber, IndexNumber, Overview, OfficialRating
+            case ImageTags, ProductionYear, RunTimeTicks, CollectionType
             case type = "Type"
         }
         let SeriesId: String?
@@ -50,6 +51,10 @@ struct EmbyClient: Sendable {
         let Overview: String?
         let OfficialRating: String?
         let ImageTags: [String: String]?
+        let SeriesName: String?
+        let ProductionYear: Int?
+        let RunTimeTicks: Int64?
+        let CollectionType: String?
     }
 
     private struct Page: Decodable {
@@ -114,7 +119,7 @@ struct EmbyClient: Sendable {
         return URLSession(configuration: config, delegate: EmbyRedirectDelegate(), delegateQueue: nil)
     }()
     private static let maximumBody = 8 * 1024 * 1024
-    private let endpoint: URL
+    let endpoint: URL
     private let identity: String
     private let deviceID: String
     private let playbackOwner = UUID()
@@ -137,7 +142,7 @@ struct EmbyClient: Sendable {
         let body = try JSONEncoder().encode(["Username": username, "Pw": password])
         let data = try await send(["Users", "AuthenticateByName"], body: body)
         let account = try JSONDecoder().decode(Account.self, from: data)
-        guard Self.headerValue(account.AccessToken), !account.User.Id.isEmpty else { throw EmbyError.invalidResponse }
+        guard Self.headerValue(account.AccessToken), EmbySourceConnection.validID(account.User.Id) else { throw EmbyError.invalidResponse }
         return account
     }
 
@@ -167,12 +172,15 @@ struct EmbyClient: Sendable {
                 throw EmbyError.invalidCatalog
             }
             if page.Items.isEmpty {
-                guard page.TotalRecordCount.map({ $0 <= offset }) ?? true else { throw EmbyError.invalidCatalog }
+                guard page.TotalRecordCount.map({ $0 == offset }) ?? true else { throw EmbyError.invalidCatalog }
                 return
             }
             try await onPage(page.Items)
             offset += page.Items.count
-            if page.TotalRecordCount.map({ offset >= $0 }) ?? (page.Items.count < pageSize) { return }
+            if let count = page.TotalRecordCount {
+                guard count >= offset else { throw EmbyError.invalidCatalog }
+                if offset == count { return }
+            } else if page.Items.count < pageSize { return }
         }
         throw EmbyError.invalidCatalog
     }
@@ -249,7 +257,7 @@ struct EmbyClient: Sendable {
 
     private func makeRequest(_ path: [String], account: Account? = nil, query: [URLQueryItem] = [],
                       body: Data? = nil) throws -> URLRequest {
-        guard path.allSatisfy(Self.headerValue) else { throw EmbyError.invalidResponse }
+        guard path.allSatisfy(EmbySourceConnection.validID) else { throw EmbyError.invalidResponse }
         let url = path.reduce(endpoint) { $0.appendingPathComponent($1, isDirectory: false) }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw EmbyError.invalidEndpoint }
         if !query.isEmpty { components.queryItems = query }
