@@ -31,6 +31,8 @@ final class AlternativePlayback: ObservableObject {
     private var requestedPlayback = false
     private var observedPlaying = false
     private var pendingSeek: Double?
+    private var resumeTask: Task<Void, Never>?
+    private var pauseAwaitingAcknowledgement = false
     private(set) var preparationStage = "not started"
     var tick: (() -> Void)?
     var didEnd: (() -> Void)?
@@ -89,9 +91,29 @@ final class AlternativePlayback: ObservableObject {
 
     func play() {
         guard ready, !stopped, failure == nil, !ended else { return }
-        requestedPlayback = true; engine.play()
+        requestedPlayback = true
+        resumeTask?.cancel()
+        guard pauseAwaitingAcknowledgement else { engine.play(); return }
+        // VLCKit queues pause, while libvlc applies it asynchronously. A play
+        // immediately after pause can otherwise see the old playing state and
+        // become a no-op before that pending pause takes effect.
+        resumeTask = Task { [weak self] in
+            guard let self else { return }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while self.engine.state != .paused, ContinuousClock.now < deadline {
+                do { try await Task.sleep(for: .milliseconds(20)) } catch { return }
+                guard !self.stopped, self.requestedPlayback else { return }
+            }
+            guard !Task.isCancelled, !self.stopped, self.requestedPlayback else { return }
+            self.pauseAwaitingAcknowledgement = false
+            self.engine.play()
+        }
     }
-    func pause() { requestedPlayback = false; engine.pause(); playing = false }
+    func pause() {
+        requestedPlayback = false; resumeTask?.cancel(); resumeTask = nil
+        pauseAwaitingAcknowledgement = engine.state == .playing || engine.state == .opening
+        engine.pause(); playing = false
+    }
     func seek(to seconds: Double) {
         guard ready, !stopped, seconds.isFinite else { return }
         let target = min(max(0, seconds), duration)
@@ -106,6 +128,7 @@ final class AlternativePlayback: ObservableObject {
     func stop() {
         guard !stopped else { return }
         stopped = true; requestedPlayback = false; playing = false; ready = false
+        resumeTask?.cancel(); resumeTask = nil
         timer?.cancel(); timer = nil; parser?.cancelAllParsing(); parser = nil
         engine.stop(); engine.drawable = nil; relay.stop()
         audioTracks = []; tick = nil; didEnd = nil; failed = nil
@@ -168,7 +191,8 @@ struct AlternativePlayerView: View {
     @State private var started = false
     @State private var seekValue = 0.0
     @State private var scrubbing = false
-    @FocusState private var playFocused: Bool
+    private enum Control: Hashable { case back, subtitles, audio, rewind, playPause, forward }
+    @FocusState private var focusedControl: Control?
     @FocusState private var videoFocused: Bool
     @State private var controlsVisible = true
     @State private var controlsTask: Task<Void, Never>?
@@ -185,13 +209,14 @@ struct AlternativePlayerView: View {
             AlternativeVideoSurface(playback: playback).ignoresSafeArea().allowsHitTesting(false)
             VStack(spacing: 16) {
                 HStack {
-                    Button(action: close) { Label("Back", systemImage: "chevron.left") }.accessibilityIdentifier("playback-close")
+                    Button(action: close) { Label("Back", systemImage: "chevron.left") }
+                        .focused($focusedControl, equals: .back).accessibilityIdentifier("playback-close")
                     Spacer()
                     Button { revealControls(); controller.subtitles.presented = true } label: { Label("Subtitles", systemImage: "captions.bubble") }
-                        .accessibilityIdentifier("playback-subtitles")
+                        .focused($focusedControl, equals: .subtitles).accessibilityIdentifier("playback-subtitles")
                     if playback.audioTracks.count > 1 {
                         Button { revealControls(); controller.audioSelectionPresented = true } label: { Label("Audio", systemImage: "waveform") }
-                            .accessibilityIdentifier("playback-audio")
+                            .focused($focusedControl, equals: .audio).accessibilityIdentifier("playback-audio")
                     }
                 }
                 Spacer()
@@ -211,12 +236,12 @@ struct AlternativePlayerView: View {
                     #endif
                     HStack(spacing: 28) {
                         Button { revealControls(); controller.seek(to: max(0, playback.position - 10)) } label: { Label("Back 10s", systemImage: "gobackward.10") }
-                            .accessibilityIdentifier("alternative-rewind")
+                            .focused($focusedControl, equals: .rewind).accessibilityIdentifier("alternative-rewind")
                         Button { togglePlayback() } label: {
                             Label(playback.playing ? "Pause" : "Play", systemImage: playback.playing ? "pause.fill" : "play.fill")
-                        }.focused($playFocused).accessibilityIdentifier("alternative-play-pause")
+                        }.focused($focusedControl, equals: .playPause).accessibilityIdentifier("alternative-play-pause")
                         Button { revealControls(); controller.seek(to: min(playback.duration, playback.position + 10)) } label: { Label("Forward 10s", systemImage: "goforward.10") }
-                            .accessibilityIdentifier("alternative-forward")
+                            .focused($focusedControl, equals: .forward).accessibilityIdentifier("alternative-forward")
                     }.frame(maxWidth: .infinity)
                 }.padding().background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 16))
             }
@@ -234,7 +259,7 @@ struct AlternativePlayerView: View {
             #endif
         }
         .task {
-            guard !started else { return }; started = true; playFocused = true
+            guard !started else { return }; started = true; focusedControl = .playPause
             #if CINEVAULT_COMMERCIAL
             controller.externalCommercialSession?.start()
             #else
@@ -261,7 +286,17 @@ struct AlternativePlayerView: View {
         }
         #if os(tvOS)
         .onPlayPauseCommand { togglePlayback() }
-        .onMoveCommand { _ in revealControls() }
+        .onMoveCommand { direction in
+            revealControls()
+            // The two rows intentionally leave the picture unobstructed. Bridge
+            // that large focus gap when the TV focus engine finds no next item.
+            switch direction {
+            case .up where focusedControl == .rewind: focusedControl = .back
+            case .up where focusedControl == .playPause || focusedControl == .forward: focusedControl = .subtitles
+            case .down where focusedControl == .back || focusedControl == .subtitles || focusedControl == .audio: focusedControl = .playPause
+            default: break
+            }
+        }
         #endif
     }
     private func togglePlayback() {
@@ -272,12 +307,12 @@ struct AlternativePlayerView: View {
         controlsTask?.cancel()
         let wasHidden = !controlsVisible
         controlsVisible = true; videoFocused = false
-        if wasHidden { playFocused = true }
+        if wasHidden { focusedControl = .playPause }
         guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing else { return }
         controlsTask = Task { @MainActor in
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
             guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing else { return }
-            withAnimation(.easeOut(duration: 0.2)) { controlsVisible = false }; playFocused = false; videoFocused = true
+            withAnimation(.easeOut(duration: 0.2)) { controlsVisible = false }; focusedControl = nil; videoFocused = true
         }
     }
     private static func time(_ seconds: Double) -> String {

@@ -25,6 +25,7 @@ final class MediaByteRelay: @unchecked Sendable {
     }
 
     private let queue = DispatchQueue(label: "mediavault.media-relay")
+    private let queueKey = DispatchSpecificKey<UInt8>()
     private let listener: NWListener
     private let reader: SMBResourceLoader.Reader
     private let authorize: @Sendable () async -> Bool
@@ -41,6 +42,7 @@ final class MediaByteRelay: @unchecked Sendable {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
+        queue.setSpecific(key: queueKey, value: 1)
     }
 
     func start() async throws -> URL {
@@ -72,12 +74,16 @@ final class MediaByteRelay: @unchecked Sendable {
     }
 
     func stop() {
-        queue.async {
+        let cancel = {
             guard !self.stopped else { return }
             self.stopped = true; self.listener.cancel()
             self.tasks.values.forEach { $0.cancel() }; self.tasks.removeAll()
             self.clients.values.forEach { $0.cancel() }; self.clients.removeAll()
         }
+        // Revocation is a barrier, not a queued intention. A suspended source read
+        // may return immediately after this method returns and must not send bytes.
+        if DispatchQueue.getSpecific(key: queueKey) != nil { cancel() }
+        else { queue.sync(execute: cancel) }
     }
 
     private func accept(_ client: NWConnection) {
@@ -165,10 +171,15 @@ final class MediaByteRelay: @unchecked Sendable {
             // Complete each logical send before switching contexts. TCP holds a different
             // context until its predecessor completes; leaving defaultMessage incomplete
             // would strand the final body chunk/FIN and make readers wait forever.
-            client.send(content: data, contentContext: final ? .finalMessage : .defaultMessage, isComplete: true,
-                        completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
-            })
+            queue.async {
+                guard !self.stopped, self.clients[ObjectIdentifier(client)] === client else {
+                    continuation.resume(throwing: CancellationError()); return
+                }
+                client.send(content: data, contentContext: final ? .finalMessage : .defaultMessage, isComplete: true,
+                            completion: .contentProcessed { error in
+                    if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                })
+            }
         }
     }
     private func close(_ id: ObjectIdentifier) {

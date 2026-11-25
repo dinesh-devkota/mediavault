@@ -12,14 +12,16 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         let play = app.buttons["alternative-play-pause"]
         reveal(app)
         waitLabel(play, "Pause", app)
+        play.tap()
+        waitLabel(app.staticTexts["fixture-alternative-state"], "Paused", app)
+        // Inspect targets while paused; repeated accessibility snapshots can
+        // legitimately outlast the five-second playing-controls timeout.
         for id in ["playback-close", "playback-subtitles", "alternative-rewind", "alternative-play-pause", "alternative-forward"] {
             let button = app.buttons[id]
             XCTAssertTrue(button.isHittable, id + " must have an accessible touch target")
             XCTAssertGreaterThanOrEqual(button.frame.width, 44, id)
             XCTAssertGreaterThanOrEqual(button.frame.height, 44, id)
         }
-        play.tap()
-        waitLabel(app.staticTexts["fixture-alternative-state"], "Paused", app)
         let first = seconds(app)
         app.buttons["alternative-forward"].tap()
         wait(app, "Forward seeks the real decoder") { self.seconds(app) >= first + 8 }

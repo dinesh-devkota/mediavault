@@ -29,7 +29,11 @@ final class AlternativePlaybackIntegrationTests: XCTestCase {
                 XCTAssertFalse(engine.audioTracks.isEmpty, "The fixture must expose its audio track")
                 engine.pause()
                 XCTAssertFalse(engine.playing)
+                let pausedAt = engine.position
                 engine.play()
+                try await wait(engine, description: ext + " resumes after queued pause") {
+                    engine.playing && engine.position > pausedAt + 0.25
+                }
                 try await wait(engine, description: ext + " completes") { engine.ended }
                 XCTAssertNil(engine.failure)
             } catch {

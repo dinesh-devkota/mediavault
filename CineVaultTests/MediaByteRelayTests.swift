@@ -78,10 +78,13 @@ final class MediaByteRelayTests: XCTestCase {
 
     func testStopCancelsInflightRequest() async throws {
         let source = RelaySource(); await source.setBlockRead()
-        let relay = try makeRelay(source); let url = try await relay.start()
+        let relay = try makeRelay(source); defer { relay.stop() }
+        let url = try await relay.start()
         let request = Task { try await self.session().data(from: url) }
         let deadline = Date().addingTimeInterval(5)
         while await source.reads == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let reads = await source.reads
+        XCTAssertEqual(reads, 1, "The source read must be suspended before revocation")
         relay.stop(); await source.releaseRead()
         do { _ = try await request.value; XCTFail("Stopped relay must cancel pending bytes") } catch { }
     }
