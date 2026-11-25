@@ -53,7 +53,10 @@ final class AlternativePlayback: ObservableObject {
         media.addOption(":network-caching=750")
         engine.media = media
         engine.timeChangeUpdateInterval = 0.1
-        let parser = VLCMediaParser(library: engine.libraryInstance, timeout: 30_000)
+        // This pinned VLC4 wrapper forwards the value unchanged to libvlc_parser_cfg,
+        // whose timeout is microseconds despite the Objective-C header saying milliseconds.
+        // Keep the independent 35-second Swift deadline below as the cancellation bound.
+        let parser = VLCMediaParser(library: engine.libraryInstance, timeout: 30_000_000)
         self.parser = parser
         preparationStage = "queueing metadata"
         guard parser.queue(media, options: VLCMediaParsingOptions(rawValue: 1)) == 0 else { throw PlaybackPreparationError.unsupportedFormat }
