@@ -44,7 +44,7 @@ final class JellyfinClientTests: XCTestCase {
                 let body = try XCTUnwrap(request.httpBody)
                 let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
                 XCTAssertEqual(json["StartTimeTicks"] as? Int, 10_000_000)
-                return (Data(#"{"PlaySessionId":"play","MediaSources":[{"Id":"source","TranscodingUrl":"/Videos/movie/master.m3u8?api_key=hidden&PlaySessionId=play","MediaStreams":[{"Type":"Subtitle","Index":2,"IsTextSubtitleStream":true}]}]}"#.utf8), 200)
+                return (Data(#"{"PlaySessionId":"play","MediaSources":[{"Id":"source","TranscodingUrl":"/videos/movie/master.m3u8?api_key=hidden&PlaySessionId=play","MediaStreams":[{"Type":"Subtitle","Index":2,"IsTextSubtitleStream":true}]}]}"#.utf8), 200)
             case "/jellyfin/Sessions/Playing/Stopped":
                 let body = try XCTUnwrap(request.httpBody)
                 let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
@@ -59,7 +59,7 @@ final class JellyfinClientTests: XCTestCase {
         let account = try await client.signIn(username: "viewer", password: "sample")
         let playback = try await client.playback(account, itemID: "movie", startMillis: 1_000, deviceProfile: Data("{}".utf8))
         XCTAssertEqual(playback.method, .transcode)
-        XCTAssertEqual(playback.url.absoluteString, "https://fixture.example/jellyfin/Videos/movie/master.m3u8?PlaySessionId=play")
+        XCTAssertEqual(playback.url.absoluteString, "https://fixture.example/jellyfin/videos/movie/master.m3u8?PlaySessionId=play")
         XCTAssertEqual(playback.subtitles.map(\.index), [2])
         XCTAssertThrowsError(try client.assetRequest(XCTUnwrap(URL(string: "https://fixture.example/outside/segment.ts")), account: account))
         try await client.report(account, playback: playback, event: .stopped, positionMillis: 2_000)

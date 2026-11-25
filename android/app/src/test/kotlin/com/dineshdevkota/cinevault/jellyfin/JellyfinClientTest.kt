@@ -118,13 +118,13 @@ class JellyfinClientTest {
     @Test fun serverSuppliedTranscodeStaysUnderReverseProxyAndDropsQueryToken() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(json(account))
-            server.enqueue(json("""{"PlaySessionId":"play","MediaSources":[{"Id":"source","TranscodingUrl":"/Videos/movie/master.m3u8?api_key=secret&PlaySessionId=play"}]}"""))
-            server.enqueue(json("""{"PlaySessionId":"play","MediaSources":[{"Id":"source","TranscodingUrl":"https://foreign.example/Videos/movie/master.m3u8"}]}"""))
+            server.enqueue(json("""{"PlaySessionId":"play","MediaSources":[{"Id":"source","TranscodingUrl":"/videos/movie/master.m3u8?api_key=secret&PlaySessionId=play"}]}"""))
+            server.enqueue(json("""{"PlaySessionId":"play","MediaSources":[{"Id":"source","TranscodingUrl":"https://foreign.example/videos/movie/master.m3u8"}]}"""))
             val client = fixture(server)
             val session = client.signIn("viewer", "password")
             val playback = client.playback(session, "movie", buildJsonObject {})
             assertEquals("Transcode", playback.method)
-            assertEquals("/jellyfin/Videos/movie/master.m3u8", playback.url.encodedPath)
+            assertEquals("/jellyfin/videos/movie/master.m3u8", playback.url.encodedPath)
             assertEquals(setOf("PlaySessionId"), playback.url.queryParameterNames)
             assertThrows(JellyfinException::class.java) {
                 runBlocking { client.playback(session, "movie", buildJsonObject {}) }

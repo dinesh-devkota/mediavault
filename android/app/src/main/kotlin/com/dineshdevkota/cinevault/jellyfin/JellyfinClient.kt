@@ -302,13 +302,22 @@ class JellyfinClient(
     private fun scopedVideoUrl(raw: String, itemId: String): HttpUrl {
         val base = address.base
         val prefix = base.pathSegments.dropLast(1)
-        val target = (if (raw.startsWith("/Videos/")) base.resolve(raw.removePrefix("/")) else base.resolve(raw))
-            ?.takeIf { isScoped(it) && it.pathSegments.drop(prefix.size).take(2) == listOf("Videos", itemId) }
+        val target = (if (raw.startsWith("/videos/", ignoreCase = true)) base.resolve(raw.removePrefix("/")) else base.resolve(raw))
+            ?.takeIf {
+                val parts = it.pathSegments.drop(prefix.size)
+                isScoped(it) && parts.getOrNull(0).equals("videos", ignoreCase = true) && sameItemId(parts.getOrNull(1), itemId)
+            }
             ?: throw JellyfinException("Jellyfin returned a playback address outside this server.")
         return target.newBuilder().apply {
             target.queryParameterNames.filter { it.equals("api_key", ignoreCase = true) }
                 .forEach { removeAllQueryParameters(it) }
         }.build()
+    }
+
+    private fun sameItemId(candidate: String?, itemId: String): Boolean {
+        if (candidate == itemId) return true
+        if (candidate == null || !GUID.matches(candidate) || !GUID.matches(itemId)) return false
+        return candidate.replace("-", "").equals(itemId.replace("-", ""), ignoreCase = true)
     }
 
     private fun authenticated(session: JellyfinSession): JellyfinSession {
@@ -350,6 +359,7 @@ class JellyfinClient(
     }
 
     private companion object {
+        val GUID = Regex("(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})")
         val HEADER_VALUE = Regex("[A-Za-z0-9_.-]{1,128}")
         const val PAGE_SIZE = 100
         const val MAX_RESPONSE = 8L * 1024 * 1024

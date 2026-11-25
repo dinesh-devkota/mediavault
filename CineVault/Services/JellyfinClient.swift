@@ -299,16 +299,32 @@ struct JellyfinClient: Sendable {
     }
 
     private func transcodeURL(_ value: String, itemID: String) throws -> URL {
-        let relative = value.hasPrefix("/Videos/") ? String(value.dropFirst()) : value
+        let relative = value.lowercased().hasPrefix("/videos/") ? String(value.dropFirst()) : value
         guard let url = URL(string: relative, relativeTo: address.endpoint)?.absoluteURL,
               var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let path = scopedPath(parts), path.split(separator: "/").prefix(2).map(String.init) == ["Videos", itemID] else {
+              let path = scopedPath(parts) else { throw JellyfinClientError.invalidAddress }
+        let pathParts = path.split(separator: "/")
+        guard pathParts.count >= 2, pathParts[0].lowercased() == "videos", Self.sameItemID(String(pathParts[1]), itemID) else {
             throw JellyfinClientError.invalidAddress
         }
         let parameters = (parts.queryItems ?? []).filter { $0.name.lowercased() != "api_key" }
         parts.queryItems = parameters.isEmpty ? nil : parameters
         guard let scoped = parts.url else { throw JellyfinClientError.invalidAddress }
         return scoped
+    }
+
+    private static func sameItemID(_ candidate: String, _ itemID: String) -> Bool {
+        if candidate == itemID { return true }
+        func compactUUID(_ value: String) -> String? {
+            if UUID(uuidString: value) != nil { return value.replacingOccurrences(of: "-", with: "").lowercased() }
+            let bytes = value.utf8
+            guard bytes.count == 32, bytes.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) else {
+                return nil
+            }
+            return value.lowercased()
+        }
+        guard let candidateID = compactUUID(candidate) else { return false }
+        return candidateID == compactUUID(itemID)
     }
 
     private static func ticks(_ milliseconds: Int64) throws -> Int64 {
