@@ -176,7 +176,8 @@ final class PlaybackController: ObservableObject {
     private var stopped = false
     private var jellyfinReporter: JellyfinPlaybackReporter?
     private var embyReporter: EmbyPlaybackReporter?
-    private var jellyfinRelay: JellyfinHLSRelay?
+    private var embyRelay: MediaHLSRelay?
+    private var jellyfinRelay: MediaHLSRelay?
     private var playbackStateObservation: NSKeyValueObservation?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
@@ -251,50 +252,122 @@ final class PlaybackController: ObservableObject {
         sourceConfig: @escaping (MediaSource) throws -> SourceConfig, loadPlayable: (AVURLAsset) async throws -> Bool
     ) async throws -> PlaybackController {
         let connection = try EmbySourceConnection(config: config)
-        let playback = try await connection.directPlayback(path: path)
-        try Task.checkCancellation()
-        let stillAvailable: @MainActor () -> Bool = { [weak movie, weak source] in
+        let stillAvailable: @MainActor @Sendable () -> Bool = { [weak movie, weak source] in
             guard let movie, let source, !source.isDeleted, !movie.isDeleted,
                   movie.source === source, movie.filePath == path, household.sessionIsCurrent(householdSession) else { return false }
             return household.allows(movie) && LibrarySearch.isAvailable(movie) && (try? sourceConfig(source)) == config
         }
-        guard stillAvailable() else { throw PlaybackPreparationError.fileUnavailable }
-        let reader = EmbyByteReader(connection: connection, playback: playback)
-        let loader = SMBResourceLoader(config: config, path: path, household: household,
-                                       reader: .init(size: { try await reader.size() }, read: { try await reader.read($0, $1) }),
-                                       contentPath: "video.\(playback.container.lowercased())", stillAvailable: stillAvailable)
-        let asset = loader.makeAsset()
-        return try await withTaskCancellationHandler {
+
+        func verifySource() throws {
+            try Task.checkCancellation()
+            guard stillAvailable() else { throw PlaybackPreparationError.fileUnavailable }
+        }
+
+        func makeController(asset: AVURLAsset, loader: SMBResourceLoader) async throws -> PlaybackController {
             do {
-                let playable = try await loadPlayable(asset)
-                try Task.checkCancellation()
-                guard stillAvailable() else { throw PlaybackPreparationError.fileUnavailable }
+                let playable = try await withTaskCancellationHandler {
+                    try await loadPlayable(asset)
+                } onCancel: { asset.cancelLoading() }
+                try verifySource()
                 guard playable else { throw PlaybackPreparationError.unsupportedFormat }
-                let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults,
-                                                    loader: loader, asset: asset, household: household)
-                if household.isAdmin {
-                    controller.attachEmbyReporter(EmbyPlaybackReporter(connection: connection, playback: playback))
-                }
-                let tracks = Dictionary(uniqueKeysWithValues: playback.textSubtitles.map { ("emby-caption-\($0.id)", $0) })
-                let choices = playback.textSubtitles.map {
-                    SubtitleFile(path: "emby-caption-\($0.id)", language: $0.language, forced: $0.forced,
-                                 hearingImpaired: $0.hearingImpaired)
-                }
-                controller.subtitles.providerTracks = .init(files: choices, read: { [weak loader] file in
-                    guard let loader, let track = tracks[file.path] else { throw PlaybackPreparationError.fileUnavailable }
-                    try await loader.verifyAccess()
-                    let data = try await connection.client.textSubtitle(connection.account, playback: playback,
-                                                                         index: track.id, maximumBytes: SubtitleDocument.maximumBytes)
-                    try Task.checkCancellation()
-                    try await loader.verifyAccess()
-                    return try SubtitleDocument.parse(data)
-                })
-                return controller
+                return PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults,
+                                          loader: loader, asset: asset, household: household)
             } catch {
                 asset.cancelLoading()
                 throw error
             }
-        } onCancel: { asset.cancelLoading() }
+        }
+
+        do {
+            let direct = try await connection.directPlayback(path: path)
+            try verifySource()
+            let reader = EmbyByteReader(connection: connection, playback: direct)
+            let loader = SMBResourceLoader(config: config, path: path, household: household,
+                                           reader: .init(size: { try await reader.size() }, read: { try await reader.read($0, $1) }),
+                                           contentPath: "video.\(direct.container.lowercased())", stillAvailable: stillAvailable)
+            let controller = try await makeController(asset: loader.makeAsset(), loader: loader)
+            if household.isAdmin {
+                controller.attachEmbyReporter(EmbyPlaybackReporter(connection: connection, playback: direct))
+            }
+            controller.subtitles.providerTracks = embyTracks(direct.textSubtitles, loader: loader) { index in
+                try await connection.client.textSubtitle(connection.account, playback: direct,
+                                                          index: index, maximumBytes: SubtitleDocument.maximumBytes)
+            }
+            return controller
+        } catch EmbyError.unsupportedPlayback {
+            try verifySource()
+        } catch PlaybackPreparationError.unsupportedFormat {
+            try verifySource()
+        } catch {
+            try verifySource()
+            // AVFoundation may report a codec or container mismatch before isPlayable returns.
+            guard (error as NSError).domain == AVFoundationErrorDomain else { throw error }
+        }
+
+        let playback = try await connection.client.negotiateTranscode(connection.account,
+                                                                       itemID: EmbySourceConnection.itemID(for: path))
+        let reporter = EmbyPlaybackReporter(connection: connection, playback: playback, reportsProgress: household.isAdmin)
+        var relay: MediaHLSRelay?
+        do {
+            try verifySource()
+            let stream = try MediaHLSRelay(transport: .init(
+                entry: playback.url,
+                resolve: { reference, parent in
+                    try connection.client.hlsResource(reference, relativeTo: parent, account: connection.account, playback: playback)
+                },
+                read: { url, range in
+                    guard await stillAvailable() else { throw PlaybackPreparationError.fileUnavailable }
+                    let response: (data: Data, contentRange: String?)
+                    do {
+                        response = try await connection.client.readHLS(url, account: connection.account,
+                                                                       playback: playback, range: range)
+                    } catch EmbyError.http(416) {
+                        throw MediaHLSRelay.RelayError.invalidRange
+                    } catch EmbyError.invalidRange {
+                        throw MediaHLSRelay.RelayError.invalidRange
+                    }
+                    try Task.checkCancellation()
+                    guard await stillAvailable() else { throw PlaybackPreparationError.fileUnavailable }
+                    return .init(data: response.data, contentRange: response.contentRange)
+                }), allowsRead: {
+                    household.sessionIsCurrent(householdSession) &&
+                        household.allowsPath(sourceID: config.id, path: path, entireSourceOnly: true)
+                })
+            relay = stream
+            let url = try await stream.start()
+            try verifySource()
+            let loader = SMBResourceLoader(config: config, path: path, household: household, stillAvailable: stillAvailable)
+            let controller = try await makeController(asset: AVURLAsset(url: url), loader: loader)
+            controller.embyRelay = stream
+            controller.attachEmbyReporter(reporter)
+            controller.subtitles.providerTracks = embyTracks(playback.textSubtitles, loader: loader) { index in
+                try await connection.client.textSubtitle(connection.account, playback: playback,
+                                                          index: index, maximumBytes: SubtitleDocument.maximumBytes)
+            }
+            return controller
+        } catch {
+            relay?.stop()
+            await reporter.stop(0)
+            throw error
+        }
+    }
+
+    private static func embyTracks(
+        _ tracks: [EmbyClient.TextSubtitle], loader: SMBResourceLoader, read: @escaping (Int) async throws -> Data
+    ) -> PlaybackSubtitles.ProviderTracks {
+        let indices = Dictionary(uniqueKeysWithValues: tracks.map { ("emby-caption-\($0.id)", $0.id) })
+        let choices = tracks.map {
+            SubtitleFile(path: "emby-caption-\($0.id)", language: $0.language, forced: $0.forced,
+                         hearingImpaired: $0.hearingImpaired)
+        }
+        return .init(files: choices, read: { [weak loader] file in
+            guard let loader, let index = indices[file.path] else { throw PlaybackPreparationError.fileUnavailable }
+            try await loader.verifyAccess()
+            let data = try await read(index)
+            try Task.checkCancellation()
+            try await loader.verifyAccess()
+            return try SubtitleDocument.parse(data)
+        })
     }
 
     private static func prepareJellyfin(
@@ -318,7 +391,7 @@ final class PlaybackController: ObservableObject {
         for allowDirect in [true, false] {
             let stream = try await connection.playback(path: path, allowDirect: allowDirect)
             let reporter = JellyfinPlaybackReporter(connection: connection, playback: stream)
-            var relay: JellyfinHLSRelay?
+            var relay: MediaHLSRelay?
             var loadingAsset: AVURLAsset?
             do {
                 try verifySource()
@@ -333,7 +406,7 @@ final class PlaybackController: ObservableObject {
                     loader = SMBResourceLoader(config: config, path: path, household: household, reader: reader)
                     asset = loader.makeAsset()
                 case .transcode:
-                    let streamRelay = try JellyfinHLSRelay(connection: connection, playback: stream, allowsRead: allowsRead)
+                    let streamRelay = try MediaHLSRelay(connection: connection, playback: stream, allowsRead: allowsRead)
                     relay = streamRelay
                     let url = try await streamRelay.start()
                     loader = SMBResourceLoader(config: config, path: path, household: household)
@@ -577,6 +650,8 @@ final class PlaybackController: ObservableObject {
             Task { await jellyfinReporter.stop(seconds: position) }
             self.jellyfinReporter = nil
         }
+        embyRelay?.stop()
+        embyRelay = nil
         jellyfinRelay?.stop()
         jellyfinRelay = nil
         subtitles.stop()

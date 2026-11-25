@@ -52,7 +52,8 @@ struct EmbySourceConnection: Sendable {
     }
 
     func directPlayback(path: String) async throws -> EmbyClient.DirectPlayback {
-        try await client.directPlayback(account, itemID: Self.itemID(for: path), containers: ["mp4", "m4v", "mov"])
+        try await client.directPlayback(account, itemID: Self.itemID(for: path), containers: ["mp4", "m4v", "mov"],
+                                        directVideoCodecs: ["h264", "hevc"])
     }
 }
 
@@ -105,19 +106,33 @@ struct EmbyCatalogEntry {
 
 /// Serializes heartbeats and the terminal event for the owner's linked Emby account.
 actor EmbyPlaybackReporter {
-    private let connection: EmbySourceConnection
-    private let playback: EmbyClient.DirectPlayback
+    private typealias Report = @Sendable (EmbyClient.PlaybackEvent, Int64, Bool) async throws -> Void
+    private let report: Report?
+    private let cleanup: (@Sendable () async -> Void)?
     private var began = false
     private var stopped = false
     private var tail: Task<Void, Never>?
 
     init(connection: EmbySourceConnection, playback: EmbyClient.DirectPlayback) {
-        self.connection = connection
-        self.playback = playback
+        report = { event, position, paused in
+            try await connection.client.report(connection.account, playback: playback, event: event,
+                                               positionMillis: position, paused: paused)
+        }
+        cleanup = nil
+    }
+
+    init(connection: EmbySourceConnection, playback: EmbyClient.TranscodedPlayback, reportsProgress: Bool) {
+        if reportsProgress {
+            report = { event, position, paused in
+                try await connection.client.report(connection.account, playback: playback, event: event,
+                                                   positionMillis: position, paused: paused)
+            }
+        } else { report = nil }
+        cleanup = { _ = try? await connection.client.stopTranscode(connection.account, playback: playback) }
     }
 
     func progress(_ seconds: Double, paused: Bool) {
-        guard !stopped, let position = Self.milliseconds(seconds), began || !paused else { return }
+        guard report != nil, !stopped, let position = Self.milliseconds(seconds), began || !paused else { return }
         let event: EmbyClient.PlaybackEvent = began ? .progress : .started
         began = true
         send(event, position, paused: paused)
@@ -127,16 +142,21 @@ actor EmbyPlaybackReporter {
         guard !stopped else { return }
         stopped = true
         if began { send(.stopped, Self.milliseconds(seconds) ?? 0, paused: false) }
+        if let cleanup {
+            let previous = tail
+            tail = Task {
+                await previous?.value
+                await cleanup()
+            }
+        }
     }
 
     private func send(_ event: EmbyClient.PlaybackEvent, _ position: Int64, paused: Bool) {
+        guard let report else { return }
         let previous = tail
-        let connection = self.connection
-        let playback = self.playback
         tail = Task {
             await previous?.value
-            try? await connection.client.report(connection.account, playback: playback, event: event,
-                                                positionMillis: position, paused: paused)
+            try? await report(event, position, paused)
         }
     }
 
