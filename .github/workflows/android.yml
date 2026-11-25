@@ -2,6 +2,7 @@ name: Android TV
 
 on:
   push:
+    branches: [main, dinesh-devkota-sonepar-build-cinevault-tvos-app]
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
