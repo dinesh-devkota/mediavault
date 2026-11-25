@@ -11,6 +11,7 @@ new features are considered validated. A successful compile is insufficient.
 | Local NFO/artwork, real source reads, versions and franchise | `LocalLibrarySMBIntegrationTests` | `LocalLibraryIntegrationTest` |
 | Create/rename collection, change membership, choose edition | `LibraryFeaturesNavigationTests` | `LibraryFeaturesNavigationTest` |
 | Actual additional-format decoding and seeking | `AlternativePlaybackIntegrationTests` (MKV, AVI, WebM) | `SmbPlaybackTest.mkvPlaybackAndSeekFromNas` |
+| Real additional-player transport, subtitle/audio sheets, Back | `AlternativePlaybackRemoteTests`, `AlternativePlaybackPhoneTests` | Existing native playback controls journeys |
 | Profile isolation and safe metadata | `LibraryCollectionsTests`, `LocalMetadataImportTests`, core parser tests | Local library integration and core/app unit tests |
 | Stream ranges, revocation and cancellation | `MediaByteRelayTests` | Existing data-source contract tests |
 
@@ -19,6 +20,9 @@ The NAS fixture now exposes separate read-only `MEDIALIBRARY` and
 not private user media. `scripts/media_library_fixture.py` creates the fixtures;
 `ffmpeg` is required to remux/encode the format samples. Existing fixture shares
 remain separate so unrelated tests keep their original catalog.
+`Controls.mkv` is a separate 60-second synthetic clip with two selectable audio
+tracks and a local SRT file for the Apple phone/remote controls journeys. The
+shorter format samples still test natural completion.
 
 Both Android runners are restricted to disposable hosted emulators. The phone
 runner requires seven executed cases, including the new library journey and MKV

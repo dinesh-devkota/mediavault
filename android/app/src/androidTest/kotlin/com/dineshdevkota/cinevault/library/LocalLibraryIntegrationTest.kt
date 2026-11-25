@@ -55,6 +55,41 @@ class LocalLibraryIntegrationTest {
             bytes = ByteArray(com.dineshdevkota.cinevault.core.LocalMetadataParser.MAX_BYTES + 1); importer.importSource(source.id)
             assertNull(db.movies().get("video")!!.ageCertification)
             assertFalse(db.movies().get("video")!!.isMissing)
+
+            val episodeSource = source.copy(id = "episode-source")
+            var episodeBytes = "<episodedetails><title>Pilot</title><mpaa>TV-MA</mpaa></episodedetails>".toByteArray()
+            var episodePresent = true
+            var parentOffline = false
+            val episodeImporter = LocalMetadataImporter(db, SecretBox(), list = { config ->
+                when (config.rootPath) {
+                    "Show/Season 01" -> if (episodePresent) listOf(com.dineshdevkota.cinevault.smb.NasEntry("Show.S01E01.nfo", false)) else emptyList()
+                    "Show" -> listOf(com.dineshdevkota.cinevault.smb.NasEntry("tvshow.nfo", false))
+                    else -> emptyList()
+                }
+            }, open = { _, path ->
+                val parent = path.endsWith("tvshow.nfo")
+                if (parent && parentOffline) throw java.io.IOException("Synthetic unavailable parent metadata")
+                val content = if (parent) "<tvshow><title>Show</title><mpaa>TV-G</mpaa></tvshow>".toByteArray() else episodeBytes
+                object : com.dineshdevkota.cinevault.smb.RemoteHandle {
+                    override val length = content.size.toLong()
+                    override fun stream(position: Long) = content.inputStream().apply { skip(position) }
+                    override fun close() = Unit
+                }
+            })
+            db.sources().upsert(episodeSource)
+            db.movies().insert(MovieEntity(id = "episode", sourceId = episodeSource.id, filePath = "Show/Season 01/Show.S01E01.mp4",
+                fileName = "Show.S01E01.mp4", fileSize = 1000, title = "Pilot", parsedTitle = "Show", year = null, parsedYear = null))
+            episodeImporter.importSource(episodeSource.id)
+            assertEquals("TV-MA", db.movies().get("episode")!!.ageCertification)
+            episodeBytes = "<episodedetails><mpaa>TV-MA".toByteArray(); episodeImporter.importSource(episodeSource.id)
+            val child = HouseholdProfile("child", "Child", folders = listOf(FolderAccess(episodeSource.id, "")), tvLimit = "TV-G")
+            assertNull("Malformed specific metadata must never inherit the more permissive parent rating", db.movies().get("episode")!!.ageCertification)
+            assertFalse(FamilyPolicy.allows(child, db.movies().get("episode")!!))
+            episodeBytes = "<episodedetails><mpaa>TV-MA</mpaa></episodedetails>".toByteArray(); episodeImporter.importSource(episodeSource.id)
+            parentOffline = true; episodeBytes = "<episodedetails>".toByteArray(); episodeImporter.importSource(episodeSource.id)
+            assertNull("A separate parent read error must not mask confirmed invalid episode metadata", db.movies().get("episode")!!.ageCertification)
+            parentOffline = false; episodePresent = false; episodeImporter.importSource(episodeSource.id)
+            assertEquals("Confirmed absence can inherit the valid parent rating", "TV-G", db.movies().get("episode")!!.ageCertification)
         } finally { db.close() }
     }
 

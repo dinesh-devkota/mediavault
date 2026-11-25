@@ -34,6 +34,7 @@ class LocalMetadataImporter(private val database: CineVaultDatabase, private val
         val listings = mutableMapOf<String, List<NasEntry>>()
         val failedFolders = mutableSetOf<String>()
         val failedMetadata = mutableSetOf<String>()
+        val invalidMetadata = mutableSetOf<String>()
         val parsed = mutableMapOf<String, LocalMediaMetadata?>()
         val artwork = mutableSetOf<String>()
         suspend fun entries(folder: String): List<NasEntry> {
@@ -84,13 +85,16 @@ class LocalMetadataImporter(private val database: CineVaultDatabase, private val
                 // failures retain old values; corrupt XML must not leave a stale permissive age rating.
                 bytes?.let { try { LocalMetadataParser.parse(it) } catch (_: Exception) { null } }
             } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { failedMetadata += path; null }
+            if (result == null && path !in failedMetadata) invalidMetadata += path
             parsed[path] = result; return result
         }
         fun images(vararg names: String) = names.flatMap { listOf("$it.jpg", "$it.png", "$it.jpeg", "$it.webp") }
         for ((folder, titles) in byFolder) for (movie in titles) {
             coroutineContext.ensureActive()
             val stem = movie.fileName.substringBeforeLast('.')
-            val details = metadata(find(folder, listOf("$stem.nfo", "$stem.xml") + if (titles.size == 1) listOf("movie.nfo", "movie.xml") else emptyList()))
+            val detailsPath = find(folder, listOf("$stem.nfo", "$stem.xml") + if (titles.size == 1) listOf("movie.nfo", "movie.xml") else emptyList())
+            val details = metadata(detailsPath)
+            val invalidDetails = detailsPath in invalidMetadata
             val episode = movie.episodeInfo != null || details?.kind == "episodedetails"
             val parent = folder.substringBeforeLast('/', "")
             val parentWithinSource = parent == source.rootPath || (source.rootPath.isEmpty() || parent.startsWith(source.rootPath + "/", !config.isWebDav))
@@ -115,9 +119,13 @@ class LocalMetadataImporter(private val database: CineVaultDatabase, private val
                 if (current.filePath != movie.filePath || current.sourceId != source.id || current.isMissing) return@withTransaction
                 val complete = folder !in failedFolders && (!episode || !parentWithinSource || parent !in failedFolders) &&
                     failedMetadata.none { it.substringBeforeLast('/', "") == folder || (episode && it.substringBeforeLast('/', "") == parent) }
-                val updated = if (current.isLocked || !complete) current else apply(current, details, show, season)
+                val updated = if (current.isLocked || !complete) current else apply(current, details, show, season, invalidDetails)
                 if (complete) database.movies().update(updated.copy(localPosterPath = poster, localBackdropPath = backdrop, localSeasonPosterPath = seasonPoster))
-                else artwork.addAll(listOfNotNull(current.localPosterPath, current.localBackdropPath, current.localSeasonPosterPath))
+                else {
+                    // A separate read failure cannot negate a confirmed invalid specific sidecar.
+                    if (invalidDetails && !current.isLocked) database.movies().update(withUnknownLocalRating(current))
+                    artwork.addAll(listOfNotNull(current.localPosterPath, current.localBackdropPath, current.localSeasonPosterPath))
+                }
             }
         }
         database.withTransaction {
@@ -132,14 +140,16 @@ class LocalMetadataImporter(private val database: CineVaultDatabase, private val
         private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
         private fun sameConnection(original: SourceEntity, current: SourceEntity?): Boolean = current != null &&
             current.copy(name = original.name, lastScanAt = original.lastScanAt) == original
-        internal fun apply(movie: MovieEntity, details: LocalMediaMetadata?, show: LocalMediaMetadata?, season: LocalMediaMetadata?): MovieEntity {
-            if (details == null && show == null && season == null) return clearOverrides(movie)
+        internal fun apply(movie: MovieEntity, details: LocalMediaMetadata?, show: LocalMediaMetadata?, season: LocalMediaMetadata?,
+            invalidDetails: Boolean = false): MovieEntity {
+            if (details == null && show == null && season == null && !invalidDetails) return clearOverrides(movie)
             val episode = details?.kind == "episodedetails" || movie.episodeInfo != null
             val rating = if (details?.certificationSpecified == true) details else show
             val merged = LocalMediaMetadata(if (episode) "episodedetails" else "movie", title = details?.title,
                 plot = details?.plot ?: show?.plot, tagline = details?.tagline, year = details?.year ?: show?.year,
                 genres = details?.genres?.takeIf { it.isNotEmpty() } ?: show?.genres.orEmpty(), runtime = details?.runtime,
-                certification = rating?.certification, certificationSpecified = rating?.certificationSpecified == true,
+                certification = if (invalidDetails) null else rating?.certification,
+                certificationSpecified = invalidDetails || rating?.certificationSpecified == true,
                 tmdbId = if (episode) show?.tmdbId else details?.tmdbId,
                 showTitle = if (episode) details?.showTitle ?: show?.title else null,
                 season = if (episode) details?.season ?: season?.season else null,
@@ -147,6 +157,13 @@ class LocalMetadataImporter(private val database: CineVaultDatabase, private val
             val encoded = json.encodeToString(LocalMediaMetadata.serializer(), merged)
             val base = if (encoded != movie.localMetadataJson) clearOverrides(movie) else movie
             return applyFields(base, merged).copy(localMetadataJson = encoded, hasLocalMetadata = true)
+        }
+        private fun withUnknownLocalRating(movie: MovieEntity): MovieEntity {
+            val previous = movie.localMetadataJson?.let { runCatching { json.decodeFromString(LocalMediaMetadata.serializer(), it) }.getOrNull() }
+                ?: LocalMediaMetadata(if (movie.episodeInfo != null) "episodedetails" else "movie")
+            val blocked = previous.copy(certification = null, certificationSpecified = true)
+            return movie.copy(ageCertification = null, certificationFetched = true, hasLocalMetadata = true,
+                localMetadataJson = json.encodeToString(LocalMediaMetadata.serializer(), blocked))
         }
         internal fun reapply(movie: MovieEntity): MovieEntity {
             if (movie.isLocked) return movie

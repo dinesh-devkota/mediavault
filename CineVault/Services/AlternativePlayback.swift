@@ -179,7 +179,10 @@ struct AlternativePlayerView: View {
                     Spacer()
                     Button { revealControls(); controller.subtitles.presented = true } label: { Label("Subtitles", systemImage: "captions.bubble") }
                         .accessibilityIdentifier("playback-subtitles")
-                    if playback.audioTracks.count > 1 { Button { revealControls(); controller.audioSelectionPresented = true } label: { Label("Audio", systemImage: "waveform") } }
+                    if playback.audioTracks.count > 1 {
+                        Button { revealControls(); controller.audioSelectionPresented = true } label: { Label("Audio", systemImage: "waveform") }
+                            .accessibilityIdentifier("playback-audio")
+                    }
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: 12) {
@@ -210,7 +213,7 @@ struct AlternativePlayerView: View {
             #if os(tvOS)
             .padding(48)
             #else
-            .padding().labelStyle(.iconOnly)
+            .padding().labelStyle(.iconOnly).controlSize(.large)
             #endif
             .buttonStyle(.bordered)
             .opacity(controlsVisible ? 1 : 0).allowsHitTesting(controlsVisible).disabled(!controlsVisible)
@@ -236,11 +239,12 @@ struct AlternativePlayerView: View {
         .sheet(isPresented: $controller.audioSelectionPresented) {
             NavigationStack {
                 List {
-                    Button("Done") { controller.audioSelectionPresented = false }
+                    Button("Done") { controller.audioSelectionPresented = false }.accessibilityIdentifier("playback-audio-done")
                     ForEach(playback.audioTracks) { track in
                         Button { playback.selectAudio(track.id); controller.audioSelectionPresented = false } label: {
                             HStack { Text(track.label); Spacer(); if playback.selectedAudio == track.id { Image(systemName: "checkmark") } }
-                        }
+                        }.accessibilityIdentifier("playback-audio-track-" + track.id)
+                            .accessibilityValue(playback.selectedAudio == track.id ? "Selected" : "Not selected")
                     }
                 }.navigationTitle("Audio")
             }

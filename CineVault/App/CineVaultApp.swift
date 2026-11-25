@@ -18,6 +18,8 @@ struct CineVaultApp: App {
                     RootView()
                         .environmentObject(scanner)
                         .modelContainer(for: [MediaSource.self, Movie.self], inMemory: true)
+                } else if ProcessInfo.processInfo.arguments.contains("--ui-preview-alternative-playback") {
+                    AlternativePlaybackDesignPreview()
                 } else if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback") {
                     PlaybackDesignPreview()
                 } else if PhotoDesignPreview.isEnabled {

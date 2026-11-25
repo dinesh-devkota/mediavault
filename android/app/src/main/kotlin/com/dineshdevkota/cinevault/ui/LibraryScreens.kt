@@ -231,7 +231,6 @@ private fun HomeTab(
                 trailing = if (container.family.current.admin) status else null,
             )
         }
-        item { OutlinedButton(onClick = { MediaCollectionsActivity.start(context) }, modifier = Modifier.padding(horizontal = ScreenPadding)) { Text("Collections") } }
         if (available.isEmpty()) {
             item {
                 if (container.family.current.enabled && !container.family.current.admin) {
@@ -242,6 +241,7 @@ private fun HomeTab(
                 } else loadedSources?.let { EmptyHome(movies, it, openPhotos, openSources) }
             }
         } else {
+            item { OutlinedButton(onClick = { MediaCollectionsActivity.start(context) }, modifier = Modifier.padding(horizontal = ScreenPadding)) { Text("Collections") } }
             if (continuing.isNotEmpty()) item(key = "continue-watching") {
                 ContinueWatchingRow(continuing, onOpen) { HomeCollectionActivity.start(context, HomeCollection.CONTINUE) }
             }

@@ -25,15 +25,16 @@ and `docs/TESTING.md` for dependency and fixture details.
 
 Hosted checks for this implementation are **pending**, not completed. Earlier
 baseline `1a93387` passed Apple TV (206 total tests), Android phone and the PR's
-Android TV checks. Its iPhone suite passed195/196; the failing source-import
+Android TV checks. Its iPhone suite passed 195/196; the failing source-import
 journey exposed generic folder names replacing `Film.mp4` with `Movies`.
 That parser issue and test diagnostics are corrected in `777ea11`. A duplicate
-Android baseline run hit Maven429 and a photo-viewer timeout; the identical PR
+Android baseline run hit Maven HTTP 429 and a photo-viewer timeout; the identical PR
 run passed. New workflow concurrency groups avoid duplicate push/PR runs.
 
-Android local core/app tests and debug lint/build passed before the final narrow
-metadata review corrections; latest XML contains101core+135app cases without
-failures. Final build and hosted runtime/visual checks must still be confirmed.
+Android local core/app tests, debug lint, app APK and instrumentation APK passed
+after the constructor correction following checkpoint `777ea11`. The latest XML
+contains 101 core and 135 app cases without failures. Hosted runtime/visual checks
+and the subsequent malformed-episode rating regression must still be confirmed.
 Never run the disposable test fixture against the owner's installed emulator.
 
 The private companion branch is `codex/mediavault-playback-engines` at

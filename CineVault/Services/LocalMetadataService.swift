@@ -27,6 +27,7 @@ final class LocalMetadataService {
         var entries: [String: [String]] = [:]
         var xml: [String: LocalMediaMetadata] = [:]
         var failedXML: Set<String> = []
+        var unavailableXML: Set<String> = []
         var artwork: Set<String> = []
 
         func verify() throws {
@@ -58,7 +59,7 @@ final class LocalMetadataService {
         func metadata(_ path: String?) async throws -> LocalMediaMetadata? {
             guard let path else { return nil }
             if let cached = xml[path] { return cached }
-            if failedXML.contains(path) { return nil }
+            if failedXML.contains(path) || unavailableXML.contains(path) { return nil }
             do {
                 let bytes = try await size(config, path)
                 try verify()
@@ -66,12 +67,14 @@ final class LocalMetadataService {
                 let data = try await read(config, path, Int(bytes))
                 try verify()
                 guard Int64(data.count) == bytes else { failedXML.insert(path); return nil }
-                let value = try LocalMetadataParser.parse(data)
-                xml[path] = value
-                return value
+                do {
+                    let value = try LocalMetadataParser.parse(data)
+                    xml[path] = value
+                    return value
+                } catch { failedXML.insert(path); return nil }
             } catch is CancellationError { throw CancellationError() }
             catch SMBError.sourceChanged { throw SMBError.sourceChanged }
-            catch { failedXML.insert(path); return nil }
+            catch { unavailableXML.insert(path); return nil }
         }
 
         for directory in byDirectory.keys.sorted() {
@@ -86,6 +89,7 @@ final class LocalMetadataService {
                 let path = movie.filePath
                 let single = folderMovies.count == 1
                 let metadataPath = find(LocalMediaSidecars.metadataCandidates(video: path, singleVideo: single), in: names)
+                var applicableSidecars = [metadataPath].compactMap { $0 }
                 var sidecarExists = metadataPath != nil
                 var parentListingFailed = false
                 let info = try await metadata(metadataPath)
@@ -97,6 +101,7 @@ final class LocalMetadataService {
                 if isEpisode {
                     let seasonPath = find([LocalMediaSidecars.join(directory, "season.nfo")], in: names)
                     let showPath = find([LocalMediaSidecars.join(directory, "tvshow.nfo")], in: names)
+                    applicableSidecars += [seasonPath, showPath].compactMap { $0 }
                     sidecarExists = sidecarExists || seasonPath != nil || showPath != nil
                     seasonInfo = try await metadata(seasonPath)
                     showInfo = try await metadata(showPath)
@@ -108,6 +113,7 @@ final class LocalMetadataService {
                                 let parentNames = try await directoryEntries(parent)
                                 showDirectory = parent; showNames = parentNames
                                 let parentShowPath = find([LocalMediaSidecars.join(parent, "tvshow.nfo")], in: parentNames)
+                                if let parentShowPath { applicableSidecars.append(parentShowPath) }
                                 sidecarExists = sidecarExists || parentShowPath != nil
                                 showInfo = try await metadata(parentShowPath)
                             } catch is CancellationError { throw CancellationError() }
@@ -143,9 +149,19 @@ final class LocalMetadataService {
                 movie.localSeasonPosterPath = seasonPoster
                 [poster, fanart, showPoster, showFanart, seasonPoster].compactMap { $0 }.forEach { artwork.insert($0) }
                 if !movie.isLocked {
-                    if info != nil || showInfo != nil || seasonInfo != nil {
+                    if applicableSidecars.contains(where: failedXML.contains) {
+                        // A known malformed sidecar is not an absent sidecar. Keep
+                        // display metadata, but never replace its rating with a more permissive
+                        // series/TMDB fallback. A repaired read or confirmed removal clears this.
+                        movie.usContentRating = nil; movie.usContentRatingFetched = true
+                        movie.localMetadataFields = Set((movie.localMetadataFields ?? []) + ["certification"]).sorted()
+                        movie.localMetadataSignature = nil
+                    } else if parentListingFailed || applicableSidecars.contains(where: unavailableXML.contains) {
+                        // Transport failure says nothing about the saved metadata. Retain the
+                        // last complete local import until the source can be read again.
+                    } else if info != nil || showInfo != nil || seasonInfo != nil {
                         Self.apply(info, show: showInfo, season: seasonInfo, to: movie)
-                    } else if movie.localMetadataImported == true {
+                    } else if movie.localMetadataImported == true || movie.localMetadataFields?.isEmpty == false {
                         // Only a successfully listed directory proves removal. A malformed/unreadable
                         // sidecar still fails closed for its previous local age certification.
                         if movie.localMetadataFields?.contains("certification") == true {

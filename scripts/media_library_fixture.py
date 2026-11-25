@@ -79,3 +79,15 @@ def format_fixtures(root: Path) -> None:
     (root / "Feature.en.srt").write_text(
         "1\n00:00:00,500 --> 00:00:05,000\nA subtitle for the broader player.\n\n"
         "2\n00:00:05,500 --> 00:00:11,500\nA caption after seeking.\n", encoding="utf-8")
+    # A longer clip leaves time to exercise actual phone/remote controls. The
+    # duplicate audio tracks are synthetic test signals, tagged for selection.
+    subprocess.run([
+        ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-stream_loop", "-1", "-i", str(SAMPLES / "playback.mp4"), "-t", "60",
+        "-map", "0:v:0", "-map", "0:a:0", "-map", "0:a:0", "-c", "copy",
+        "-metadata:s:a:0", "language=eng", "-metadata:s:a:0", "title=English fixture",
+        "-metadata:s:a:1", "language=spa", "-metadata:s:a:1", "title=Spanish fixture",
+        str(root / "Controls.mkv"),
+    ], check=True, timeout=60)
+    (root / "Controls.en.srt").write_text(
+        "1\n00:00:01,000 --> 00:00:50,000\nLocal subtitle controls fixture.\n", encoding="utf-8")

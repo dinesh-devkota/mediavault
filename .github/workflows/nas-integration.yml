@@ -16,7 +16,8 @@ permissions:
 
 concurrency:
   group: nas-integration-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep the active simulator's evidence; newer commits replace only queued runs.
+  cancel-in-progress: false
 
 jobs:
   nas-integration:
@@ -137,7 +138,8 @@ jobs:
                   yield from passed(node.get("children", []))
           with open(sys.argv[1]) as source:
               tests = set(passed(json.load(source)["testNodes"]))
-          required = {"testCreateEditCollectionAndChooseAlternateVersion"}
+          required = {"testCreateEditCollectionAndChooseAlternateVersion",
+                      "testMKVRemotePlaybackSeekingSubtitlesAndAudioKeepSession"}
           if os.environ["UI_ONLY"] != "true":
               required |= {"testCommonContainersDecodeAndSeekOverGuardedSMB",
                            "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey"}

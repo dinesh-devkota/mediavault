@@ -64,7 +64,8 @@ class SmbPlaybackTest {
         val config = SourceConfig(UUID.randomUUID().toString(), host, 1445, "FORMATPLAYBACK", "", "cinevault", "fixture-only")
         val smb = SmbService()
         try {
-            assertTrue(smb.scanVideos(config).any { it.path == "Feature.mkv" })
+            assertTrue("The production media scan must discover the MKV fixture",
+                smb.scanMedia(config) {}.any { it.path == "Feature.mkv" })
             verifyPlayback(config, "Feature.mkv") { smb.open(config, "Feature.mkv") }
         } finally { smb.reset(config.id) }
     }

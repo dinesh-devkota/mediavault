@@ -137,4 +137,37 @@ import XCTest
         XCTAssertEqual(artwork, Set(art)); XCTAssertTrue(photoRows.allSatisfy(\.isMissing)); XCTAssertFalse(standalone.isMissing)
     }
 
+    func testMalformedEpisodeCannotInheritPermissiveSeriesRatingButTransportFailureRetainsPriorState() async throws {
+        let (container, source, movie) = try fixture()
+        movie.filePath = "TV/Show/Season 01/Show.S01E01.mp4"; movie.fileName = "Show.S01E01.mp4"; movie.resetToFileName()
+        let episodePath = "TV/Show/Season 01/Show.S01E01.nfo", showPath = "TV/Show/tvshow.nfo"
+        let restricted = try nfo("<episodedetails><title>Restricted episode</title><mpaa>TV-MA</mpaa></episodedetails>")
+        let show = try nfo("<tvshow><title>Family Show</title><mpaa>TV-G</mpaa></tvshow>")
+        LocalMetadataService.apply(restricted, show: show, to: movie)
+        var payloads = [episodePath: Data("<episodedetails><mpaa>broken".utf8),
+                        showPath: Data("<tvshow><title>Family Show</title><mpaa>TV-G</mpaa></tvshow>".utf8)]
+        var transportFailure = true
+        let importer = LocalMetadataService(list: { _, directory in
+            payloads.keys.filter { ($0 as NSString).deletingLastPathComponent == directory }
+                .map { NASDirectoryEntry(name: ($0 as NSString).lastPathComponent, isDirectory: false) }
+        }, size: { _, path in Int64(try XCTUnwrap(payloads[path]).count) }, read: { _, path, _ in
+            if transportFailure && path == episodePath { throw URLError(.timedOut) }
+            return try XCTUnwrap(payloads[path])
+        })
+        _ = try await importer.importFiles(source: source, context: container.mainContext, config: source.config())
+        XCTAssertEqual(movie.usContentRating, "TV-MA"); XCTAssertEqual(movie.title, "Restricted episode")
+        transportFailure = false
+        _ = try await importer.importFiles(source: source, context: container.mainContext, config: source.config())
+        XCTAssertNil(movie.usContentRating)
+        XCTAssertTrue(movie.localMetadataFields?.contains("certification") == true)
+        XCTAssertFalse(HouseholdPolicy.allowsRating(movie.usContentRating, maximum: "TV-PG", values: HouseholdPolicy.tvRatings))
+        XCTAssertEqual(movie.title, "Restricted episode", "A bad optional sidecar must not erase display metadata")
+        payloads[episodePath] = Data("<episodedetails><title>Repaired episode</title><mpaa>TV-MA</mpaa></episodedetails>".utf8)
+        _ = try await importer.importFiles(source: source, context: container.mainContext, config: source.config())
+        XCTAssertEqual(movie.usContentRating, "TV-MA"); XCTAssertEqual(movie.title, "Repaired episode")
+        payloads.removeValue(forKey: episodePath)
+        _ = try await importer.importFiles(source: source, context: container.mainContext, config: source.config())
+        XCTAssertEqual(movie.usContentRating, "TV-G", "Confirmed removal may use the valid remaining series metadata")
+    }
+
 }

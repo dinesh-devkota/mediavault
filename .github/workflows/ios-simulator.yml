@@ -1,6 +1,17 @@
 name: iPhone simulator
 
 on:
+  push:
+    branches: [main, dinesh-devkota-sonepar-build-cinevault-tvos-app]
+    paths:
+      - ".github/workflows/ios-simulator.yml"
+      - "CineVault/**"
+      - "CineVaultiOS/**"
+      - "CineVaultTests/**"
+      - "CineVaultiOSUITests/**"
+      - "Packages/**"
+      - "project.ios.yml"
+      - "scripts/**"
   pull_request:
     paths:
       - ".github/workflows/ios-simulator.yml"
@@ -18,7 +29,8 @@ permissions:
 
 concurrency:
   group: iphone-simulator-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep the active simulator's evidence; newer commits replace only queued runs.
+  cancel-in-progress: false
 
 jobs:
   simulator:
@@ -141,6 +153,7 @@ jobs:
               "testCommonContainersDecodeAndSeekOverGuardedSMB",
               "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey",
               "testCreateEditCollectionAndChooseAlternateVersion",
+              "testMKVTouchPlaybackSeekingSubtitlesAndAudioKeepSession",
           }
           missing = sorted(required - tests)
           if missing:

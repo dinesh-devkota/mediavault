@@ -33,7 +33,7 @@ class LibraryFeaturesNavigationTest {
     private val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
     private val tv get() = app.resources.configuration.isTelevision()
 
-    @Test fun localArtworkVersionsAndNamedCollectionsUseNativeControls() = runBlocking {
+    @Test fun localArtworkVersionsAndNamedCollectionsUseNativeControls() = runBlocking<Unit> {
         assertEquals("Only run on a disposable CI emulator", "true", InstrumentationRegistry.getArguments().getString("libraryUiFixture"))
         val host = requireNotNull(InstrumentationRegistry.getArguments().getString("nasHost"))
         val container = app.container

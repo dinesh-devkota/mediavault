@@ -33,4 +33,16 @@ class LocalMetadataPrecedenceTest {
         val local = LocalMetadataImporter.apply(original, LocalMetadataParser.parse("<movie><title>Sidecar</title></movie>".toByteArray()), null, null)
         assertEquals("Manual", LocalMetadataImporter.reapply(local.copy(title = "Manual", isLocked = true)).title)
     }
+    @Test fun invalidEpisodeSidecarBlocksPermissiveParentAndOnlineRatingUntilRemoved() {
+        val episode = original.copy(filePath = "Show/Season 01/Show.S01E01.mp4", fileName = "Show.S01E01.mp4")
+        val parent = LocalMetadataParser.parse("<tvshow><title>Show</title><mpaa>TV-G</mpaa></tvshow>".toByteArray())
+        val restricted = LocalMetadataImporter.apply(episode,
+            LocalMetadataParser.parse("<episodedetails><mpaa>TV-MA</mpaa></episodedetails>".toByteArray()), parent, null)
+        val invalid = LocalMetadataImporter.apply(restricted, null, parent, null, invalidDetails = true)
+        assertNull(invalid.ageCertification)
+        assertTrue(invalid.certificationFetched)
+        assertEquals("Show", invalid.seriesTitle)
+        assertNull(LocalMetadataImporter.reapply(invalid.copy(ageCertification = "TV-G")).ageCertification)
+        assertEquals("TV-G", LocalMetadataImporter.apply(invalid, null, parent, null).ageCertification)
+    }
 }
