@@ -37,7 +37,7 @@ struct LibraryChoiceSheet<Value: Hashable>: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .focused($focus, equals: .apply)
-                    .onMoveCommand { direction in
+                    .onTVMove { direction in
                         if direction == .left { focus = lastChoice ?? .all }
                     }
                 }
@@ -69,12 +69,16 @@ struct LibraryChoiceSheet<Value: Hashable>: View {
                 }
             }
         }
+        #if os(iOS)
+        .padding()
+        #else
         .padding(56)
+        #endif
         .frame(maxWidth: 1150)
         .onChange(of: focus) { _, current in
             if let current, current != .apply { lastChoice = current }
         }
-        .onExitCommand { dismiss() }
+        .onTVExit { dismiss() }
     }
 
     @ViewBuilder
@@ -92,7 +96,7 @@ struct LibraryChoiceSheet<Value: Hashable>: View {
         .id(row)
 
         if all != nil {
-            button.onMoveCommand { direction in
+            button.onTVMove { direction in
                 if direction == .right {
                     lastChoice = row
                     focus = .apply

@@ -1,0 +1,153 @@
+name: iPhone simulator
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ios-simulator.yml"
+      - "CineVault/**"
+      - "CineVaultiOS/**"
+      - "CineVaultTests/**"
+      - "CineVaultiOSUITests/**"
+      - "Packages/**"
+      - "project.ios.yml"
+      - "scripts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iphone-simulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: Build and test iPhone app
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate project
+        id: project
+        run: |
+          brew install xcodegen
+          python -m pip install -r scripts/nas-test-requirements.txt
+          xcodegen generate --spec project.ios.yml
+      - name: Select an iPhone simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-version | tr '.' '-')
+          DEVICE=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          prefix = "com.apple.CoreSimulator.SimRuntime.iOS-"
+          sdk = tuple(map(int, sys.argv[1].split("-")))
+          candidates = []
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              if not runtime.startswith(prefix):
+                  continue
+              version = tuple(map(int, runtime.removeprefix(prefix).split("-")))
+              if not (17,) <= version <= sdk:
+                  continue
+              candidates += [(version, d["udid"]) for d in devices if d.get("isAvailable") and d["name"].startswith("iPhone")]
+          if not candidates:
+              sys.exit("No available iPhone runtime compatible with SDK " + sys.argv[1])
+          print(max(candidates, key=lambda candidate: candidate[0])[1])
+          ' "$SDK")
+          echo "device=$DEVICE" >> "$GITHUB_OUTPUT"
+      - name: Build simulator tests
+        run: |
+          set -o pipefail
+          xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+            -destination 'id=${{ steps.simulator.outputs.device }}' \
+            -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-phone" \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
+      - name: Test against local SMB and WebDAV fixtures
+        run: |
+          set -euo pipefail
+          DEVICE='${{ steps.simulator.outputs.device }}'
+          python scripts/nas_fixture.py "$RUNNER_TEMP/nas-fixture" >"$RUNNER_TEMP/nas-fixture.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_webdav_fixture.sh "$RUNNER_TEMP/webdav-fixture"
+          WEBDAV_PID=$(cat "$RUNNER_TEMP/webdav-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$RUNNER_TEMP/nas-fixture.log" >&2
+              exit 1
+            fi
+            if nc -z 127.0.0.1 1445; then break; fi
+            sleep 1
+          done
+          if ! nc -z 127.0.0.1 1445; then
+            cat "$RUNNER_TEMP/nas-fixture.log" >&2
+            exit 1
+          fi
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
+          xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+            -destination "id=$DEVICE" -configuration Debug \
+            -derivedDataPath "$RUNNER_TEMP/cinevault-phone" \
+            -resultBundlePath "$RUNNER_TEMP/iphone-results.xcresult" \
+            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES \
+            test-without-building | tail -n 200
+      - name: Report simulator tests
+        if: always()
+        run: |
+          set -euo pipefail
+          xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/iphone-results.xcresult" > "$RUNNER_TEMP/iphone-summary.json"
+          python3 scripts/report_xcresult.py "$RUNNER_TEMP/iphone-summary.json"
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/iphone-results.xcresult" > "$RUNNER_TEMP/iphone-tests.json"
+          python3 - "$RUNNER_TEMP/iphone-tests.json" <<'PY'
+          import json
+          import sys
+
+          def passed(nodes):
+              for node in nodes:
+                  if node.get("result") == "Passed":
+                      yield node.get("name", "").removesuffix("()")
+                  yield from passed(node.get("children", []))
+
+          with open(sys.argv[1]) as source:
+              tests = set(passed(json.load(source)["testNodes"]))
+          required = {
+              "testConnectAndImportWebDAVFromSources",
+              "testNativePlaybackAndSubtitleControls",
+              "testViewerOnlySeesAllowedTitlesOnPhone",
+              "testPlaybackAndSeekStreamTheScannedMovie",
+              "testWebDAVAuthenticationScanPlaybackAndSeek",
+          }
+          missing = sorted(required - tests)
+          if missing:
+              sys.exit("Required iPhone cases did not pass: " + ", ".join(missing))
+          print("All required iPhone UI and fixture cases passed.")
+          PY
+      - name: Build unsigned iPhone release
+        if: always() && steps.project.outcome == 'success'
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
+          echo "iPhone device SDK $SDK"
+          if (( ${SDK%%.*} < 26 )); then
+            echo "::error::This release validation requires iOS SDK 26 or later."
+            exit 1
+          fi
+          xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+            -destination 'generic/platform=iOS' -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/cinevault-phone-release" \
+            CODE_SIGNING_ALLOWED=NO build | tail -n 160
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: iphone-simulator-results
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/iphone-results.xcresult
+            ${{ runner.temp }}/nas-fixture.log
+            ${{ runner.temp }}/webdav-fixture/server.log

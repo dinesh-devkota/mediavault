@@ -55,7 +55,7 @@ struct MovieDetailView: View {
                         .tracking(3)
                         .foregroundStyle(CinemaTheme.accent)
                     Text(movie.title)
-                        .font(.system(size: 72, weight: .bold))
+                        .font(.system(size: CinemaTheme.detailTitleSize, weight: .bold))
                         .lineLimit(2)
                     if let episode = movie.episodeInfo {
                         Text("\(movie.seriesTitle ?? episode.seriesTitle) · Season \(movie.seasonNumber ?? episode.season) · Episode \(movie.episodeNumber ?? episode.episode)")
@@ -100,8 +100,8 @@ struct MovieDetailView: View {
                     fileDetails
                         .padding(.top, 24)
                 }
-                .padding(.horizontal, 90)
-                .padding(.top, 90)
+                .padding(.horizontal, CinemaTheme.detailInset)
+                .padding(.top, CinemaTheme.detailInset)
                 .padding(.bottom, 100)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -110,7 +110,7 @@ struct MovieDetailView: View {
         .fullScreenCover(item: $playback) { controller in
             PlaybackScreen(controller: controller, services: playbackServices,
                            library: { (try? modelContext.fetch(FetchDescriptor<Movie>())) ?? [] })
-                .ignoresSafeArea()
+                .playbackScreenEdges()
         }
         .onDisappear { cancelPreparation() }
         .alert("Format not supported", isPresented: $unsupported) {
@@ -134,7 +134,7 @@ struct MovieDetailView: View {
     }
 
     private var playbackControls: some View {
-        HStack(spacing: 24) {
+        CinemaTheme.actionLayout {
             if movie.isMissing || movie.source?.isIgnored(filePath: movie.filePath) == true {
                 Text("File unavailable. Include it again and rescan before playing.")
                     .font(.callout).foregroundStyle(CinemaTheme.secondaryText)

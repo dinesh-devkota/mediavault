@@ -6,8 +6,51 @@ enum CinemaTheme {
     static let accent = Color(red: 1.0, green: 0.60, blue: 0.22)
     static let background = Color(red: 0.045, green: 0.055, blue: 0.075)
     static let secondaryText = Color.white.opacity(0.66)
+    #if os(iOS)
+    static let posterWidth: CGFloat = 120
+    static let posterHeight: CGFloat = 180
+    static let edgeInset: CGFloat = 16
+    static let gridSpacing: CGFloat = 16
+    static let episodeWidth: CGFloat = 154
+    static let detailInset: CGFloat = 16
+    static let detailTitleSize: CGFloat = 34
+    static let featuredInset: CGFloat = 18
+    static let featuredHeight: CGFloat = 288
+    static let photoAlbumWidth: CGFloat = 152
+    static let photoGridWidth: CGFloat = 148
+    static let photoAlbumSpacing: CGFloat = 16
+    static let photoGridSpacing: CGFloat = 16
+    #else
     static let posterWidth: CGFloat = 240
     static let posterHeight: CGFloat = 360
+    static let edgeInset: CGFloat = 70
+    static let gridSpacing: CGFloat = 48
+    static let episodeWidth: CGFloat = 400
+    static let detailInset: CGFloat = 90
+    static let detailTitleSize: CGFloat = 72
+    static let featuredInset: CGFloat = 48
+    static let featuredHeight: CGFloat = 500
+    static let photoAlbumWidth: CGFloat = 380
+    static let photoGridWidth: CGFloat = 350
+    static let photoAlbumSpacing: CGFloat = 42
+    static let photoGridSpacing: CGFloat = 38
+    #endif
+
+    static func titleSize(tvOS: CGFloat) -> CGFloat {
+        #if os(iOS)
+        32
+        #else
+        tvOS
+        #endif
+    }
+
+    static var actionLayout: AnyLayout {
+        #if os(iOS)
+        AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+        #else
+        AnyLayout(HStackLayout(spacing: 24))
+        #endif
+    }
 
     static func artworkColors(for title: String) -> [Color] {
         let palette = [
@@ -20,6 +63,17 @@ enum CinemaTheme {
         ]
         let index = title.unicodeScalars.reduce(0) { ($0 + Int($1.value)) % palette.count }
         return [palette[index], background]
+    }
+}
+
+extension View {
+    @ViewBuilder func horizontalControlsOnPhone() -> some View {
+        #if os(iOS)
+        ScrollView(.horizontal) { self }
+            .scrollIndicators(.hidden)
+        #else
+        self
+        #endif
     }
 }
 

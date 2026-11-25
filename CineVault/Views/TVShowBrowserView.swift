@@ -134,13 +134,13 @@ struct TVShowBrowserView: View {
             ?? shows.first { $0.id == initialShowID }
     }
     private var posterColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
+        [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: CinemaTheme.gridSpacing)]
     }
 
     var body: some View {
         Group {
             if selectedShowID == nil { content }
-            else { content.onExitCommand { goBack() } }
+            else { content.onTVExit { goBack() } }
         }
         .onAppear {
             if !initialized {
@@ -195,7 +195,7 @@ struct TVShowBrowserView: View {
                 BulkWatchControl(title: "Watched status", scope: scope, movies: currentEpisodes)
             }
             if let show = selectedShow, let season = selectedSeason {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 400, maximum: 400), spacing: 48)], spacing: 48) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: CinemaTheme.episodeWidth, maximum: CinemaTheme.episodeWidth), spacing: CinemaTheme.gridSpacing)], spacing: 48) {
                     ForEach(show.episodes(in: season)) { episode in
                         let key = episode.id.uuidString
                         let number = TVShowGroup.episode(episode)
@@ -285,7 +285,7 @@ struct TVShowDestination: View {
             ScrollView {
                 TVShowBrowserView(episodes: episodes, initialShowID: initialShowID,
                     scrollToFocus: { proxy.scrollTo($0, anchor: .center) })
-                    .padding(.horizontal, 70).padding(.bottom, 100)
+                    .padding(.horizontal, CinemaTheme.edgeInset).padding(.bottom, 100)
             }
         }.background(CinemaBackground())
     }
@@ -370,8 +370,8 @@ struct TVShowArtwork: View {
     let path: String?
     var wide = false
     var focused = false
-    private var width: CGFloat { wide ? 400 : CinemaTheme.posterWidth }
-    private var height: CGFloat { wide ? 225 : CinemaTheme.posterHeight }
+    private var width: CGFloat { wide ? CinemaTheme.episodeWidth : CinemaTheme.posterWidth }
+    private var height: CGFloat { wide ? CinemaTheme.episodeWidth * 9 / 16 : CinemaTheme.posterHeight }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack {
