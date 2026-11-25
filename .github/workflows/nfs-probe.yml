@@ -1,0 +1,30 @@
+name: NFS probe
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/nfs-probe.yml
+      - scripts/nfs_readonly_probe.c
+      - scripts/tests/test_nfs_readonly_probe.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  loopback:
+    name: Read-only NFSv3 loopback
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the libnfs development package
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libnfs-dev
+      - name: Build and exercise the read-only probe
+        run: |
+          cc -Wall -Wextra -Werror scripts/nfs_readonly_probe.c \
+            $(pkg-config --cflags --libs libnfs) -o "$RUNNER_TEMP/nfs_readonly_probe"
+          NFS_PROBE="$RUNNER_TEMP/nfs_readonly_probe" \
+            python3 -m unittest discover -v -s scripts/tests -p test_nfs_readonly_probe.py
