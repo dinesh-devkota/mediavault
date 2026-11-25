@@ -72,7 +72,9 @@ class LibraryFeaturesNavigationTest {
                 capture("library-custom-collection")
                 // Back leaves the collection screen and returns to the original title.
                 device.pressBack() // collection detail -> collection list
+                visible(hasTestTag("create-collection"))
                 device.pressBack() // collection list -> movie detail
+                visible(hasTestTag("detail-title")).assertTextEquals("Library Feature")
                 activate(hasTestTag("detail-collections"))
                 activate(hasTestTag("collection-choice:Weekend Films"))
                 withTimeout(15000) { container.collections.observeCustom().first { it.any { collection -> collection.id == collectionId && collection.movieIds.isEmpty() } } }

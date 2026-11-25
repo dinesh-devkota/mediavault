@@ -84,7 +84,8 @@ private fun CollectionsScreen() {
             LazyColumn(contentPadding = PaddingValues(ScreenPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(collections, key = { it.id }) { collection ->
                     OutlinedButton(onClick = { selectedId = collection.id }, modifier = Modifier.fillMaxWidth().testTag("collection:${collection.name}")) {
-                        Column { Text(collection.name); Text("${collectionItems(collection.movies).size} titles · ${if (collection.custom) "Your collection" else "Movie series"}", color = SecondaryText) }
+                        val count = collectionItems(collection.movies).size
+                        Column { Text(collection.name); Text("$count ${if (count == 1) "title" else "titles"} · ${if (collection.custom) "Your collection" else "Movie series"}", color = SecondaryText) }
                     }
                 }
             }
