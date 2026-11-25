@@ -32,7 +32,12 @@ final class MediaVaultPhoneTests: XCTestCase {
         name.tap()
         name.typeText("Fixture media")
         address.tap()
-        address.typeText("https://127.0.0.1:15443/dav/")
+        let endpoint = "https://127.0.0.1:15443/dav/"
+        address.typeText(endpoint)
+        let addressAccepted = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", endpoint), object: address)
+        XCTAssertEqual(XCTWaiter.wait(for: [addressAccepted], timeout: 5), .completed,
+                       "The connection form must acknowledge the complete fixture address before saving.")
 
         let username = app.textFields["source-username"]
         XCTAssertTrue(username.waitForExistence(timeout: 10))
@@ -45,7 +50,19 @@ final class MediaVaultPhoneTests: XCTestCase {
         let save = app.buttons["source-save-and-scan"]
         XCTAssertTrue(save.isHittable)
         save.tap()
-        XCTAssertTrue(app.staticTexts["Fixture media"].waitForExistence(timeout: 25), "Expected the authenticated source to be saved.")
+        let savedSource = app.staticTexts["Fixture media"]
+        let connectionMessage = app.staticTexts["source-connection-message"]
+        let connectedOrFailed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            savedSource.exists || connectionMessage.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [connectedOrFailed], timeout: 25), .completed,
+                       "The source connection did not complete or report an error.")
+        if connectionMessage.exists {
+            capture("WebDAV connection failed before saving", app)
+            XCTFail("WebDAV connection failed before saving: \(connectionMessage.label)")
+            return
+        }
+        XCTAssertTrue(savedSource.exists, "Expected the authenticated source to be saved.")
 
         let scan = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "1 item · Scanned ")).firstMatch
         XCTAssertTrue(scan.waitForExistence(timeout: 25), app.debugDescription)

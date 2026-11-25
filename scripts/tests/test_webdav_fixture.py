@@ -24,12 +24,18 @@ class QuietHandler(fixture.Handler):
 class ObservedServer(fixture.TLSFixtureServer):
     def __init__(self, *args, **kwargs):
         self.accepted = threading.Event()
+        self.handshakes = []
+        self.handshake_observed = threading.Event()
         super().__init__(*args, **kwargs)
 
     def get_request(self):
         connection = super().get_request()
         self.accepted.set()
         return connection
+
+    def log_handshake(self, address, *, elapsed, protocol=None, error=None):
+        self.handshakes.append((elapsed, protocol, type(error).__name__ if error else None))
+        self.handshake_observed.set()
 
     def handle_error(self, *_args):
         # Invalid/untrusted TLS handshakes below intentionally end a worker.
@@ -91,6 +97,18 @@ class WebDAVFixtureTests(unittest.TestCase):
             self.assertTrue(server.accepted.wait(2))
             idle.settimeout(2)
             self.assertEqual(idle.recv(1), b"", "Idle TLS peer should be closed after the worker timeout")
+            self.assertTrue(server.handshake_observed.wait(2))
+            self.assertEqual(server.handshakes[0][1:], (None, "TimeoutError"))
+            self.assertEqual(self.request(server)[0], 207)
+
+    def test_completed_handshake_is_distinguished_from_idle_http_timeout(self):
+        with self.server(timeout=0.15) as server:
+            with socket.create_connection(server.server_address, timeout=2) as raw:
+                with self.trusted.wrap_socket(raw, server_hostname="127.0.0.1") as client:
+                    self.assertTrue(server.handshake_observed.wait(2))
+                    self.assertIsNotNone(server.handshakes[0][1])
+                    self.assertIsNone(server.handshakes[0][2])
+                    self.assertEqual(client.recv(1), b"", "Idle HTTP read remains bounded after TLS completes")
             self.assertEqual(self.request(server)[0], 207)
 
     def test_authentication_range_reads_and_certificate_validation_remain_enforced(self):

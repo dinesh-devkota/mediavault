@@ -10,8 +10,8 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         defer { capture("MKV phone journey final state", app) }
         waitLabel(app.staticTexts["fixture-alternative-ready"], "Playback advanced", app, timeout: 45)
         let play = app.buttons["alternative-play-pause"]
+        waitLabel(app.staticTexts["fixture-alternative-state"], "Playing", app)
         reveal(app)
-        waitLabel(play, "Pause", app)
         play.tap()
         waitLabel(app.staticTexts["fixture-alternative-state"], "Paused", app)
         // Inspect targets while paused; repeated accessibility snapshots can
@@ -66,10 +66,13 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
     }
 
     @MainActor private func reveal(_ app: XCUIApplication) {
-        if !app.buttons["alternative-play-pause"].isHittable {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        // Refresh the real five-second visibility window even if it has only a
+        // fraction of a second left. Accessibility snapshots are not user input.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        wait(app, "Transport controls are tappable") {
+            let button = app.buttons["alternative-play-pause"]
+            return button.exists && button.isEnabled && button.isHittable
         }
-        wait(app, "Transport controls are tappable") { app.buttons["alternative-play-pause"].isHittable }
     }
     @MainActor private func seconds(_ app: XCUIApplication) -> Double {
         let item = app.staticTexts["fixture-alternative-seconds"]

@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import ssl
 import subprocess
+import time
 from urllib.parse import quote, urlsplit
 from xml.etree import ElementTree as ET
 
@@ -141,7 +142,7 @@ class TLSFixtureServer(ThreadingHTTPServer):
         connection, address = super().get_request()
         try:
             connection.settimeout(self.connection_timeout)
-            # Handshake on the handler worker's first read, not synchronously in
+            # Handshake explicitly on the worker below, not synchronously in
             # SSLSocket.accept(). Browsers/URLSession may preconnect without yet
             # sending a ClientHello; that must not stall every other client.
             secured = self.ssl_context.wrap_socket(
@@ -151,6 +152,26 @@ class TLSFixtureServer(ThreadingHTTPServer):
         except Exception:
             connection.close()
             raise
+
+    def log_handshake(self, address, *, elapsed, protocol=None, error=None):
+        # Only transport state is logged: never HTTP headers or credentials.
+        outcome = "complete" if error is None else "failed"
+        detail = f"protocol={protocol}" if error is None else f"error_type={type(error).__name__}"
+        print(f"[webdav-tls] peer={address[0]}:{address[1]} stage=handshake "
+              f"result={outcome} elapsed_s={elapsed:.3f} {detail}", flush=True)
+
+    def process_request_thread(self, request, client_address):
+        started = time.monotonic()
+        try:
+            request.do_handshake()
+        except (OSError, ValueError) as error:
+            self.log_handshake(client_address, elapsed=time.monotonic() - started, error=error)
+            self.shutdown_request(request)
+            return
+        self.log_handshake(client_address, elapsed=time.monotonic() - started, protocol=request.version())
+        # A later "Request timed out" now unambiguously means HTTP I/O, while
+        # a handshake timeout is identified above. Keep the same bounded timeout.
+        super().process_request_thread(request, client_address)
 
 
 def main():
