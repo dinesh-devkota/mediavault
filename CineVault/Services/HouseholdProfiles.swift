@@ -387,7 +387,7 @@ final class HouseholdStore: ObservableObject {
     }
     func allows(_ movie: Movie) -> Bool {
         synced {
-            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath, caseSensitive: movie.source?.isWebDAV == true) else { return false }
+            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath, caseSensitive: movie.source.map { $0.isWebDAV || $0.isJellyfin } == true) else { return false }
             guard let current, !current.isAdmin else { return !isLocked }
             guard !movie.isHidden else { return false }
             if MediaFile.isAudio(path: movie.filePath) || MediaFile.isPhoto(path: movie.filePath) { return true }

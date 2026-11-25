@@ -237,7 +237,7 @@ internal fun TVShowBrowser(
                     val number = tvEpisode(episode).takeUnless { it == Int.MAX_VALUE }
                     TVArtworkCard(number?.let { "E$it · ${episode.title}" } ?: episode.title,
                         if (episode.isWatched) "Watched" else if (episode.isInProgress) "In progress" else "Episode",
-                        episode.backdropPath, wide = true,
+                        episode.backdropPath, wide = true, artworkMovie = episode,
                         selected = selectionFor(listOf(episode)),
                         cardModifier = focusModifier(episode.id == targetEpisode, "tv-episode:${episode.id}"),
                         onClick = {
@@ -253,7 +253,8 @@ internal fun TVShowBrowser(
 @Composable
 internal fun TVArtworkCard(
     title: String, subtitle: String, path: String?, modifier: Modifier = Modifier,
-    wide: Boolean = false, cardModifier: Modifier = Modifier, selected: Boolean? = null, onClick: () -> Unit,
+    wide: Boolean = false, cardModifier: Modifier = Modifier, selected: Boolean? = null,
+    artworkMovie: MovieEntity? = null, onClick: () -> Unit,
 ) {
     Column(modifier) {
         Card(onClick = onClick,
@@ -261,7 +262,9 @@ internal fun TVArtworkCard(
                 .then(if (selected == null) Modifier else Modifier.semantics { this.selected = selected }),
             shape = CardDefaults.shape(RoundedCornerShape(10.dp))) {
             Box(Modifier.fillMaxSize()) {
-                Artwork(Tmdb.imageUrl(path, if (wide) "w780" else "w342"), title, Modifier.fillMaxSize())
+                val tmdb = Tmdb.imageUrl(path, if (wide) "w780" else "w342")
+                if (artworkMovie != null) MediaArtwork(artworkMovie, tmdb, title, Modifier.fillMaxSize(), width = 780)
+                else Artwork(tmdb, title, Modifier.fillMaxSize())
                 selected?.let { SelectionBadge(it, Modifier.align(Alignment.TopStart).padding(8.dp)) }
             }
         }

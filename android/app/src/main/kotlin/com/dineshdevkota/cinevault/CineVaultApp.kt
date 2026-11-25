@@ -37,6 +37,7 @@ class AppContainer(context: Context) {
         SupervisorJob() + Dispatchers.Default +
             CoroutineExceptionHandler { _, error -> Log.e("CineVault", "Background task failed", error) },
     )
+    internal val jellyfinSetupSessions = com.dineshdevkota.cinevault.jellyfin.JellyfinSetupSessions(scope)
     val secrets = SecretBox()
     val family = com.dineshdevkota.cinevault.family.FamilyStore(context, secrets, initiallyActive = false)
     val settings = Settings(context, secrets) { family.current.historyId }

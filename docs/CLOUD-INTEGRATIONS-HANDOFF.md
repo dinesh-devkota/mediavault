@@ -19,7 +19,7 @@ Working branch: `codex/mediavault-webdav`, based on household-profile revision
 do not merge or release unfinished source integrations. Preserve the user's
 existing SMB data, photos, metadata, subtitles, autoplay, and profile controls.
 
-## Current checkpoint: incomplete Android WebDAV
+## Original handoff: incomplete Android WebDAV
 
 The new code is an implementation checkpoint, **not a released connector**.
 
@@ -133,41 +133,68 @@ and create draft PRs when supported. Track completion and real blocked items in
 this document. Work through independent phases instead of stopping after a plan,
 scaffold or first error. Do not promise that the full matrix finishes overnight.
 
-## Cloud implementation checkpoint
+## Cloud implementation checkpoint, November 25, 2026
 
-Started the cloud checkout at `96b818a45b0768779d09a26e6be1a56a5469fdca`.
-Android WebDAV now requires a confirmed collection response in the multistatus,
-rejects invalid XML structure and truncated ranges, handles empty files, and
-uses strong ETags when present. Production setup requires HTTPS and supports
-guest access or Basic authentication. The cleartext fixture configuration is
-retained for local tests.
+The cloud checkout started on WebDAV commit
+`96b818a45b0768779d09a26e6be1a56a5469fdca`. WebDAV was merged into the
+development branch at `0aa5435becece6fcf8e1ee0b15c41e267bce5f8a` after
+the checks on `1cbd47977ed07222cf6a44400c10a5757b3d5221` passed.
+It supports HTTPS with guest or Basic authentication, source folder selection,
+edit/reconnect/removal, scans and exclusions, photos, recognized subtitle
+sidecars, and validated range reads with case-sensitive viewer grants.
+Android TV ran 94 tests and the Apple TV simulator ran 199, all passing.
+Both ran the respective HTTPS WebDAV playback and seek test.
+[WebDAV pull request](https://github.com/dinesh-devkota/mediavault/pull/1)
+· [Android TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662322559)
+· [Apple TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662323021)
 
-The tvOS WebDAV implementation routes listing, scans, ranged playback, photos
-and subtitle reads through the existing file facade. Setup, folder browsing,
-editing, connection checks and removal use the existing source editor and
-Keychain. Viewer grants for WebDAV are exact-case and are never created by
-source setup. The simulator suite now checks that a pre-change store still opens as SMB and
-that WebDAV configuration and case-sensitive exclusions survive reopening a
-store. Cloud Android validation passed 94 core tests, 108 app tests, debug lint
-and debug assembly. Hosted Android builds and unsigned tvOS builds passed.
-Hosted simulator results and a full TV-to-HTTPS-server journey are still needed.
+- Jellyfin has TV setup with password or Quick Connect, encrypted provider
+  credentials, selectable libraries, protected catalog import, server photos,
+  artwork and captions, and separate local profile history. Hosted tests
+  played and sought the direct stream on both platforms. The Android setup
+  and artwork checkpoint passed 97 emulator tests. tvOS HLS and optional
+  SubDL search using imported provider IDs have independent draft checkpoints.
+  [Jellyfin](https://github.com/dinesh-devkota/mediavault/pull/2)
+  · [Android TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662973340)
+  · [Apple TV direct playback run](https://github.com/dinesh-devkota/mediavault/actions/runs/45660978470)
+  · [Apple TV HLS](https://github.com/dinesh-devkota/mediavault/pull/10)
+- Emby has client fixtures for both platforms and Android app wiring for source
+  setup, library import and protected direct playback. Apple app integration,
+  HLS, and other provider media types still need work.
+  [Emby](https://github.com/dinesh-devkota/mediavault/pull/3)
+- Plex has protected account PIN, server discovery, catalog, and byte reads
+  in provider clients. Full TV setup, protected player wiring and a signed-in
+  QA account are still needed.
+  [Plex](https://github.com/dinesh-devkota/mediavault/pull/5)
+- NFS has loopback tests and an opt-in Android debug bridge for four ABIs.
+  The app source, both TV playback journeys, tvOS packaging and distribution
+  licensing review remain open.
+  [NFS](https://github.com/dinesh-devkota/mediavault/pull/8)
+- OneDrive, Dropbox and Google Drive have separate provider clients and tests.
+  The Android OneDrive draft includes encrypted refresh records, scoped catalog
+  and a per-read authorization hook. Account registrations and TV setup/import/
+  playback still need completion. Live OneDrive needs an Entra public client
+  ID and test account. Dropbox needs a registered app key with the documented
+  scopes. Google Drive needs an approved TV-compatible OAuth client and scope;
+  verify access before distributing.
+  [OneDrive](https://github.com/dinesh-devkota/mediavault/pull/4)
+  · [Dropbox](https://github.com/dinesh-devkota/mediavault/pull/6)
+  · [Google Drive](https://github.com/dinesh-devkota/mediavault/pull/7)
 
-Jellyfin implementation is tracked separately on `codex/mediavault-jellyfin`.
-Both clients have the sign-in, Quick Connect, catalog, artwork and subtitle
-address, playback negotiation, and session reporting calls. A disposable
-Jellyfin 12.4.0 instance verified the Android client's sign-in, movie listing,
-direct-play negotiation, successful range read, reporting and sign-out. These
-clients are not connected to the TV app's setup, secure account storage,
-household-scoped import, or player. Emby, Plex, NFS, OneDrive, Dropbox and
-Google Drive have not been implemented. Subsequent providers will each have
-a separate feature branch and validation.
-Keep each PR in draft while its own implementation and tests are incomplete.
+The user authorized provider merges to development after the exact source
+branch passes both hosted emulator/simulator suites, including its named
+provider tests. Retain draft status while implementation or coverage remains
+incomplete. Android phone and iPhone support have their own branches and
+touch-screen test requirements. Keep the Windows handoff as a verified Git
+bundle when the Windows checkout is unavailable.
 
 ## tvOS submission readiness
 
-Keep provider branches in draft until their tvOS release build, simulator
-journeys and physical Apple TV smoke tests pass. Apple makes the App Review
-decision. This work does not include signing, submission, TestFlight or release.
+The development merge gate is the hosted device-emulation suites. App Store
+submission also needs a signed archive, physical Apple TV validation, active
+Apple Developer membership and current provider approvals. Apple makes the
+App Review decision. This work covers unsigned public builds and documented
+checks.
 
 - Give reviewers a reachable, dedicated test service with temporary least-
   privilege credentials and synthetic media the project is authorized to
@@ -182,8 +209,9 @@ decision. This work does not include signing, submission, TestFlight or release.
   shipping. Save evidence of provider app registration, any required approval and
   redistribution terms for bundled dependencies. Review the intended App Store
   packaging against the NFS library's license before adding it to Apple builds.
-- Update the privacy policy and App Store privacy details before each connector
-  ships. Cover token retention, sign-out, provider-visible playback reports,
+- Keep the bundled policy reachable in the app and set its public URL in App
+  Store Connect. Update the policy and App Store privacy details before each
+  connector ships. Cover token retention, sign-out, provider-visible playback reports,
   library and artwork requests, and any new SDK. Validate the final signed
   binary's privacy manifests and export-compliance declaration.
 

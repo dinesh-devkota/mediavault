@@ -71,6 +71,7 @@ jobs:
         run: |
           python -m unittest discover -s scripts/tests -p test_xcresult_report.py
           brew install xcodegen
+          command -v ffmpeg >/dev/null || brew install ffmpeg
           python -m pip install -r scripts/nas-test-requirements.txt
       - name: Generate project
         run: |
@@ -99,7 +100,7 @@ jobs:
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
-      - name: Test against local SMB and WebDAV fixtures
+      - name: Test against local SMB, WebDAV, and Jellyfin fixtures
         run: |
           set -euo pipefail
           DEVICE='${{ steps.simulator.outputs.device }}'
@@ -109,6 +110,9 @@ jobs:
           bash scripts/start_webdav_fixture.sh "$RUNNER_TEMP/webdav-fixture"
           WEBDAV_PID=$(cat "$RUNNER_TEMP/webdav-fixture/server.pid")
           trap 'kill "$SERVER_PID" "$WEBDAV_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_jellyfin_tvos_fixture.sh "$RUNNER_TEMP/jellyfin-fixture"
+          JELLYFIN_PID=$(cat "$RUNNER_TEMP/jellyfin-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" 2>/dev/null || true' EXIT
           for attempt in {1..30}; do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               cat "$RUNNER_TEMP/nas-fixture.log" >&2
@@ -126,6 +130,7 @@ jobs:
           xcrun simctl bootstatus "$DEVICE" -b
           # Install the ephemeral fixture's trust anchor only on this simulator.
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/jellyfin-fixture/fixture.cer"
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
             -destination "id=$DEVICE" -configuration Debug \
             -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
@@ -164,6 +169,7 @@ jobs:
           path: |
             ${{ runner.temp }}/nas-fixture.log
             ${{ runner.temp }}/webdav-fixture/server.log
+            ${{ runner.temp }}/jellyfin-fixture/server.log
             ${{ runner.temp }}/nas-results.xcresult
           if-no-files-found: warn
           retention-days: 7

@@ -71,6 +71,7 @@ import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.photos.photoAvailable
+import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.library.watchStatusItems
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -311,7 +312,8 @@ private fun FeaturedCard(movie: MovieEntity, onClick: () -> Unit) {
         scale = CardDefaults.scale(focusedScale = 1.02f),
     ) {
         Box(Modifier.fillMaxSize()) {
-            Artwork(Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w1280"), "", Modifier.fillMaxSize())
+            MediaArtwork(movie, Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w1280"), "", Modifier.fillMaxSize(),
+                width = 1280, kind = JellyfinImage.Backdrop)
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.85f), 0.7f to Color.Transparent),
