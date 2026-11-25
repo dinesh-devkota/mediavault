@@ -14,13 +14,15 @@ import com.dineshdevkota.cinevault.core.MediaKind
 import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.core.TitleMatcher
 import com.dineshdevkota.cinevault.core.WatchRules
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.embyItemId
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.util.UUID
 
-/** A NAS share (SMB). The password is stored AES/GCM-encrypted with an Android Keystore key. */
+/** A saved source. The password or access token is protected by Android Keystore encryption. */
 @Entity(tableName = "sources")
 data class SourceEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
@@ -36,25 +38,33 @@ data class SourceEntity(
     /** Literal folder paths relative to rootPath; excluded rows retain their history. */
     @ColumnInfo(defaultValue = "'[]'") val ignoredFolders: List<String> = emptyList(),
     @ColumnInfo(defaultValue = "'[]'") val ignoredFiles: List<String> = emptyList(),
+    @ColumnInfo(defaultValue = "'smb'") val sourceType: String = "smb",
+    // Matches the existing WebDAV version 6 schema so development branches can reopen the same database.
+    @ColumnInfo(defaultValue = "0") val allowInsecureHttp: Boolean = false,
 ) {
     fun includesFile(filePath: String): Boolean {
+        if (sourceType == EMBY) return embyItemId(filePath) != null
+        if (sourceType != "smb") return false
         val path = ScanExclusions.normalizeFile(filePath) ?: return false
         val root = if (rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(rootPath) ?: return false
         return (root.isEmpty() || path.startsWith("$root/", ignoreCase = true)) &&
             !ScanExclusions.isFileExcluded(path, root, ignoredFolders, ignoredFiles)
     }
 
-    fun config(secrets: SecretBox): SourceConfig = SourceConfig(
-        id = id,
-        host = host,
-        port = port,
-        share = share,
-        rootPath = rootPath,
-        username = username,
-        password = if (username.isEmpty()) "" else secrets.decrypt(encryptedPassword),
-        ignoredFolders = ignoredFolders,
-        ignoredFiles = ignoredFiles,
-    )
+    fun config(secrets: SecretBox): SourceConfig {
+        check(sourceType == "smb") { "This source is not an SMB share." }
+        return SourceConfig(
+            id = id,
+            host = host,
+            port = port,
+            share = share,
+            rootPath = rootPath,
+            username = username,
+            password = if (username.isEmpty()) "" else secrets.decrypt(encryptedPassword),
+            ignoredFolders = ignoredFolders,
+            ignoredFiles = ignoredFiles,
+        )
+    }
 }
 
 @Entity(

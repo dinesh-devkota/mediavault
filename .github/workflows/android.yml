@@ -146,7 +146,7 @@ jobs:
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",
                       "SubtitleTracksTest", "SubtitleContinuousPlaybackTest", "HomeCollectionNavigationTest",
-                      "FamilyStoreInstrumentedTest", "FamilyNavigationTest"}
+                      "FamilyStoreInstrumentedTest", "FamilyNavigationTest", "EmbyAndroidIntegrationTest", "EmbySetupNavigationTest"}
           executed = {case.get("classname", "").rsplit(".", 1)[-1] for case in cases}
           identities = [(case.get("classname"), case.get("name")) for case in cases]
           duplicate = len(set(identities)) != len(cases)

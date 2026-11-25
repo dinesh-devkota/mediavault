@@ -195,7 +195,7 @@ interface ProfileHistoryDao {
     @Query("DELETE FROM profile_history WHERE profileId = :profileId") suspend fun deleteProfile(profileId: String)
 }
 
-@Database(entities = [SourceEntity::class, MovieEntity::class, ProfileHistory::class], version = 5, exportSchema = false)
+@Database(entities = [SourceEntity::class, MovieEntity::class, ProfileHistory::class], version = 6, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class CineVaultDatabase : RoomDatabase() {
     abstract fun sources(): SourceDao
@@ -203,6 +203,12 @@ abstract class CineVaultDatabase : RoomDatabase() {
     abstract fun profileHistory(): ProfileHistoryDao
 
     companion object {
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sources ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'smb'")
+                db.execSQL("ALTER TABLE sources ADD COLUMN allowInsecureHttp INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE movies ADD COLUMN ageCertification TEXT")
@@ -236,7 +242,7 @@ abstract class CineVaultDatabase : RoomDatabase() {
 
         fun create(context: Context, name: String = "cinevault.db"): CineVaultDatabase =
             Room.databaseBuilder(context, CineVaultDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
     }
 }

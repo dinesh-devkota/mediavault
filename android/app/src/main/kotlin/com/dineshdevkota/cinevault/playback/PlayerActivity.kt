@@ -45,6 +45,13 @@ import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.EmbyClient
+import com.dineshdevkota.cinevault.emby.EmbyConnection
+import com.dineshdevkota.cinevault.emby.EmbyException
+import com.dineshdevkota.cinevault.emby.EmbyVideo
+import com.dineshdevkota.cinevault.emby.embyConnection
+import com.dineshdevkota.cinevault.emby.embyItemId
 import com.dineshdevkota.cinevault.ui.ContinueWatchingItem
 import com.dineshdevkota.cinevault.ui.nextEpisodeFor
 import com.dineshdevkota.cinevault.ui.PlaybackSettingsActivity
@@ -73,14 +80,25 @@ import kotlinx.coroutines.withContext
  * 10 seconds, on pause and on exit, and marks the movie watched past [WatchRules.WATCHED_FRACTION].
  */
 class PlayerActivity : ComponentActivity() {
-    private class Target(val movie: MovieEntity, val config: SourceConfig, val source: SourceEntity)
+    private data class Target(
+        val movie: MovieEntity,
+        val config: SourceConfig?,
+        val source: SourceEntity,
+        val emby: EmbyConnection? = null,
+    )
+
+    private class EmbyPlaying(val connection: EmbyConnection, val playback: EmbyClient.DirectPlayback, val length: Long) {
+        var reportedStart = false
+    }
 
     private lateinit var playerView: PlayerView
     private lateinit var rootView: FrameLayout
     private lateinit var information: LinearLayout
     private lateinit var titleLabel: TextView
     private lateinit var detailLabel: TextView
-    private var target: Target? = null
+    @Volatile private var target: Target? = null
+    private var embyPlaying: EmbyPlaying? = null
+    private var embyReport: Job? = null
     private lateinit var householdSession: com.dineshdevkota.cinevault.family.FamilySession
     private var player: ExoPlayer? = null
     private var progressJob: Job? = null
@@ -110,7 +128,14 @@ class PlayerActivity : ComponentActivity() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             // Paused, the TV may dim or start its screensaver as usual.
             playerView.keepScreenOn = isPlaying
-            if (!isPlaying) record()
+            if (isPlaying) {
+                val active = embyPlaying
+                if (active != null && !active.reportedStart) {
+                    active.reportedStart = true
+                    reportEmby(EmbyClient.PlaybackEvent.STARTED)
+                }
+            } else record()
+            if (embyPlaying?.reportedStart == true && !isPlaying) reportEmby(EmbyClient.PlaybackEvent.PROGRESS)
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -243,9 +268,27 @@ class PlayerActivity : ComponentActivity() {
                     rootView.visibility = View.INVISIBLE; target = null; finish()
                     return@repeatOnLifecycle
                 }
-                target = Target(refreshed, loaded.config, loaded.source)
+                target = loaded.copy(movie = refreshed)
                 showInformation(refreshed)
-                startPlayer()
+                val emby = try {
+                    prepareEmby(loaded)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Toast.makeText(this@PlayerActivity, safeEmbyError(failure), Toast.LENGTH_LONG).show()
+                    finish()
+                    return@repeatOnLifecycle
+                }
+                val permitted = container.library.get(movieId)
+                if (isFinishing || !container.family.isCurrent(householdSession) ||
+                    !sameSource(container.database.sources().get(loaded.source.id), loaded.source) ||
+                    permitted == null || permitted.filePath != loaded.movie.filePath ||
+                    PlaybackValidator.rejectionReason(permitted, loaded.config) != null) {
+                    finish()
+                    return@repeatOnLifecycle
+                }
+                target = loaded.copy(movie = permitted)
+                startPlayer(emby)
                 combine(container.library.observe(movieId), container.database.sources().observe(loaded.source.id)) {
                     current, source -> current to source
                 }.collect { (current, source) ->
@@ -258,7 +301,7 @@ class PlayerActivity : ComponentActivity() {
                         finish()
                     } else {
                         if (target?.movie?.subtitleIdentity() != current.subtitleIdentity()) invalidateSubtitleRequest()
-                        target = Target(current, loaded.config, source ?: loaded.source)
+                        target = loaded.copy(movie = current, source = source ?: loaded.source)
                         showInformation(current)
                     }
                 }
@@ -273,8 +316,10 @@ class PlayerActivity : ComponentActivity() {
             ?: throw SmbException("This movie is no longer in the library.")
         PlaybackValidator.rejectionReason(movie)?.let { throw SmbException(it) }
         val source = database.sources().get(movie.sourceId) ?: throw SmbException("This movie's NAS source was removed.")
-        val config = withContext(Dispatchers.Default) { source.config(container.secrets) }
-        PlaybackValidator.validate(movie, config, container.smb::hasPlayableContent)
+        val emby = if (source.sourceType == EMBY) withContext(Dispatchers.IO) { source.embyConnection(container.secrets) } else null
+        val config = if (emby == null) withContext(Dispatchers.Default) { source.config(container.secrets) } else null
+        if (config != null) PlaybackValidator.validate(movie, config, container.smb::hasPlayableContent)
+        else if (embyItemId(movie.filePath) == null) throw EmbyException("This Emby item is invalid. Scan the source again.")
         // A source edit or ignore action can complete while the NAS header read is suspended.
         return database.withTransaction {
             val currentSource = database.sources().get(source.id)
@@ -287,7 +332,7 @@ class PlayerActivity : ComponentActivity() {
             }
             PlaybackValidator.rejectionReason(current, config)?.let { throw SmbException(it) }
             check(container.family.isCurrent(householdSession)) { "Your household session has locked." }
-            Target(current, config, source)
+            Target(current, config, source, emby)
         }
     }
 
@@ -313,18 +358,40 @@ class PlayerActivity : ComponentActivity() {
         outState.putBoolean(STATE_PLAY_WHEN_READY, player?.playWhenReady ?: playWhenReady)
     }
 
-    private fun startPlayer() {
+    private suspend fun prepareEmby(loaded: Target): EmbyPlaying? {
+        val connection = loaded.emby ?: return null
+        val id = embyItemId(loaded.movie.filePath) ?: throw EmbyException("Invalid Emby item.")
+        requirePlaybackAccess(loaded.movie)
+        val playback = connection.client.directPlayback(connection.account, id, EMBY_CONTAINERS)
+        requirePlaybackAccess(loaded.movie)
+        val initial = connection.client.read(connection.account, playback, 0, 1)
+        requirePlaybackAccess(loaded.movie)
+        return EmbyPlaying(connection, playback, initial.totalLength)
+    }
+
+    private fun requirePlaybackAccess(movie: MovieEntity) {
+        val active = target?.movie
+        if (active == null || active.id != movie.id || active.sourceId != movie.sourceId || active.filePath != movie.filePath ||
+            active.isMissing || active.isHidden ||
+            !container.family.isCurrent(householdSession) || !container.family.permits(active)) {
+            throw EmbyException("This item is no longer available.", 403)
+        }
+    }
+
+    private fun startPlayer(emby: EmbyPlaying?) {
         val target = target ?: return
         if (player != null || isFinishing) return
         val smb = container.smb
         if (!container.family.isCurrent(householdSession) || !container.family.permits(target.movie)) { finish(); return }
-        val files = DataSource.Factory { SmbDataSource(authorize = {
-            val active = this.target?.movie
-            check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
-        }) {
-            check(container.family.isCurrent(householdSession) && container.family.permits(target.movie)) { "Your household session has locked." }
-            smb.open(target.config, target.movie.filePath)
-        } }
+        val files = DataSource.Factory {
+            SmbDataSource(authorize = { requirePlaybackAccess(target.movie) }) {
+                if (emby != null) {
+                    EmbyVideo(emby.connection, emby.playback, emby.length) { requirePlaybackAccess(target.movie) }
+                } else {
+                    smb.open(checkNotNull(target.config), target.movie.filePath)
+                }
+            }
+        }
         val dataSources = DefaultDataSource.Factory(this, files)
         val primarySources = DefaultMediaSourceFactory(dataSources,
             DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
@@ -344,7 +411,8 @@ class PlayerActivity : ComponentActivity() {
         exo.addListener(listener)
         exo.setMediaItem(
             MediaItem.Builder()
-                .setUri(smbUri(target.config, target.movie.filePath))
+                .setUri(target.config?.let { smbUri(it, target.movie.filePath) }
+                    ?: Uri.Builder().scheme("emby-read").authority("local").appendPath(target.movie.id).build())
                 .setMediaId(target.movie.id)
                 .setSubtitleConfigurations(preparedSubtitles.map { it.configuration })
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(target.movie.title)
@@ -355,24 +423,50 @@ class PlayerActivity : ComponentActivity() {
             startPositionMs.coerceAtLeast(0),
         )
         exo.playWhenReady = playWhenReady
-        exo.prepare()
-        playerView.player = exo
         player = exo
+        embyPlaying = emby
+        playerView.player = exo
+        exo.prepare()
         progressJob = lifecycleScope.launch {
             while (isActive) {
                 delay(PROGRESS_INTERVAL_MS)
-                if (exo.isPlaying) record()
+                if (exo.isPlaying) {
+                    record()
+                    if (embyPlaying?.reportedStart == true) reportEmby(EmbyClient.PlaybackEvent.PROGRESS)
+                }
+            }
+        }
+    }
+
+    private fun reportEmby(event: EmbyClient.PlaybackEvent) {
+        val active = embyPlaying ?: return
+        val exo = player ?: return
+        // The server credential belongs to Admin. Viewer histories remain local to their profiles.
+        if (!active.reportedStart || !householdSession.admin) return
+        val position = exo.currentPosition.coerceAtLeast(0)
+        val paused = !exo.isPlaying
+        val previous = embyReport
+        embyReport = container.scope.launch {
+            previous?.join()
+            if (event != EmbyClient.PlaybackEvent.STOPPED && !container.family.isCurrent(householdSession)) return@launch
+            try {
+                active.connection.client.report(active.connection.account, active.playback, event, position, paused)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // The profile's local resume state is authoritative, even if Emby reporting is unavailable.
             }
         }
     }
 
     private suspend fun discoverSubtitles(loaded: Target): List<PreparedSubtitle> {
+        val config = loaded.config ?: return emptyList()
         // Independent worker: a blocking NAS call cannot hold up video startup past this deadline.
         val smb = container.smb
         val language = container.settings.subtitleLanguage
         val discovery = container.scope.async(Dispatchers.IO) {
             try {
-                val found = smb.readSubtitleSidecars(loaded.config, loaded.movie.filePath, language)
+                val found = smb.readSubtitleSidecars(config, loaded.movie.filePath, language)
                 found.files.mapNotNull(SubtitleTracks::configuration) to found.truncated
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { emptyList<PreparedSubtitle>() to false }
@@ -711,6 +805,8 @@ class PlayerActivity : ComponentActivity() {
         progressJob?.cancel()
         progressJob = null
         record()
+        reportEmby(EmbyClient.PlaybackEvent.STOPPED)
+        embyPlaying = null
         startPositionMs = exo.currentPosition
         playWhenReady = exo.playWhenReady
         exo.removeListener(listener)
@@ -769,15 +865,22 @@ class PlayerActivity : ComponentActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
+    private fun safeEmbyError(error: Throwable): String =
+        generateSequence(error) { it.cause }.take(8).filterIsInstance<EmbyException>().firstOrNull()?.let {
+            if (it.status == 401) "Reconnect this Emby source in Sources." else it.message
+        } ?: "Unable to play this Emby item. Check the server and its direct-play formats."
+
     private fun errorMessage(error: PlaybackException): String = when (error.errorCode / 1000) {
         // Media3 groups error codes by category in thousands: 2xxx I/O, 3xxx parsing, 4xxx decoding, 5xxx audio.
-        2 -> error.cause?.let { SmbService.describe(it) } ?: "Could not read the file from the NAS."
+        2 -> if (target?.emby != null) safeEmbyError(error)
+            else error.cause?.let { SmbService.describe(it) } ?: "Could not read the file from the NAS."
         3 -> "This file's format isn't supported, or the file is damaged."
         4, 5 -> "This TV can't play this file's video or audio format."
         else -> error.message ?: "Playback failed."
     }
 
     companion object {
+        private val EMBY_CONTAINERS = setOf("mp4", "m4v", "mov", "mkv", "webm", "ts")
         private const val EXTRA_MOVIE_ID = "movie_id"
         private const val EXTRA_RESUME = "resume"
         private const val STATE_POSITION = "position"

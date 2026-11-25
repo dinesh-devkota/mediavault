@@ -10,6 +10,9 @@ import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SecretBox
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.EmbyException
+import com.dineshdevkota.cinevault.emby.importEmbyLibrary
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.dineshdevkota.cinevault.smb.ScanProgress
@@ -70,6 +73,14 @@ class LibraryScanner(
         statusFlow.value = "Scanning ${source.name}…"
         var partialAdded = 0
         try {
+            if (source.sourceType == EMBY) {
+                val imported = importEmbyLibrary(database, source, secrets) { count ->
+                    statusFlow.value = "Scanning ${source.name}: $count catalog entries…"
+                }
+                statusFlow.value = if (imported == null) "${source.name} changed during the scan. Scan the source again."
+                    else "${source.name}: ${imported.first} video items (${imported.second} new)."
+                return
+            }
             val movies = database.movies()
             val config = source.config(secrets)
             val foundPaths = mutableSetOf<String>()
@@ -126,7 +137,9 @@ class LibraryScanner(
             statusFlow.value = "Scan cancelled for ${source.name}. Items already found are kept."
             throw e
         } catch (e: Exception) {
-            val reason = SmbService.describe(e).trimEnd().removeSuffix(".")
+            val description = if (source.sourceType == EMBY) (e as? EmbyException)?.message
+                ?: "Check the Emby connection and try again." else SmbService.describe(e)
+            val reason = description.trimEnd().removeSuffix(".")
             statusFlow.value = "Scan failed for ${source.name}: $reason. Items already found are kept. Retry from Sources."
         }
     }

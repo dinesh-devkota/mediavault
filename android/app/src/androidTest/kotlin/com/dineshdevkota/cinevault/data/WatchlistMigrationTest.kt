@@ -54,7 +54,7 @@ class WatchlistMigrationTest {
         assertEquals(legacy.movie, movie)
         assertEquals("fixture-only", source.config(SecretBox()).password)
         assertFalse("Existing movies must start outside the watchlist", movie.isWatchlisted)
-        assertEquals(5, db.openHelper.readableDatabase.version)
+        assertEquals(6, db.openHelper.readableDatabase.version)
     }
 
     @Test
@@ -69,7 +69,7 @@ class WatchlistMigrationTest {
         val movie = requireNotNull(db.movies().get(legacy.movie.id))
         assertEquals(legacy.movie.copy(isWatchlisted = true), movie)
         assertEquals(legacy.source, db.sources().get(legacy.source.id))
-        assertEquals(5, db.openHelper.readableDatabase.version)
+        assertEquals(6, db.openHelper.readableDatabase.version)
         db.movies().applyTVMetadata(movie.id, "Example", 42, 0, 1, "/season.jpg", "Episode", 40, 8.0,
             "/series.jpg", "/backdrop.jpg", "[\"Drama\"]")
         val updated = requireNotNull(db.movies().get(movie.id))
@@ -94,7 +94,7 @@ class WatchlistMigrationTest {
             it.version = 3
         }
         var db = openDatabase()
-        assertEquals(5, db.openHelper.readableDatabase.version)
+        assertEquals(6, db.openHelper.readableDatabase.version)
         assertEquals(legacy.source, db.sources().get(legacy.source.id))
         assertEquals(legacy.movie, db.movies().get(legacy.movie.id))
         val changed = legacy.source.copy(ignoredFolders = listOf("Unwanted/子供"), ignoredFiles = listOf("Trailer.mp4"))

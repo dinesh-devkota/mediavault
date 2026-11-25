@@ -18,6 +18,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.family.*
+import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.smb.NasBrowser
 import com.dineshdevkota.cinevault.smb.SmbService
@@ -258,7 +259,7 @@ private fun ProfileEditor(original: HouseholdProfile, onClose: () -> Unit) {
         if (!original.isAdmin) {
             item { TvTextField(draft.name, { draft = draft.copy(name = it.take(30)) }, "Viewer name", Modifier.width(600.dp)) }
             item { Text("Allowed folders", style = MaterialTheme.typography.titleLarge) }
-            item { Text("Only selected folders are visible, including their subfolders. New NAS connections stay hidden until you allow them.", color = SecondaryText) }
+            item { Text("Only selected folders are visible, including their subfolders. New sources stay hidden until you allow them.", color = SecondaryText) }
             if (draft.folders.isEmpty()) item { Text("No folders selected. This viewer's library will be empty.", color = SecondaryText) }
             draft.folders.forEach { grant -> item {
                 OutlinedButton(onClick = { draft = draft.copy(folders = draft.folders - grant) }) {
@@ -316,6 +317,11 @@ private fun RatingSelector(label: String, values: List<String>, selected: String
 
 @Composable
 private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> Unit) {
+    if (source.sourceType == EMBY) {
+        OutlinedButton(onClick = { onSelect("") }) { Text("Allow Emby library · ${source.name}") }
+        return
+    }
+    if (source.sourceType != "smb") return
     val container = LocalContext.current.container
     var expanded by remember { mutableStateOf(false) }
     var path by remember(source.id) { mutableStateOf(source.rootPath.replace('\\', '/').trim('/')) }

@@ -41,6 +41,10 @@ class EmbyClient internal constructor(
         val ParentIndexNumber: Int? = null, val IndexNumber: Int? = null,
         val Overview: String? = null, val OfficialRating: String? = null,
         val ImageTags: Map<String, String>? = null,
+        val SeriesName: String? = null,
+        val ProductionYear: Int? = null,
+        val RunTimeTicks: Long? = null,
+        val CollectionType: String? = null,
     )
 
     @Serializable
@@ -138,7 +142,10 @@ class EmbyClient internal constructor(
         return DirectPlayback(this, account, itemId, requireNotNull(media.id), sessionId, requireNotNull(media.container))
     }
 
-    suspend fun read(account: Account, playback: DirectPlayback, offset: Long, length: Int): ByteRange {
+    suspend fun read(account: Account, playback: DirectPlayback, offset: Long, length: Int): ByteRange =
+        runInterruptible(Dispatchers.IO) { readBlocking(account, playback, offset, length) }
+
+    internal fun readBlocking(account: Account, playback: DirectPlayback, offset: Long, length: Int): ByteRange {
         require(playback.owner === this && playback.account === account)
         require(offset >= 0 && length in 1..maximumBytes && offset <= Long.MAX_VALUE - length)
         val end = offset + length - 1
@@ -149,7 +156,7 @@ class EmbyClient internal constructor(
                 "PlaySessionId" to playback.sessionId, "DeviceId" to deviceId),
         ).header("Range", "bytes=$offset-$end").header("Accept-Encoding", "identity").build()
 
-        return execute(request) { response ->
+        return http.newCall(request).execute().use { response ->
             if (response.code != 206) throw EmbyException("Emby did not honor the byte-range request.", response.code)
             val prefix = "bytes $offset-$end/"
             val range = response.header("Content-Range")
@@ -225,7 +232,6 @@ class EmbyClient internal constructor(
         const val maximumBytes = 8 * 1024 * 1024
         val defaultClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .callTimeout(30, TimeUnit.SECONDS).build()
-        val safeValue = Regex("[A-Za-z0-9_.-]{1,256}")
-        fun headerValue(value: String): Boolean = value != "." && value != ".." && safeValue.matches(value)
+        fun headerValue(value: String): Boolean = validEmbyIdentifier(value)
     }
 }

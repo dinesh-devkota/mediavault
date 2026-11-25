@@ -97,7 +97,7 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
 
     LaunchedEffect(sourceId) {
         if (sourceId == null || loaded) return@LaunchedEffect
-        val source = container.database.sources().get(sourceId)
+        val source = container.database.sources().get(sourceId)?.takeIf { it.sourceType == "smb" }
         if (source == null) {
             onClose()
             return@LaunchedEffect
