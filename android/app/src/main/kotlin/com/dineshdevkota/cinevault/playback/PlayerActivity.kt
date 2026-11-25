@@ -38,6 +38,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.ui.PlayerView
@@ -49,6 +50,7 @@ import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.emby.EmbyClient
 import com.dineshdevkota.cinevault.emby.EmbyConnection
 import com.dineshdevkota.cinevault.emby.EmbyException
+import com.dineshdevkota.cinevault.emby.EmbyHlsDataSource
 import com.dineshdevkota.cinevault.emby.EmbyVideo
 import com.dineshdevkota.cinevault.emby.embyConnection
 import com.dineshdevkota.cinevault.emby.embyItemId
@@ -87,7 +89,7 @@ class PlayerActivity : ComponentActivity() {
         val emby: EmbyConnection? = null,
     )
 
-    private class EmbyPlaying(val connection: EmbyConnection, val playback: EmbyClient.DirectPlayback, val length: Long) {
+    private class EmbyPlaying(val connection: EmbyConnection, val playback: EmbyClient.Playback, val length: Long? = null) {
         var reportedStart = false
     }
 
@@ -363,11 +365,17 @@ class PlayerActivity : ComponentActivity() {
         val connection = loaded.emby ?: return null
         val id = embyItemId(loaded.movie.filePath) ?: throw EmbyException("Invalid Emby item.")
         requirePlaybackAccess(loaded.movie)
-        val playback = connection.client.directPlayback(connection.account, id, EMBY_CONTAINERS)
+        val direct = connection.client.directPlaybackIfSupported(connection.account, id, EMBY_CONTAINERS,
+            setOf("h264", "hevc", "vp8", "vp9", "av1", "mpeg4"))
         requirePlaybackAccess(loaded.movie)
-        val initial = connection.client.read(connection.account, playback, 0, 1)
+        if (direct != null) {
+            val initial = connection.client.read(connection.account, direct, 0, 1)
+            requirePlaybackAccess(loaded.movie)
+            return EmbyPlaying(connection, direct, initial.totalLength)
+        }
+        val transcode = connection.client.transcode(connection.account, id)
         requirePlaybackAccess(loaded.movie)
-        return EmbyPlaying(connection, playback, initial.totalLength)
+        return EmbyPlaying(connection, transcode)
     }
 
     private fun requirePlaybackAccess(movie: MovieEntity) {
@@ -386,19 +394,26 @@ class PlayerActivity : ComponentActivity() {
         if (player != null || isFinishing) return
         val smb = container.smb
         if (!container.family.isCurrent(householdSession) || !container.family.permits(target.movie)) { finish(); return }
+        val transcode = emby?.playback as? EmbyClient.TranscodedPlayback
+        val direct = emby?.playback as? EmbyClient.DirectPlayback
         val files = DataSource.Factory {
             SmbDataSource(authorize = { requirePlaybackAccess(target.movie) }) {
-                if (emby != null) {
-                    EmbyVideo(emby.connection, emby.playback, emby.length) { requirePlaybackAccess(target.movie) }
+                if (direct != null) {
+                    EmbyVideo(emby.connection, direct, checkNotNull(emby.length)) { requirePlaybackAccess(target.movie) }
                 } else {
                     smb.open(checkNotNull(target.config), target.movie.filePath)
                 }
             }
         }
         val dataSources = DefaultDataSource.Factory(this, files)
-        val primarySources = DefaultMediaSourceFactory(dataSources,
-            DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
-            .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
+        val primarySources = if (transcode != null) {
+            HlsMediaSource.Factory(DataSource.Factory {
+                EmbyHlsDataSource(emby.connection, transcode) { requirePlaybackAccess(target.movie) }
+            }).setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
+        } else {
+            DefaultMediaSourceFactory(dataSources, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
+                .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
+        }
         val mediaSources = SubtitleMediaSourceFactory(primarySources, dataSources) { preparedSubtitles }
         val exo = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setEnableDecoderFallback(true))
             .setMediaSourceFactory(mediaSources)
@@ -414,7 +429,7 @@ class PlayerActivity : ComponentActivity() {
         exo.addListener(listener)
         exo.setMediaItem(
             MediaItem.Builder()
-                .setUri(target.config?.let { smbUri(it, target.movie.filePath) }
+                .setUri(transcode?.manifest?.toString()?.let(Uri::parse) ?: target.config?.let { smbUri(it, target.movie.filePath) }
                     ?: Uri.Builder().scheme("emby-read").authority("local").appendPath(target.movie.id).build())
                 .setMediaId(target.movie.id)
                 .setSubtitleConfigurations(preparedSubtitles.map { it.configuration })
@@ -839,6 +854,17 @@ class PlayerActivity : ComponentActivity() {
         progressJob = null
         record()
         reportEmby(EmbyClient.PlaybackEvent.STOPPED)
+        val ending = embyPlaying
+        val session = ending?.playback as? EmbyClient.TranscodedPlayback
+        if (ending != null && session != null) {
+            val reporting = embyReport
+            container.scope.launch {
+                reporting?.join()
+                try { ending.connection.client.stopTranscode(ending.connection.account, session) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { /* The server also expires inactive encoding jobs. */ }
+            }
+        }
         embyPlaying = null
         startPositionMs = exo.currentPosition
         playWhenReady = exo.playWhenReady

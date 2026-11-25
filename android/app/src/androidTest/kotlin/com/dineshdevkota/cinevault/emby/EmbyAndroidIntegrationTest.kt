@@ -12,6 +12,8 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
 import androidx.room.Room
@@ -114,12 +116,88 @@ class EmbyAndroidIntegrationTest {
                 shifted.close()
             }
             current.set(allowed)
-            verifyRenderedSeek(dataSource, uri)
+            verifyRenderedSeek(ProgressiveMediaSource.Factory(dataSource), uri)
             current.set(viewer)
             assertDenied(dataSource, uri)
             restored.client.signOut(restored.account)
         } finally {
             database.close()
+            server.close()
+        }
+    }
+
+    @Test
+    fun negotiatedHlsFallbackRendersAndSeeksWithoutQueryToken() = runBlocking<Unit> {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val segments = assets.open("emby-hls-synthetic.txt").bufferedReader().useLines { lines ->
+            lines.map { java.util.Base64.getDecoder().decode(it) }.toList()
+        }
+        assertEquals(4, segments.size)
+        val certificate = HeldCertificate.Builder().commonName("Emby fixture").addSubjectAlternativeName("127.0.0.1").build()
+        val serverCertificates = HandshakeCertificates.Builder().heldCertificate(certificate).build()
+        val fixtureTrust = HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
+        val http = OkHttpClient.Builder().sslSocketFactory(fixtureTrust.sslSocketFactory(), fixtureTrust.trustManager)
+            .followRedirects(false).followSslRedirects(false).build()
+        val server = MockWebServer()
+        server.useHttps(serverCertificates.sslSocketFactory(), false)
+        val cleaned = AtomicLong()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val endpoint = request.requestUrl ?: return MockResponse().setResponseCode(400)
+                if (request.getHeader("X-Emby-Token") != "fixture-token" || endpoint.queryParameter("api_key") != null) {
+                    return MockResponse().setResponseCode(401)
+                }
+                return when (endpoint.encodedPath) {
+                    "/emby/Items/movie/PlaybackInfo" -> if (request.method == "GET") MockResponse().setBody(
+                        """{"PlaySessionId":"direct","MediaSources":[{"Id":"source","Container":"mkv","SupportsDirectPlay":true,"MediaStreams":[{"Type":"Video","Codec":"mpeg2video"}]}]}"""
+                    ) else MockResponse().setBody(
+                        """{"PlaySessionId":"transcode","MediaSources":[{"Id":"source","TranscodingUrl":"/videos/movie/master.m3u8?api_key=fixture-token"}]}"""
+                    )
+                    "/emby/videos/movie/master.m3u8" -> MockResponse().setBody(
+                        "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=160000,CODECS=\"avc1.42c00b\"\nmain.m3u8\n"
+                    )
+                    "/emby/videos/movie/main.m3u8" -> MockResponse().setBody(buildString {
+                        append("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXT-X-PLAYLIST-TYPE:VOD\n")
+                        for (index in segments.indices) append("#EXTINF:2.000,\nhls1/main/$index.ts\n")
+                        append("#EXT-X-ENDLIST\n")
+                    })
+                    "/emby/Videos/ActiveEncodings" -> {
+                        if (request.method != "DELETE" || endpoint.queryParameter("PlaySessionId") != "transcode") {
+                            MockResponse().setResponseCode(400)
+                        } else { cleaned.incrementAndGet(); MockResponse().setResponseCode(204) }
+                    }
+                    else -> {
+                        val index = endpoint.encodedPath.substringAfterLast('/').removeSuffix(".ts").toIntOrNull()
+                        val segment = index?.let(segments::getOrNull) ?: return MockResponse().setResponseCode(404)
+                        MockResponse().setBody(Buffer().write(segment))
+                    }
+                }
+            }
+        }
+        server.start(InetAddress.getByName("127.0.0.1"), 0)
+        try {
+            val endpoint = server.url("/emby/").newBuilder().host("127.0.0.1").build().toString()
+            val client = EmbyClient(endpoint, "fixture-device", "1.0", http)
+            val account = EmbyClient.Account("fixture-token", EmbyClient.User("viewer", "Viewer"))
+            assertNull(client.directPlaybackIfSupported(account, "movie", setOf("mkv"), setOf("h264")))
+            val session = client.transcode(account, "movie")
+            val familyAllows = AtomicReference(true)
+            val uri = Uri.parse(session.manifest.toString())
+            val factory = DataSource.Factory {
+                EmbyHlsDataSource(EmbyConnection(client, account), session) {
+                    if (!familyAllows.get()) throw IOException("Viewer access denied.")
+                }
+            }
+            try {
+                assertFalse(uri.toString().contains("fixture-token"))
+                verifyRenderedSeek(HlsMediaSource.Factory(factory), uri)
+                familyAllows.set(false)
+                assertDenied(factory, uri)
+            } finally {
+                client.stopTranscode(account, session)
+            }
+            assertEquals(1L, cleaned.get())
+        } finally {
             server.close()
         }
     }
@@ -131,7 +209,7 @@ class EmbyAndroidIntegrationTest {
         }
     }
 
-    private suspend fun verifyRenderedSeek(transport: DataSource.Factory, uri: Uri) {
+    private suspend fun verifyRenderedSeek(mediaSourceFactory: MediaSource.Factory, uri: Uri) {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             var player: ExoPlayer? = null
             var view: PlayerView? = null
@@ -139,7 +217,7 @@ class EmbyAndroidIntegrationTest {
             try {
                 scenario.onActivity { activity ->
                     val exo = ExoPlayer.Builder(activity, DefaultRenderersFactory(activity).setEnableDecoderFallback(true))
-                        .setMediaSourceFactory(ProgressiveMediaSource.Factory(transport))
+                        .setMediaSourceFactory(mediaSourceFactory)
                         .build()
                     player = exo
                     exo.addListener(observation)
