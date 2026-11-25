@@ -131,7 +131,7 @@ internal fun TVShowBrowser(
     val requestedSeason = season
     val resolvedId = show?.id
     val availableSeasons = show?.seasons.orEmpty()
-    LaunchedEffect(requestedShow, resolvedId, requestedSeason, availableSeasons) {
+    LaunchedEffect(requestedShow, resolvedId, requestedSeason, availableSeasons, restoreNavigationFocus) {
         if (showId != requestedShow || season != requestedSeason) return@LaunchedEffect
         if (requestedShow != null && resolvedId == null && restoreNavigationFocus && onExit != null) {
             onExit()
@@ -173,13 +173,13 @@ internal fun TVShowBrowser(
     val requestedPending = focusPending
     val requestedPlaced = placed
     fun requestIsCurrent() = focusRequest == request && showId == requestedShow && season == requestedSeason && lastEpisode == requestedEpisode
-    LaunchedEffect(windowFocused) { if (restoreNavigationFocus && windowFocused) { focusRequest++; focusPending = true } }
-    LaunchedEffect(show?.id, requestedSeason, targetKey, requestedPending, request) {
+    LaunchedEffect(windowFocused, restoreNavigationFocus) { if (restoreNavigationFocus && windowFocused) { focusRequest++; focusPending = true } }
+    LaunchedEffect(show?.id, requestedSeason, targetKey, requestedPending, request, restoreNavigationFocus) {
         if (restoreNavigationFocus && requestedPending && requestIsCurrent() && targetIndex >= 0 && grid.layoutInfo.visibleItemsInfo.none { it.key == targetKey }) {
             grid.scrollToItem(targetIndex)
         }
     }
-    LaunchedEffect(requestedPlaced, requestedPending, windowFocused, request) {
+    LaunchedEffect(requestedPlaced, requestedPending, windowFocused, request, restoreNavigationFocus) {
         if (restoreNavigationFocus && requestedPlaced && requestedPending && windowFocused && requestIsCurrent() && targetFocus.requestFocus()) {
             focusPending = false
             holdingFocus = false
