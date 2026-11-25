@@ -28,6 +28,11 @@ struct OneDriveClient: Sendable {
         fileprivate let device_code: String
         fileprivate let expires_in: Int
         fileprivate let interval: Int?
+        fileprivate let received = ContinuousClock.now
+
+        enum CodingKeys: String, CodingKey {
+            case user_code, verification_uri, device_code, expires_in, interval
+        }
     }
 
     struct Credentials: Decodable, Sendable {
@@ -63,7 +68,7 @@ struct OneDriveClient: Sendable {
 
     private struct OAuthError: Decodable { let error: String }
     private static let scope = "https://graph.microsoft.com/Files.Read offline_access"
-    private static let session: URLSession = {
+    private static let defaultSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.urlCredentialStorage = nil
@@ -73,10 +78,12 @@ struct OneDriveClient: Sendable {
         return URLSession(configuration: config, delegate: OneDriveRedirectDelegate(), delegateQueue: nil)
     }()
     private let clientID: String
+    private let session: URLSession
 
-    init(clientID: String) throws {
+    init(clientID: String, session: URLSession? = nil) throws {
         guard let id = UUID(uuidString: clientID) else { throw OneDriveError.invalidClient }
         self.clientID = id.uuidString.lowercased()
+        self.session = session ?? Self.defaultSession
     }
 
     func beginSignIn() async throws -> Challenge {
@@ -94,7 +101,7 @@ struct OneDriveClient: Sendable {
 
     func completeSignIn(_ challenge: Challenge) async throws -> Credentials {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(challenge.expires_in))
+        let deadline = challenge.received.advanced(by: .seconds(challenge.expires_in))
         var interval = min(max(challenge.interval ?? 5, 1), 60)
         while clock.now < deadline {
             try await clock.sleep(until: min(clock.now.advanced(by: .seconds(interval)), deadline))
@@ -139,14 +146,15 @@ struct OneDriveClient: Sendable {
             try Task.checkCancellation()
             guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
                   parts.scheme == "https", parts.host == "graph.microsoft.com", parts.port == nil,
-                  parts.user == nil, parts.password == nil, parts.fragment == nil, parts.path == endpoint.path,
+                  parts.user == nil, parts.password == nil, parts.fragment == nil,
+                  Self.isChildPage(parts.path, requested: endpoint.path, folderID: folderID),
                   seen.count < 10_000, seen.insert(url).inserted,
                   !accessToken.isEmpty, accessToken.utf8.allSatisfy({ (33...126).contains($0) }) else {
                 throw OneDriveError.invalidResponse
             }
             var request = URLRequest(url: url)
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-            let (data, status) = try await Self.send(request)
+            let (data, status) = try await send(request)
             guard status == 200 else { throw OneDriveError.rejected(status) }
             let page = try JSONDecoder().decode(GraphPage.self, from: data)
             try await onPage(page.value)
@@ -166,7 +174,7 @@ struct OneDriveClient: Sendable {
 
         var metadata = URLRequest(url: metadataURL)
         metadata.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        let (data, status) = try await Self.send(metadata)
+        let (data, status) = try await send(metadata)
         guard status == 200 else { throw OneDriveError.rejected(status) }
         let item = try JSONDecoder().decode(DownloadItem.self, from: data)
         guard item.id == fileID, let link = item.downloadURL,
@@ -180,7 +188,7 @@ struct OneDriveClient: Sendable {
         // The link is already signed; the Graph bearer credential stays on graph.microsoft.com.
         request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (bytes, response) = try await Self.session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw OneDriveError.invalidResponse }
         guard http.statusCode == 206 else { throw OneDriveError.rejected(http.statusCode) }
@@ -205,6 +213,15 @@ struct OneDriveClient: Sendable {
         return total > end && header == prefix + String(total)
     }
 
+    private static func isChildPage(_ path: String, requested: String, folderID: String?) -> Bool {
+        if path == requested { return true }
+        // Microsoft Graph can canonicalize an alias under /me/drive to a drive ID in nextLink.
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        return parts.count == 7 && parts[0].isEmpty && parts[1] == "v1.0" && parts[2] == "drives" &&
+            isItemID(String(parts[3])) && parts[4] == "items" && isItemID(String(parts[5])) &&
+            (folderID == nil || String(parts[5]) == folderID) && parts[6] == "children"
+    }
+
     private static func isItemID(_ value: String) -> Bool {
         (1...256).contains(value.utf8.count) && value.utf8.allSatisfy {
             (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) ||
@@ -225,10 +242,10 @@ struct OneDriveClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(body.utf8)
-        return try await Self.send(request)
+        return try await send(request)
     }
 
-    private static func send(_ request: URLRequest) async throws -> (Data, Int) {
+    private func send(_ request: URLRequest) async throws -> (Data, Int) {
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         let limit = 8 * 1024 * 1024
