@@ -295,7 +295,7 @@ fun TvTextField(
             keyboardType = if (isPassword && keyboardType != KeyboardType.NumberPassword) KeyboardType.Password else keyboardType,
             imeAction = imeAction,
             autoCorrectEnabled = false,
-            showKeyboardOnFocus = false,
+            showKeyboardOnFocus = !LocalTvLayout.current,
         ),
         // Results update live, so the IME's Search key only needs to close the keyboard.
         keyboardActions = KeyboardActions(onSearch = { defaultKeyboardAction(ImeAction.Done) }),

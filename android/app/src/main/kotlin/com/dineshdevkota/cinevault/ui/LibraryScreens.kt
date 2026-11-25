@@ -23,8 +23,10 @@ import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Tab as PhoneTab
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text as PhoneText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -157,7 +160,7 @@ fun RootScreen() {
                 else -> SettingsTab()
             }
         }
-        if (!isTv) {
+        if (!isTv) Column(Modifier.selectableGroup()) {
             HorizontalDivider()
             tabs.chunked(3).forEachIndexed { row, titles ->
                 Row(Modifier.fillMaxWidth().background(SurfaceColor)) {
@@ -169,7 +172,9 @@ fun RootScreen() {
                             modifier = Modifier.weight(1f),
                             selectedContentColor = Accent,
                             unselectedContentColor = SecondaryText,
-                            text = { Text(title, style = MaterialTheme.typography.labelMedium) },
+                            text = {
+                                PhoneText(title, fontWeight = if (index == tab) FontWeight.Bold else FontWeight.Normal)
+                            },
                         )
                     }
                 }
