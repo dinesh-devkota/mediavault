@@ -1,10 +1,11 @@
 #include <fcntl.h>
 #include <jni.h>
-#include <nfsc/libnfs.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <nfsc/libnfs.h>
 
 #define MAX_PATH_BYTES 4095
 #define MAX_COMPONENT_BYTES 255

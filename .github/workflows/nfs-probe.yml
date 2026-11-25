@@ -118,6 +118,10 @@ jobs:
           if len(cases) != 2 or failed:
               raise SystemExit("Both Android TV NFS fixture tests must pass.")
           PYCODE
+          if grep -q "^NFS fixture protocol error:" "$RUNNER_TEMP/nfs-fixture.log"; then
+            grep "^NFS fixture protocol error:" "$RUNNER_TEMP/nfs-fixture.log"
+            exit 1
+          fi
       - name: Stop the fixture
         if: always()
         run: |

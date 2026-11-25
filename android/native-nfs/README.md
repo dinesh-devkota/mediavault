@@ -5,9 +5,8 @@ and reads an exact byte range from an export-relative file. It uses a separate
 libnfs shared library. It skips symbolic links and rejects traversal, case
 mismatches, and truncated reads. Pathnames are passed as UTF-8 bytes.
 
-There is no NFS setup UI. Catalog, household authorization and playback must
-call this bridge through the app's normal source operations before it is
-suitable for release. NFSv3 traffic is unencrypted and intended for private,
+NFS setup, catalog, household authorization, and playback still need app wiring through the
+normal source operations before release. NFSv3 traffic is unencrypted and intended for private,
 trusted networks.
 
 ## Build and test
@@ -27,8 +26,8 @@ for all four supported Android ABIs.
 
 Pass `-Pcinevault.nfsDevelopmentLibs=/tmp/mediavault-nfs-native/jniLibs` to
 Gradle to include the libraries and the instrumented fixture tests in a debug
-build. Normal builds and release APKs contain neither library. The hosted NFS
-job provides the synthetic fixture on the Android TV emulator host loopback.
+build. Library packaging is confined to this debug configuration. The hosted
+NFS job provides the synthetic fixture on the Android TV emulator host loopback.
 
 ## Distribution
 
@@ -38,9 +37,8 @@ target only. Upstream examples and tools are excluded. Preserve the upstream
 notices and provide the exact corresponding libnfs source, including the
 MediaVault directory-link patch, for any distributed binary.
 
-A separate library inside a signed Android package does not by itself provide
-a user replacement mechanism. Before distributing a build with libnfs, satisfy
-LGPL section 6 through user replacement or an applicable relinking path.
-The draft development packaging does not set the distribution mechanism.
+Before distributing a signed APK with libnfs, satisfy LGPL section 6 through
+a user replacement mechanism or an applicable relinking path. The distribution
+mechanism remains open.
 
 [libnfs notices](https://github.com/sahlberg/libnfs/blob/libnfs-5.0.3/COPYING) · [LGPL-2.1 section 6](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html)

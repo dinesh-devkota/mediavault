@@ -9,6 +9,7 @@ import os
 import socketserver
 import struct
 import subprocess
+import sys
 import threading
 import unittest
 from collections import Counter
@@ -81,7 +82,7 @@ class Node:
 class ReadOnlyExport(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
-    def __init__(self, port=0):
+    def __init__(self, port=0, log_errors=False):
         super().__init__(("127.0.0.1", port), RPCHandler)
         self.nodes = {
             b"root": Node(DIR, 1),
@@ -106,6 +107,7 @@ class ReadOnlyExport(socketserver.ThreadingTCPServer):
         }
         self.calls = Counter()
         self.errors = []
+        self.log_errors = log_errors
 
     def dispatch(self, program, procedure, arguments):
         self.calls[program, procedure] += 1
@@ -184,6 +186,8 @@ class RPCHandler(socketserver.StreamRequestHandler):
                 self.wfile.write(words(0x80000000 | len(reply)) + reply)
         except (OSError, ValueError, KeyError, struct.error) as error:
             self.server.errors.append(str(error))
+            if self.server.log_errors:
+                print(f"NFS fixture protocol error: {error}", file=sys.stderr, flush=True)
 
 
 class NFSProbeTests(unittest.TestCase):
@@ -266,6 +270,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serve the synthetic NFSv3 export on loopback.")
     parser.add_argument("--serve-port", type=int, required=True)
     args = parser.parse_args()
-    with ReadOnlyExport(port=args.serve_port) as server:
+    with ReadOnlyExport(port=args.serve_port, log_errors=True) as server:
         print(f"NFS fixture listening on loopback port {server.server_address[1]}", flush=True)
         server.serve_forever()
