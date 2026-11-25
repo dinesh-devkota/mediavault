@@ -16,6 +16,8 @@ private final class DropboxRedirectDelegate: NSObject, URLSessionTaskDelegate {
 struct DropboxClient: Sendable {
     struct Authorization: Sendable {
         let url: URL
+        fileprivate let appKey: String
+        fileprivate let callback: URL?
         fileprivate let verifier: String
         fileprivate let state: String
         fileprivate let deadline: ContinuousClock.Instant
@@ -58,13 +60,16 @@ struct DropboxClient: Sendable {
         return URLSession(configuration: config, delegate: DropboxRedirectDelegate(), delegateQueue: nil)
     }()
     private let appKey: String
-    private let callback: URL
+    private let callback: URL?
     private let session: URLSession
 
-    init(appKey: String, callback: URL, session: URLSession? = nil) throws {
-        guard !appKey.isEmpty, callback.scheme == "https", callback.host?.isEmpty == false,
-              callback.user == nil, callback.password == nil, callback.query == nil, callback.fragment == nil else {
-            throw DropboxClientError.invalidConfiguration
+    init(appKey: String, callback: URL? = nil, session: URLSession? = nil) throws {
+        guard !appKey.isEmpty else { throw DropboxClientError.invalidConfiguration }
+        if let callback {
+            guard callback.scheme == "https", callback.host?.isEmpty == false,
+                  callback.user == nil, callback.password == nil, callback.query == nil, callback.fragment == nil else {
+                throw DropboxClientError.invalidConfiguration
+            }
         }
         self.appKey = appKey
         self.callback = callback
@@ -79,22 +84,24 @@ struct DropboxClient: Sendable {
         url.scheme = "https"
         url.host = "www.dropbox.com"
         url.path = "/oauth2/authorize"
-        url.queryItems = [
+        var query: [URLQueryItem] = [
             URLQueryItem(name: "client_id", value: appKey),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "redirect_uri", value: callback.absoluteString),
             URLQueryItem(name: "token_access_type", value: "offline"),
             URLQueryItem(name: "scope", value: "files.metadata.read files.content.read"),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "state", value: state),
         ]
+        if let callback { query.append(URLQueryItem(name: "redirect_uri", value: callback.absoluteString)) }
+        url.queryItems = query
         guard let target = url.url else { throw DropboxClientError.invalidConfiguration }
-        return Authorization(url: target, verifier: verifier, state: state, deadline: ContinuousClock.now.advanced(by: .seconds(600)))
+        return Authorization(url: target, appKey: appKey, callback: callback, verifier: verifier, state: state,
+                             deadline: ContinuousClock.now.advanced(by: .seconds(600)))
     }
 
     func completeAuthorization(_ authorization: Authorization, callback response: URL) async throws -> Credentials {
-        guard ContinuousClock.now < authorization.deadline,
+        guard accepts(authorization), let callback,
               var parts = URLComponents(url: response, resolvingAgainstBaseURL: false),
               parts.fragment == nil else { throw DropboxClientError.invalidAuthorization }
         let fields = parts.queryItems ?? []
@@ -110,6 +117,20 @@ struct DropboxClient: Sendable {
             "grant_type": "authorization_code", "code": value,
             "redirect_uri": callback.absoluteString, "code_verifier": authorization.verifier,
         ])
+    }
+
+    /// The browser displays a code when the initial request omits the redirect URI.
+    func completeManualAuthorization(_ authorization: Authorization, code: String) async throws -> Credentials {
+        let code = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard accepts(authorization), callback == nil, (1...2048).contains(code.utf8.count),
+              code.utf8.allSatisfy({ (33...126).contains($0) }) else {
+            throw DropboxClientError.invalidAuthorization
+        }
+        return try await token(["grant_type": "authorization_code", "code": code, "code_verifier": authorization.verifier])
+    }
+
+    private func accepts(_ authorization: Authorization) -> Bool {
+        authorization.appKey == appKey && authorization.callback == callback && ContinuousClock.now < authorization.deadline
     }
 
     func refresh(_ refreshToken: String) async throws -> Credentials {

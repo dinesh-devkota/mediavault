@@ -25,6 +25,26 @@ final class DropboxClientTests: XCTestCase {
         XCTAssertNil(first["client_secret"])
     }
 
+    func testManualAuthorizationExchangesCodeWithoutRedirectOrSecret() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DropboxFixtureProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = try DropboxClient(appKey: "fixture-app", session: session)
+        let approval = try client.beginAuthorization()
+        let query = try XCTUnwrap(URLComponents(url: approval.url, resolvingAgainstBaseURL: false)?.queryItems)
+        XCTAssertFalse(query.contains(where: { $0.name == "redirect_uri" }))
+        let credentials = try await client.completeManualAuthorization(approval, code: " fixture+code ")
+        XCTAssertEqual(credentials.access_token, "fixture-token")
+        XCTAssertEqual(credentials.refresh_token, "fixture-refresh")
+
+        let unrelatedClient = try DropboxClient(appKey: "other-app", session: session)
+        do {
+            _ = try await unrelatedClient.completeManualAuthorization(approval, code: "fixture+code")
+            XCTFail("An authorization from a different app key was accepted")
+        } catch DropboxClientError.invalidAuthorization { }
+    }
+
     func testDownloadUsesAuthorizedBoundedRangeAndStableFileID() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [DropboxFixtureProtocol.self]
@@ -68,9 +88,28 @@ private final class DropboxFixtureProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        guard request.httpMethod == "POST", request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture",
-              let url = request.url else {
+        guard request.httpMethod == "POST", let url = request.url else {
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        if url.host == "api.dropboxapi.com", url.path == "/oauth2/token" {
+            let form = bodyForm()
+            let fields = URLComponents(string: "https://fixture.example/?" + form)?.queryItems ?? []
+            guard fields.contains(URLQueryItem(name: "code", value: "fixture+code")),
+                  fields.contains(URLQueryItem(name: "client_id", value: "fixture-app")),
+                  fields.contains(URLQueryItem(name: "grant_type", value: "authorization_code")),
+                  fields.first(where: { $0.name == "code_verifier" })?.value?.utf8.count == 43,
+                  !fields.contains(where: { $0.name == "redirect_uri" || $0.name == "client_secret" }),
+                  request.value(forHTTPHeaderField: "Authorization") == nil else {
+                respond(400, headers: [:], body: "")
+                return
+            }
+            respond(200, headers: [:],
+                    body: #"{"access_token":"fixture-token","refresh_token":"fixture-refresh","expires_in":14400}"#)
+            return
+        }
+        guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture" else {
+            respond(401, headers: [:], body: "")
             return
         }
         switch (url.host, url.path) {
@@ -97,6 +136,21 @@ private final class DropboxFixtureProtocol: URLProtocol {
                     body: #"{"entries":[{".tag":"file","name":"Film.mp4","id":"id:fixture","size":10}],"cursor":"end","has_more":false}"#)
         default: respond(404, headers: [:], body: "")
         }
+    }
+
+    private func bodyForm() -> String {
+        if let data = request.httpBody { return String(decoding: data, as: UTF8.self) }
+        guard let stream = request.httpBodyStream else { return "" }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 256)
+        while data.count < 4096 {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     override func stopLoading() {}
