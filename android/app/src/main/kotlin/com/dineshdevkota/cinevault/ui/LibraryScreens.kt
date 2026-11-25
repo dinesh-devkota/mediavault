@@ -390,12 +390,13 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, 
     val emptyMessage = when {
         filter == LibraryFilter.WATCHLIST && facets == LibraryFacets() -> "Open a title and choose Add to Watchlist to save it for later."
         hasFilters -> "Clear your filters to browse all ${kind.label.lowercase()}."
+        !container.family.current.admin -> "Ask Admin to choose folders and check the rating limits for your profile."
         else -> "Add the parent media folder in Sources. Its subfolders are scanned automatically."
     }
     val emptyContent: @Composable () -> Unit = {
         EmptyState(emptyTitle, emptyMessage,
-            actionLabel = if (hasFilters) "Clear filters" else "Open Sources",
-            onAction = if (hasFilters) ::clearFilters else openSources,
+            actionLabel = if (hasFilters) "Clear filters" else if (!container.family.current.admin) "Switch profile" else "Open Sources",
+            onAction = if (hasFilters) ::clearFilters else if (!container.family.current.admin) ({ container.family.lock() }) else openSources,
             actionModifier = Modifier.testTag("library-empty-action"))
     }
 

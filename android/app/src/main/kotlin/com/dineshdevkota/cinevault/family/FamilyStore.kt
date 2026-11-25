@@ -24,7 +24,7 @@ data class FamilySession(val enabled: Boolean = false, val damaged: Boolean = fa
 @Serializable
 private data class PinAttempts(val failures: Int = 0, val retryAfter: Long = 0)
 @Serializable
-private data class FamilyRecord(val profiles: List<HouseholdProfile>, val attempts: Map<String, PinAttempts> = emptyMap())
+private data class FamilyRecord(val profiles: List<HouseholdProfile>, val attempts: Map<String, PinAttempts> = emptyMap(), val enabled: Boolean = true)
 
 /** Configured-but-unreadable storage is locked, never silently treated as disabled. */
 class FamilyStore(context: Context, private val secrets: SecretBox,
@@ -55,7 +55,7 @@ class FamilyStore(context: Context, private val secrets: SecretBox,
                     profile.pin?.let { require(it.rounds == PinVerifier.ROUNDS && java.util.Base64.getDecoder().decode(it.salt).size == 16 && java.util.Base64.getDecoder().decode(it.hash).size == 32) }
                 }
                 record = loaded
-                mutable.value = FamilySession(enabled = true)
+                mutable.value = FamilySession(enabled = loaded.enabled)
             } catch (_: Exception) { mutable.value = FamilySession(enabled = true, damaged = true) }
         }
     }
@@ -71,7 +71,7 @@ class FamilyStore(context: Context, private val secrets: SecretBox,
     suspend fun setup(pin: String, confirmation: String) = withContext(Dispatchers.Default) { mutex.withLock {
         val initial = current
         val epoch = synchronized(transitionLock) { lockEpoch }
-        check(!current.enabled) { "Household profiles are already set up." }
+        check(!current.enabled && record == null) { "Use the existing Admin PIN to turn household profiles back on." }
         require(pin == confirmation) { "The PINs do not match." }
         val admin = HouseholdProfile(HouseholdProfile.ADMIN, "Admin", PinVerifier.create(pin))
         synchronized(transitionLock) {
@@ -83,32 +83,36 @@ class FamilyStore(context: Context, private val secrets: SecretBox,
 
     suspend fun unlock(id: String, pin: String): String? = withContext(Dispatchers.Default) { mutex.withLock {
         val initial = current
+        val epoch = synchronized(transitionLock) { lockEpoch }
         if (initial.damaged) return@withLock "Household controls could not be read. Access remains locked."
         val stored = record ?: return@withLock "Household controls could not be read. Access remains locked."
+        if (!stored.enabled && id != HouseholdProfile.ADMIN) return@withLock "An adult must turn household profiles on with the Admin PIN."
         val now = System.currentTimeMillis()
         val attempts = stored.attempts[id] ?: PinAttempts()
         if (attempts.retryAfter > now) return@withLock "Too many attempts. Try again in ${((attempts.retryAfter - now + 999) / 1000)} seconds."
         val profile = stored.profiles.firstOrNull { it.id == id } ?: return@withLock "Choose an available profile."
         val matches = profile.pin == null || profile.pin.matches(pin)
         synchronized(transitionLock) {
-            if (current != initial) return@withLock "The session changed. Enter your PIN again."
+            if (current != initial || epoch != lockEpoch) return@withLock "The session changed. Enter your PIN again."
             if (!matches) {
                 val failures = (attempts.failures + 1).coerceAtMost(100)
                 val delay = if (failures < 5) 0 else (30_000L shl (failures - 5).coerceAtMost(6)).coerceAtMost(1_800_000L)
                 persist(stored.copy(attempts = stored.attempts + (id to PinAttempts(failures, now + delay))))
                 return@withLock if (delay > 0) "Too many attempts. Try again in ${delay / 1000} seconds." else "That PIN did not match. Try again."
             }
-            persist(stored.copy(attempts = stored.attempts - id))
-            mutable.value = current.copy(profile = profile, generation = current.generation + 1)
+            persist(stored.copy(attempts = stored.attempts - id, enabled = true))
+            mutable.value = current.copy(enabled = true, profile = profile, generation = current.generation + 1)
         }
         null
     } }
 
     suspend fun saveProfile(profile: HouseholdProfile, newPin: String?, removePin: Boolean = false) = withContext(Dispatchers.Default) { mutex.withLock {
+        check(current.enabled) { "Turn household profiles on with the Admin PIN first." }
         requireAdmin()
         val initial = current
         val stored = checkNotNull(record)
         require(profile.name.isNotBlank() && profile.name.trim().length <= 30) { "Use a name with 1–30 characters." }
+        require(stored.profiles.none { it.id != profile.id && it.name.equals(profile.name.trim(), ignoreCase = true) }) { "Choose a different name. A profile already uses this name." }
         require(profile.id.isNotBlank() && (profile.movieLimit == null || profile.movieLimit in FamilyPolicy.movieRatings) &&
             (profile.tvLimit == null || profile.tvLimit in FamilyPolicy.tvRatings)) { "Choose a supported US rating limit." }
         val folders = profile.folders.map { grant ->
@@ -121,16 +125,28 @@ class FamilyStore(context: Context, private val secrets: SecretBox,
         val saved = profile.copy(name = profile.name.trim(), pin = verifier, folders = folders)
         synchronized(transitionLock) {
             check(isCurrent(initial) && current.admin) { "Your session locked. Unlock Admin again." }
-            persist(stored.copy(profiles = stored.profiles.filterNot { it.id == saved.id } + saved))
+            persist(stored.copy(profiles = stored.profiles.filterNot { it.id == saved.id } + saved,
+                attempts = if (verifier != existing?.pin) stored.attempts - saved.id else stored.attempts))
             mutable.value = current.copy(profile = if (saved.isAdmin) saved else current.profile, generation = current.generation + 1)
         }
     } }
 
     suspend fun deleteProfile(id: String) = withContext(Dispatchers.Default) { mutex.withLock {
         synchronized(transitionLock) {
+            check(current.enabled) { "Turn household profiles on with the Admin PIN first." }
             requireAdmin(); require(id != HouseholdProfile.ADMIN)
             persist(checkNotNull(record).let { it.copy(profiles = it.profiles.filterNot { p -> p.id == id }) })
             mutable.value = current.copy(generation = current.generation + 1)
+        }
+    } }
+
+    /** Keeps every profile, permission and history row; only an authenticated Admin may turn protection off. */
+    suspend fun turnOff() = withContext(Dispatchers.Default) { mutex.withLock {
+        synchronized(transitionLock) {
+            check(current.enabled) { "Household profiles are already off." }
+            requireAdmin()
+            persist(checkNotNull(record).copy(enabled = false))
+            mutable.value = FamilySession(generation = current.generation + 1)
         }
     } }
 

@@ -31,7 +31,7 @@ struct HouseholdPIN: Codable, Equatable {
             salt.withUnsafeBytes { bytes in
                 CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), password, pin.utf8.count,
                     bytes.bindMemory(to: UInt8.self).baseAddress, salt.count,
-                    CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), iterations, &result, result.count)
+                    CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), iterations, &result, 32)
             }
         }
         guard status == kCCSuccess else { throw HouseholdError.storage }
@@ -140,7 +140,7 @@ final class HouseholdStore: ObservableObject {
     var viewerID: UUID? { synced { current.flatMap { $0.isAdmin ? nil : $0.id } } }
     var hasSavedProfiles: Bool { synced { record != nil } }
     var sessionToken: UUID { synced { generation } }
-    var preferenceDefaults: UserDefaults { viewerID.flatMap { UserDefaults(suiteName: "mediavault.viewer.\($0.uuidString)") } ?? .standard }
+    var preferenceDefaults: UserDefaults { viewerID.flatMap { UserDefaults(suiteName: "mediavault.viewer.\($0.uuidString)") } ?? defaults }
 
     func reload() {
         synced {
@@ -149,7 +149,15 @@ final class HouseholdStore: ObservableObject {
                     let decoded = try JSONDecoder().decode(Record.self, from: Data(value.utf8))
                     guard decoded.version == 1, decoded.profiles.filter(\.isAdmin).count == 1,
                           decoded.profiles.first(where: \.isAdmin)?.pin != nil,
-                          Set(decoded.profiles.map(\.id)).count == decoded.profiles.count else { throw HouseholdError.storage }
+                          Set(decoded.profiles.map(\.id)).count == decoded.profiles.count,
+                          decoded.profiles.allSatisfy({ profile in
+                              !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && profile.name.count <= 30 &&
+                              (0...30).contains(profile.failures) &&
+                              (profile.pin.map { $0.salt.count == 32 && $0.digest.count == 32 } ?? true) &&
+                              (profile.maximumMovieRating.map(HouseholdPolicy.movieRatings.contains) ?? true) &&
+                              (profile.maximumTVRating.map(HouseholdPolicy.tvRatings.contains) ?? true) &&
+                              profile.allowedFolders.allSatisfy { $0.path.isEmpty || ScanExclusions.normalizeFolder(path: $0.path) != nil }
+                          }) else { throw HouseholdError.storage }
                     record = decoded; configured = decoded.enabled != false; defaults.set(configured, forKey: Self.marker); storageFailure = false
                 } else {
                     record = nil; configured = defaults.bool(forKey: Self.marker); storageFailure = configured
@@ -240,7 +248,12 @@ final class HouseholdStore: ObservableObject {
               profile.allowedFolders.allSatisfy({ $0.path.isEmpty || ScanExclusions.normalizeFolder(path: $0.path) != nil }) else { throw HouseholdError.invalidProfile }
         if let replacementPIN { profile.pin = replacementPIN }
         if let index = next.profiles.firstIndex(where: { $0.id == profile.id }) {
-            profile.failures = next.profiles[index].failures; profile.retryAfter = next.profiles[index].retryAfter
+            if replacementPIN != nil {
+                // A freshly authorized Admin PIN change/removal replaces the old credential and its lockout.
+                profile.failures = 0; profile.retryAfter = nil
+            } else {
+                profile.failures = next.profiles[index].failures; profile.retryAfter = next.profiles[index].retryAfter
+            }
             next.profiles[index] = profile
         } else { next.profiles.append(profile) }
         try persist(next)
@@ -360,7 +373,12 @@ final class HouseholdStore: ObservableObject {
     }
     func sessionIsCurrent(_ token: UUID) -> Bool { synced { token == generation && !isLocked } }
     func playbackID(_ movieID: UUID) -> String { synced { viewerID.map { "profile:\($0.uuidString):\(movieID.uuidString)" } ?? movieID.uuidString } }
-    func progress(_ movieID: UUID) -> HouseholdProgress? { synced { viewerID.map { history["\($0.uuidString)/\(movieID.uuidString)"] ?? HouseholdProgress() } } }
+    func progress(_ movieID: UUID) -> HouseholdProgress? {
+        synced {
+            if isLocked { return HouseholdProgress() }
+            return viewerID.map { history["\($0.uuidString)/\(movieID.uuidString)"] ?? HouseholdProgress() }
+        }
+    }
     func updateProgress(_ movieID: UUID, _ update: (inout HouseholdProgress) -> Void) {
         synced {
             guard let viewerID, !isLocked else { return }
@@ -380,6 +398,17 @@ struct HouseholdProgress: Codable {
 }
 
 extension Movie {
+    /// One durable write per playback checkpoint; Admin's existing SwiftData fields remain unchanged in shape.
+    func recordHouseholdProgress(watched: Bool, position: Double, at date: Date,
+                                 household: HouseholdStore = .shared, session: UUID) {
+        guard household.sessionIsCurrent(session), household.allows(self) else { return }
+        if household.viewerID != nil {
+            household.updateProgress(id) { $0.watched = watched; $0.position = position; $0.lastPlayed = date }
+        } else {
+            isWatched = watched; playbackPosition = position; lastPlayedAt = date
+        }
+        householdRevision &+= 1
+    }
     var householdWatched: Bool {
         get { _ = householdRevision; return HouseholdStore.shared.progress(id)?.watched ?? isWatched }
         set {

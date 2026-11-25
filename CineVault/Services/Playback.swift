@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import CineVaultCore
+import Observation
 import SwiftUI
 #if CINEVAULT_COMMERCIAL
 import CineVaultCommercial
@@ -14,12 +15,14 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
 
     fileprivate let config: SourceConfig
     private let path: String
-    private let householdSession = HouseholdStore.shared.sessionToken
+    private let household: HouseholdStore
+    private let householdSession: UUID
     private let queue = DispatchQueue(label: "cinevault.resource-loader")
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var sizeTask: Task<Int64, Error>?
 
-    init(config: SourceConfig, path: String) {
+    init(config: SourceConfig, path: String, household: HouseholdStore = .shared) {
+        self.household = household; householdSession = household.sessionToken
         self.config = config
         self.path = path
     }
@@ -97,8 +100,8 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     }
 
     func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
-        guard HouseholdStore.shared.sessionIsCurrent(householdSession),
-              HouseholdStore.shared.allowsPath(sourceID: config.id, path: path) else { throw PlaybackPreparationError.fileUnavailable }
+        guard household.sessionIsCurrent(householdSession),
+              household.allowsPath(sourceID: config.id, path: path) else { throw PlaybackPreparationError.fileUnavailable }
         guard start >= 0, end >= start else { throw SMBError.invalidByteRange }
         var offset = start
         while offset < end {
@@ -106,8 +109,8 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             let length = Int(min(Self.chunkSize, end - offset))
             let data = try await SMBService.shared.read(config, path: path, offset: offset, length: length)
             try Task.checkCancellation()
-            guard HouseholdStore.shared.sessionIsCurrent(householdSession),
-                  HouseholdStore.shared.allowsPath(sourceID: config.id, path: path) else { throw PlaybackPreparationError.fileUnavailable }
+            guard household.sessionIsCurrent(householdSession),
+                  household.allowsPath(sourceID: config.id, path: path) else { throw PlaybackPreparationError.fileUnavailable }
             guard !data.isEmpty else { throw SMBError.unexpectedEndOfFile }
             respond(data)
             offset += Int64(data.count)
@@ -150,16 +153,17 @@ final class PlaybackController: ObservableObject {
     private var artworkTask: Task<Void, Never>?
     private var itemObservation: NSKeyValueObservation?
     private var householdObserver: NSObjectProtocol?
-    private let householdSession = HouseholdStore.shared.sessionToken
+    private let household: HouseholdStore
+    private let householdSession: UUID
 
     static func isNativeCandidate(_ movie: Movie) -> Bool {
         MediaFile.isPlayable(path: movie.filePath)
     }
 
-    private static func playbackSource(for movie: Movie) throws -> MediaSource? {
+    private static func playbackSource(for movie: Movie, household: HouseholdStore = .shared) throws -> MediaSource? {
         guard isNativeCandidate(movie) else { throw PlaybackPreparationError.unsupportedFormat }
         guard let source = movie.source else { return nil }
-        guard LibrarySearch.isAvailable(movie), !source.isIgnored(filePath: movie.filePath),
+        guard household.allows(movie), LibrarySearch.isAvailable(movie), !source.isIgnored(filePath: movie.filePath),
               SubtitleFile.safePath(movie.filePath, within: source.rootPath) != nil else { throw PlaybackPreparationError.fileUnavailable }
         return source
     }
@@ -168,24 +172,25 @@ final class PlaybackController: ObservableObject {
     static func prepare(movie: Movie, resume: Bool, services: PlaybackServices,
                         defaults: UserDefaults = .standard,
                         sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() },
-                        loadPlayable: (AVURLAsset) async throws -> Bool = { try await $0.load(.isPlayable) }) async throws -> PlaybackController? {
-        let householdSession = HouseholdStore.shared.sessionToken
-        guard let source = try playbackSource(for: movie) else { return nil }
+                        loadPlayable: (AVURLAsset) async throws -> Bool = { try await $0.load(.isPlayable) },
+                        household: HouseholdStore = .shared) async throws -> PlaybackController? {
+        let householdSession = household.sessionToken
+        guard let source = try playbackSource(for: movie, household: household) else { return nil }
         let config = try sourceConfig(source)
         let path = movie.filePath
-        let loader = SMBResourceLoader(config: config, path: path)
+        let loader = SMBResourceLoader(config: config, path: path, household: household)
         let asset = loader.makeAsset()
         return try await withTaskCancellationHandler {
             do {
                 let playable = try await loadPlayable(asset)
                 try Task.checkCancellation()
-                guard HouseholdStore.shared.sessionIsCurrent(householdSession) else { throw PlaybackPreparationError.fileUnavailable }
+                guard household.sessionIsCurrent(householdSession) else { throw PlaybackPreparationError.fileUnavailable }
                 guard playable else { throw PlaybackPreparationError.unsupportedFormat }
-                guard let currentSource = try playbackSource(for: movie), currentSource === source,
+                guard let currentSource = try playbackSource(for: movie, household: household), currentSource === source,
                       movie.filePath == path, try sourceConfig(currentSource) == config else {
                     throw PlaybackPreparationError.fileUnavailable
                 }
-                return PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset)
+                return PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset, household: household)
             } catch {
                 asset.cancelLoading()
                 throw error
@@ -197,13 +202,14 @@ final class PlaybackController: ObservableObject {
 
     convenience init?(movie: Movie, resume: Bool, services: PlaybackServices,
           defaults: UserDefaults = .standard,
-          sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() }) throws {
-        guard let source = try Self.playbackSource(for: movie) else { return nil }
-        let loader = SMBResourceLoader(config: try sourceConfig(source), path: movie.filePath)
-        self.init(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: loader.makeAsset())
+          sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() }, household: HouseholdStore = .shared) throws {
+        guard let source = try Self.playbackSource(for: movie, household: household) else { return nil }
+        let loader = SMBResourceLoader(config: try sourceConfig(source), path: movie.filePath, household: household)
+        self.init(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: loader.makeAsset(), household: household)
     }
 
-    private init(movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, loader: SMBResourceLoader, asset: AVURLAsset) {
+    private init(movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, loader: SMBResourceLoader, asset: AVURLAsset, household: HouseholdStore) {
+        self.household = household; householdSession = household.sessionToken
         self.movie = movie
         self.loader = loader
         self.asset = asset
@@ -214,17 +220,19 @@ final class PlaybackController: ObservableObject {
         subtitles = PlaybackSubtitles(player: player, movie: movie, config: loader.config, defaults: defaults)
         #if CINEVAULT_COMMERCIAL
         commercialSession = services.commercial.makePlaybackSession(
-            player: player, mediaID: HouseholdStore.shared.playbackID(movie.id), resume: resume,
-            initialPosition: resume ? services.resumePosition(movie) : 0
+            player: player, mediaID: household.playbackID(movie.id), resume: resume,
+            initialPosition: resume ? services.resumePosition(movie, household: household) : 0
         )
         #else
-        if resume, movie.householdPosition > 0 {
-            player.seek(to: CMTime(seconds: movie.householdPosition, preferredTimescale: 600))
+        let position = services.resumePosition(movie, household: household)
+        if resume, position > 0 {
+            player.seek(to: CMTime(seconds: position, preferredTimescale: 600))
         }
         #endif
-        householdObserver = NotificationCenter.default.addObserver(forName: HouseholdStore.willLock, object: nil, queue: .main) { [weak self] _ in
+        householdObserver = NotificationCenter.default.addObserver(forName: HouseholdStore.willLock, object: household, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.stop() }
         }
+        observeAccess()
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             guard item.status == .failed else { return }
             let message = item.error?.localizedDescription ?? "The native player could not decode this file."
@@ -297,8 +305,7 @@ final class PlaybackController: ObservableObject {
     }
 
     func record(time: Double) {
-        guard !stopped, !finishedPlayback, HouseholdStore.shared.sessionIsCurrent(householdSession),
-              HouseholdStore.shared.allows(movie), time.isFinite, time > 0 else { return }
+        guard !stopped, validateAccess(), !finishedPlayback, time.isFinite, time > 0 else { return }
         let boundary = player.currentItem?.forwardPlaybackEndTime
         let limit = boundary.flatMap { $0.isValid && $0.seconds.isFinite ? $0.seconds : nil }
         let position = limit.map { min(time, $0) } ?? time
@@ -310,17 +317,38 @@ final class PlaybackController: ObservableObject {
                 return
             }
         }
-        movie.householdWatched = false
-        movie.householdPosition = position
-        movie.householdLastPlayed = Date()
+        movie.recordHouseholdProgress(watched: false, position: position, at: Date(), household: household, session: householdSession)
     }
 
     private func finish() {
-        guard !stopped, HouseholdStore.shared.sessionIsCurrent(householdSession), HouseholdStore.shared.allows(movie) else { return }
+        guard !stopped, validateAccess() else { return }
         finishedPlayback = true
-        movie.householdWatched = true
-        movie.householdPosition = 0
-        movie.householdLastPlayed = Date()
+        movie.recordHouseholdProgress(watched: true, position: 0, at: Date(), household: household, session: householdSession)
+    }
+
+    /// A metadata refresh may discover a stricter certification without changing profiles.
+    /// Observe those model fields so paused/buffered playback is revoked as well as future reads.
+    private func observeAccess() {
+        guard !stopped else { return }
+        withObservationTracking {
+            _ = household.allows(movie)
+            _ = LibrarySearch.isAvailable(movie)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.stopped, self.validateAccess() else { return }
+                self.observeAccess()
+            }
+        }
+    }
+
+    private func validateAccess() -> Bool {
+        guard household.sessionIsCurrent(householdSession), household.allows(movie), LibrarySearch.isAvailable(movie) else {
+            didEndNaturally = false
+            playbackError = "This item is no longer available for this profile."
+            stop(saveProgress: false)
+            return false
+        }
+        return true
     }
 
     func stop(saveProgress: Bool = true) {
@@ -351,7 +379,7 @@ final class PlaybackController: ObservableObject {
     }
 
     var permitsContinuation: Bool {
-        guard !stopped, HouseholdStore.shared.sessionIsCurrent(householdSession), HouseholdStore.shared.allows(movie), didEndNaturally, playbackError == nil,
+        guard !stopped, household.sessionIsCurrent(householdSession), household.allows(movie), didEndNaturally, playbackError == nil,
               player.currentItem?.forwardPlaybackEndTime.isValid != true else { return false }
         #if CINEVAULT_COMMERCIAL
         guard commercialSession.endedSuccessfully else { return false }

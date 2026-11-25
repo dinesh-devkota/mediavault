@@ -82,4 +82,25 @@ class FamilyLibrary(private val database: CineVaultDatabase, val family: FamilyS
     suspend fun markFinished(id: String, duration: Long, playedAt: Long, token: FamilySession) = change(id, token,
         { movies.markFinished(id, duration, playedAt) },
         { it.copy(watched = true, positionMs = 0, durationMs = duration.takeIf { d -> d > 0 } ?: it.durationMs, lastPlayedAt = playedAt) })
+
+    /** Captured while playing is authorized; queued final saves belong to that profile even after background lock. */
+    fun playbackCheckpoint(movie: MovieEntity, token: FamilySession, position: Long, duration: Long,
+        playedAt: Long, finished: Boolean): (suspend () -> Unit)? {
+        if (!family.isCurrent(token) || !allows(token, movie)) return null
+        return {
+            database.withTransaction {
+                val current = movies.get(movie.id)
+                if (current != null && current.sourceId == movie.sourceId && current.filePath == movie.filePath) {
+                    if (token.admin) {
+                        if (finished) movies.markFinished(movie.id, duration, playedAt)
+                        else movies.saveProgress(movie.id, position, duration, playedAt)
+                    } else if (family.profiles.any { it.id == token.historyId }) {
+                        val own = history.get(token.historyId, movie.id) ?: ProfileHistory(token.historyId, movie.id)
+                        history.upsert(own.copy(watched = finished, positionMs = if (finished) 0 else position,
+                            durationMs = duration.takeIf { it > 0 } ?: own.durationMs, lastPlayedAt = playedAt))
+                    }
+                }
+            }
+        }
+    }
 }

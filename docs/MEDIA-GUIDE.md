@@ -11,7 +11,8 @@ Use **Section** to switch categories. **Clear filters** resets the filters
 within that section. Photos have their own tab.
 
 Open **Settings** to check your installed version and build (under **About** on Apple TV).
-The subtitles and continuous viewing update is version **1.3.0**, build **5**.
+The household profiles update is version **1.4.0**, build **6**, including the
+subtitles and continuous viewing features introduced in 1.3.0.
 
 ### Browse a complete Home collection
 
@@ -310,7 +311,7 @@ Household profiles are optional and live on this TV. Enabling them preserves you
 library, source credentials and existing playback history. There is no email
 registration or online MediaVault account.
 
-1. Open the household-profile setup in **Settings** and enter a six-digit Admin
+1. Open **Settings → Household profiles** and enter a six-digit Admin
    PIN twice. Keep the PIN somewhere you can recover it yourself.
 2. Enter **Admin**, add a named viewer and choose the NAS folders they may see.
    A new viewer starts with no access. Allowing a folder includes its subfolders;
@@ -342,6 +343,11 @@ Admin retains the history from before profiles were enabled. Bulk watched action
 affect the current person's accessible titles. Switching profiles stops current
 playback and the next-episode countdown. Commercial trial usage and purchases remain
 shared across the installation.
+
+To stop using profiles, enter Admin and choose **Turn off household profiles**.
+Confirm the Admin PIN. The complete library becomes visible again, while saved
+profiles and viewer histories remain on this TV. Re-enabling profiles requires
+the existing Admin PIN and restores their saved permissions.
 
 This is access control inside MediaVault. It does not alter files or NAS permissions,
 create cloud accounts, sync profiles to another TV, or prevent the device owner

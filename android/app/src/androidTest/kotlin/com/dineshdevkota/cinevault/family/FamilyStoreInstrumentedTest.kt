@@ -87,6 +87,17 @@ class FamilyStoreInstrumentedTest {
         assertNotNull(damaged.unlock(HouseholdProfile.ADMIN, "123456"))
         assertFalse(damaged.current.unlocked)
     }
+
+    @Test fun onlyAdminChangingAPINClearsThatProfilesOldCooldown() = runBlocking {
+        admin(); val viewer = addViewer("654321"); store.lock()
+        repeat(5) { store.unlock(viewer.id, "999999") }
+        store.unlock(HouseholdProfile.ADMIN, "123456")
+        store.saveProfile(viewer.copy(name = "Renamed viewer"), null)
+        assertTrue(store.unlock(viewer.id, "654321")!!.contains("Too many"))
+        store.saveProfile(viewer.copy(name = "Renamed viewer"), null, removePin = true)
+        assertNull(store.unlock(viewer.id, ""))
+        assertEquals(viewer.id, store.current.historyId)
+    }
     @Test fun watchResumeAndWatchlistArePrivateAndOldSessionCannotWriteAfterSwitch() = runBlocking {
         movie(); db.movies().markFinished("movie", 90_000, 1); db.movies().setWatchlisted("movie", true)
         admin(); addViewer(); val owner = store.current
@@ -101,6 +112,17 @@ class FamilyStoreInstrumentedTest {
         assertEquals(0L, db.movies().get("movie")!!.playbackPositionMs)
         store.lock(); store.unlock(HouseholdProfile.ADMIN, "123456")
         assertTrue(library.get("movie")!!.isWatched)
+    }
+
+    @Test fun authorizedFinalPlaybackCheckpointStaysWithOriginalProfileAfterBackgroundLock() = runBlocking {
+        val movie = movie(); admin(); addViewer()
+        val checkpoint = requireNotNull(library.playbackCheckpoint(movie, store.current, 31_000, 90_000, 1, finished = false))
+        val old = store.current
+        store.lock(); store.unlock("viewer", "")
+        checkpoint()
+        assertEquals(31_000L, db.movies().get(movie.id)!!.playbackPositionMs)
+        assertEquals(0L, library.get(movie.id)!!.playbackPositionMs)
+        assertNull(library.playbackCheckpoint(movie, old, 50_000, 90_000, 2, finished = false))
     }
     @Test fun displayDirectReadsAndBulkActionsUseTheSamePolicy() = runBlocking {
         movie(); movie("private", "Private/Secret.mp4", "R"); movie("unrated", "Kids/Unrated.mp4", null)
@@ -119,5 +141,97 @@ class FamilyStoreInstrumentedTest {
         store.lock()
         unlock.await()
         assertFalse(store.current.unlocked)
+    }
+
+    @Test fun profileNamesAndPermissionsAreValidatedBeforePersistence() = runBlocking {
+        admin(); addViewer()
+        for (invalid in listOf(HouseholdProfile("other", " viewer "), HouseholdProfile("other", "ADMIN"),
+            HouseholdProfile("other", "Other", movieLimit = "8.5"),
+            HouseholdProfile("other", "Other", folders = listOf(FolderAccess("nas", "Kids/../Private"))))) {
+            try { store.saveProfile(invalid, null); fail("Invalid profile was saved") }
+            catch (_: IllegalArgumentException) { }
+        }
+        assertEquals(2, store.profiles.size)
+        assertFalse(FamilyStore(context, SecretBox(), name).current.damaged)
+    }
+
+    @Test fun turningProfilesOffIsAuthenticatedAndRestoringUsesTheExistingPINAndHistory() = runBlocking {
+        movie(); admin(); addViewer(); store.lock(); store.unlock("viewer", "")
+        library.setWatchlisted("movie", true)
+        try { store.turnOff(); fail("Viewer disabled household protection") } catch (_: IllegalStateException) { }
+        store.unlock(HouseholdProfile.ADMIN, "123456"); store.turnOff()
+        assertFalse(store.current.enabled)
+        assertNotNull(library.get("movie"))
+        try { store.setup("999999", "999999"); fail("Disabled household replaced its Admin PIN") } catch (_: IllegalStateException) { }
+        try { store.saveProfile(HouseholdProfile("attack", "Attack"), null); fail("Disabled household changed protected profiles") } catch (_: IllegalStateException) { }
+        val restarted = FamilyStore(context, SecretBox(), name)
+        assertFalse(restarted.current.enabled)
+        assertNotNull(restarted.unlock("viewer", ""))
+        assertNotNull(restarted.unlock(HouseholdProfile.ADMIN, "999999"))
+        assertNull(restarted.unlock(HouseholdProfile.ADMIN, "123456"))
+        restarted.lock(); restarted.unlock("viewer", "")
+        assertTrue(FamilyLibrary(db, restarted).get("movie")!!.isWatchlisted)
+    }
+
+    @Test fun libraryFiltersRemainPrivateAndAdminKeepsExistingPreferences() {
+        val prefix = "preferences-$name-"
+        val isolated = object : android.content.ContextWrapper(context) {
+            override fun getSharedPreferences(preferenceName: String, mode: Int) = context.getSharedPreferences(prefix + preferenceName, mode)
+        }
+        var id = "admin"
+        val settings = Settings(isolated, SecretBox()) { id }
+        try {
+            val owner = com.dineshdevkota.cinevault.core.LibraryFacets(genres = setOf("Private genre"), sourceIds = setOf("private"))
+            settings.libraryFacets = owner
+            settings.librarySort = com.dineshdevkota.cinevault.core.LibrarySort.YEAR
+            id = "viewer"
+            assertEquals(com.dineshdevkota.cinevault.core.LibraryFacets(), settings.libraryFacets)
+            assertEquals(com.dineshdevkota.cinevault.core.LibrarySort.TITLE, settings.librarySort)
+            settings.libraryFacets = com.dineshdevkota.cinevault.core.LibraryFacets(genres = setOf("Family"))
+            id = "admin"
+            assertEquals(owner, settings.libraryFacets)
+            assertEquals(com.dineshdevkota.cinevault.core.LibrarySort.YEAR, settings.librarySort)
+        } finally {
+            context.deleteSharedPreferences(prefix + "settings")
+            context.deleteSharedPreferences(prefix + "library-profile-viewer")
+        }
+    }
+
+    @Test fun photoCacheAndDelayedBytesCannotCrossALock() = runBlocking {
+        admin()
+        val photo = movie("photo", "Kids/Photo.png", null)
+        val output = java.io.ByteArrayOutputStream()
+        android.graphics.Bitmap.createBitmap(2, 2, android.graphics.Bitmap.Config.ARGB_8888).let {
+            it.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output); it.recycle()
+        }
+        val bytes = output.toByteArray()
+        var reads = 0
+        var delayed = false
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val loader = com.dineshdevkota.cinevault.photos.NasPhotoLoader(context, db, SecretBox(), family = store,
+            openFile = { _, _ ->
+                reads++
+                object : com.dineshdevkota.cinevault.smb.RemoteHandle {
+                    override val length = bytes.size.toLong()
+                    override fun close() = Unit
+                    override fun stream(position: Long): java.io.InputStream = object : java.io.ByteArrayInputStream(bytes) {
+                        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                            if (delayed) { started.countDown(); check(release.await(10, java.util.concurrent.TimeUnit.SECONDS)) }
+                            return super.read(buffer, offset, length)
+                        }
+                    }
+                }
+            })
+        assertEquals(2, loader.load(photo.id).width)
+        store.lock()
+        assertTrue(runCatching { loader.load(photo.id) }.isFailure)
+        assertEquals(1, reads)
+        store.unlock(HouseholdProfile.ADMIN, "123456")
+        loader.clearMemory(); delayed = true
+        val pending = async(Dispatchers.IO) { runCatching { loader.load(photo.id) } }
+        assertTrue(withContext(Dispatchers.IO) { started.await(10, java.util.concurrent.TimeUnit.SECONDS) })
+        store.lock(); release.countDown()
+        assertTrue(pending.await().isFailure)
     }
 }

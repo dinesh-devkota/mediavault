@@ -234,12 +234,24 @@ class PlayerActivity : ComponentActivity() {
                 preparedSubtitles = discoverSubtitles(loaded) + downloaded
                 onlineAttempted = false
                 if (isFinishing) return@repeatOnLifecycle
+                // Captions can suspend while a metadata correction changes the age rating.
+                val refreshed = container.library.get(movieId)
+                val refreshedSource = container.database.sources().get(loaded.source.id)
+                if (refreshed == null || !container.family.isCurrent(householdSession) ||
+                    !sameSource(refreshedSource, loaded.source) || refreshed.sourceId != loaded.movie.sourceId ||
+                    refreshed.filePath != loaded.movie.filePath) {
+                    rootView.visibility = View.INVISIBLE; target = null; finish()
+                    return@repeatOnLifecycle
+                }
+                target = Target(refreshed, loaded.config, loaded.source)
+                showInformation(refreshed)
                 startPlayer()
                 combine(container.library.observe(movieId), container.database.sources().observe(loaded.source.id)) {
                     current, source -> current to source
                 }.collect { (current, source) ->
                     if (current == null || !sameSource(source, loaded.source) ||
                         PlaybackValidator.rejectionReason(current, loaded.config) != null) {
+                        rootView.visibility = View.INVISIBLE
                         stopPlayer()
                         target = null
                         Toast.makeText(this@PlayerActivity, "This item is no longer available for playback.", Toast.LENGTH_LONG).show()
@@ -280,7 +292,6 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        super.onStop()
         cancelNext()
         invalidateSubtitleRequest()
         subtitleDialog?.dismiss()
@@ -288,6 +299,7 @@ class PlayerActivity : ComponentActivity() {
         stopPlayer()
         target = null
         if (endHandled) finish()
+        super.onStop()
     }
 
     override fun finish() {
@@ -307,7 +319,8 @@ class PlayerActivity : ComponentActivity() {
         val smb = container.smb
         if (!container.family.isCurrent(householdSession) || !container.family.permits(target.movie)) { finish(); return }
         val files = DataSource.Factory { SmbDataSource(authorize = {
-            check(container.family.isCurrent(householdSession) && container.family.permits(this.target?.movie ?: target.movie)) { "Your household session has locked." }
+            val active = this.target?.movie
+            check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
         }) {
             check(container.family.isCurrent(householdSession) && container.family.permits(target.movie)) { "Your household session has locked." }
             smb.open(target.config, target.movie.filePath)
@@ -725,8 +738,9 @@ class PlayerActivity : ComponentActivity() {
         val duration = knownDuration(exo)
         if (WatchRules.reachedEnd(position, duration)) return markFinished()
         val now = System.currentTimeMillis()
-        val movies = container.library
-        container.playbackProgress.enqueue { movies.saveProgress(movieId, position, duration, now, householdSession) }
+        val movie = target?.movie?.takeIf { it.id == movieId } ?: return
+        container.library.playbackCheckpoint(movie, householdSession, position, duration, now, finished = false)
+            ?.let { checkpoint -> container.playbackProgress.enqueue(checkpoint) }
     }
 
     private fun markFinished() {
@@ -735,8 +749,9 @@ class PlayerActivity : ComponentActivity() {
         finishedPlayback = true
         val duration = player?.let(::knownDuration) ?: 0L
         val now = System.currentTimeMillis()
-        val movies = container.library
-        container.playbackProgress.enqueue { movies.markFinished(movieId, duration, now, householdSession) }
+        val movie = target?.movie?.takeIf { it.id == movieId } ?: return
+        container.library.playbackCheckpoint(movie, householdSession, 0, duration, now, finished = true)
+            ?.let { checkpoint -> container.playbackProgress.enqueue(checkpoint) }
     }
 
     private fun knownDuration(exo: ExoPlayer): Long = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L

@@ -82,7 +82,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
     var updatingWatchlist by remember(movieId) { mutableStateOf(false) }
     var watchlistError by remember(movieId) { mutableStateOf<String?>(null) }
     val movie by produceState<MovieEntity?>(null, movieId) {
-        context.container.library.observe(movieId).collect { if (it == null) onClose() else value = it }
+        context.container.library.observe(movieId).collect { value = it; if (it == null) onClose() }
     }
     val current = movie ?: return
     if (current.isPhoto) {

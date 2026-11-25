@@ -113,6 +113,12 @@ final class HouseholdProfilesTests: XCTestCase {
         do { try await store.unlockAsync(viewer.id, pin: ""); XCTFail("PIN bypassed") } catch { }
         try await store.unlockAsync(viewer.id, pin: "537902")
         do { try await store.saveViewer(viewer, newPIN: "", confirmation: "", adminPIN: adminPIN); XCTFail("Viewer changed permissions") } catch { }
+        store.lock()
+        for _ in 0..<5 { XCTAssertThrowsError(try store.unlock(viewer.id, pin: "000000")) }
+        try await store.unlockAsync(admin, pin: adminPIN)
+        try await store.saveViewer(viewer, newPIN: "", confirmation: "", adminPIN: adminPIN)
+        try await store.unlockAsync(viewer.id, pin: "")
+        XCTAssertEqual(store.current?.id, viewer.id, "An Admin-authorized PIN removal must clear the old credential's cooldown")
         try await store.unlockAsync(admin, pin: adminPIN)
         viewer.id = admin
         do { try await store.saveViewer(viewer, newPIN: nil, confirmation: "", adminPIN: adminPIN); XCTFail("Admin overwritten") } catch { }
@@ -187,6 +193,68 @@ final class HouseholdProfilesTests: XCTestCase {
         let first = try HouseholdPIN(adminPIN), second = try HouseholdPIN(adminPIN)
         XCTAssertNotEqual(first.salt, second.salt); XCTAssertNotEqual(first.digest, second.digest)
         XCTAssertTrue(first.matches(adminPIN)); XCTAssertFalse(first.matches("000000"))
+    }
+    func testDirectPlayerRejectsDeniedMediaAndLockDuringPreparation() async throws {
+        let (store, _, _) = fixture(); let admin = try await enable(store)
+        let source = MediaSource(name: "Fixture", host: "fixture.invalid", share: "Media", rootPath: "", username: "")
+        let movie = Movie(filePath: "Private/movie.mp4", fileSize: 1, source: source)
+        movie.isWatched = true; movie.playbackPosition = 120
+        let viewer = HouseholdProfile(name: "Empty viewer")
+        try await store.saveViewer(viewer, newPIN: nil, confirmation: "", adminPIN: adminPIN)
+        try await store.unlockAsync(viewer.id, pin: "")
+        do {
+            _ = try await PlaybackController.prepare(movie: movie, resume: false, services: PlaybackServices(), loadPlayable: { _ in
+                XCTFail("Denied media reached the player"); return true
+            }, household: store)
+            XCTFail("Denied media opened")
+        } catch PlaybackPreparationError.fileUnavailable { }
+        try await store.unlockAsync(admin, pin: adminPIN)
+        do {
+            _ = try await PlaybackController.prepare(movie: movie, resume: false, services: PlaybackServices(), loadPlayable: { _ in
+                store.lock(); return true
+            }, household: store)
+            XCTFail("A late asset opened after locking")
+        } catch PlaybackPreparationError.fileUnavailable { }
+        XCTAssertTrue(movie.isWatched); XCTAssertEqual(movie.playbackPosition, 120)
+    }
+    func testLockStopsPlayerAndLateCheckpointsCannotChangeNextViewerHistory() async throws {
+        let (store, _, _) = fixture(); let admin = try await enable(store)
+        let source = MediaSource(name: "Fixture", host: "fixture.invalid", share: "Media", rootPath: "", username: "")
+        let movie = Movie(filePath: "movie.mp4", fileSize: 1, source: source)
+        movie.playbackPosition = 300
+        var first = HouseholdProfile(name: "First"), second = HouseholdProfile(name: "Second")
+        first.allowedFolders = [HouseholdFolder(sourceID: source.id, path: "")]; second.allowedFolders = first.allowedFolders
+        for viewer in [first, second] { try await store.saveViewer(viewer, newPIN: nil, confirmation: "", adminPIN: adminPIN) }
+        try await store.unlockAsync(first.id, pin: "")
+        let controller = try XCTUnwrap(PlaybackController(movie: movie, resume: false, services: PlaybackServices(), household: store))
+        controller.record(time: 60)
+        XCTAssertEqual(store.progress(movie.id)?.position, 60)
+        try await store.unlockAsync(second.id, pin: "")
+        XCTAssertNil(controller.player.currentItem, "Lock must clear the player and its metadata")
+        controller.record(time: 200)
+        XCTAssertEqual(store.progress(movie.id)?.position, 0)
+        try await store.unlockAsync(first.id, pin: "")
+        XCTAssertEqual(store.progress(movie.id)?.position, 60)
+        try await store.unlockAsync(admin, pin: adminPIN)
+        XCTAssertEqual(movie.playbackPosition, 300, "Viewer checkpoints must preserve legacy Admin progress")
+    }
+    func testMetadataRatingRevokesPausedPlaybackAndClearsSubtitleSheet() async throws {
+        let (store, _, _) = fixture(); _ = try await enable(store)
+        let source = MediaSource(name: "Fixture", host: "fixture.invalid", share: "Media", rootPath: "", username: "")
+        let movie = Movie(filePath: "movie.mp4", fileSize: 1, source: source); movie.usContentRating = "PG"
+        var viewer = HouseholdProfile(name: "Child")
+        viewer.allowedFolders = [HouseholdFolder(sourceID: source.id, path: "")]; viewer.maximumMovieRating = "PG"
+        try await store.saveViewer(viewer, newPIN: nil, confirmation: "", adminPIN: adminPIN)
+        try await store.unlockAsync(viewer.id, pin: "")
+        let controller = try XCTUnwrap(PlaybackController(movie: movie, resume: false, services: PlaybackServices(), household: store))
+        controller.subtitles.presented = true
+        movie.usContentRating = "R"
+        // Observation delivers after the model mutation; no playback tick or user action is required.
+        for _ in 0..<10 where controller.player.currentItem != nil { await Task.yield() }
+        XCTAssertNil(controller.player.currentItem)
+        XCTAssertFalse(controller.subtitles.presented)
+        XCTAssertFalse(controller.permitsContinuation)
+        XCTAssertEqual(controller.playbackError, "This item is no longer available for this profile.")
     }
 }
 

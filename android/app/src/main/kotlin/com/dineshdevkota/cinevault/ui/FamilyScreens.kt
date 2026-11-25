@@ -144,7 +144,13 @@ private fun FamilySettings(onClose: () -> Unit) {
     var editing by remember { mutableStateOf<HouseholdProfile?>(null) }
     var verifying by remember { mutableStateOf(false) }
     var authorized by remember { mutableStateOf(false) }
-    if (!session.enabled) { SetupHousehold(onClose); return }
+    var confirmOff by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    if (!session.enabled) {
+        if (family.profiles.isEmpty()) SetupHousehold(onClose) else DisabledHousehold(onClose)
+        return
+    }
     if (!session.admin) { AdminRequired(); return }
     // Permission changes require a fresh Admin PIN, even when entering from an existing Admin session.
     if (verifying && !authorized) {
@@ -168,8 +174,35 @@ private fun FamilySettings(onClose: () -> Unit) {
                 OutlinedButton(onClick = { editing = profile }) { Text(if (profile.isAdmin) "Admin · Change PIN" else "Edit ${profile.name}") }
             } }
             item { Button(onClick = { editing = family.newProfile() }) { Text("Add a viewer") } }
+            item {
+                Text("Turning profiles off makes the full library visible. Your profiles, permissions and viewing histories are kept for next time.", color = SecondaryText)
+                OutlinedButton(onClick = {
+                    if (!confirmOff) confirmOff = true else scope.launch {
+                        try { family.turnOff() }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (failure: Exception) { error = failure.message ?: "Could not turn profiles off." }
+                    }
+                }) { Text(if (confirmOff) "Confirm: turn off household profiles" else "Turn off household profiles") }
+            }
         }
+        error?.let { item { Text(it, color = ErrorText) } }
         item { OutlinedButton(onClick = onClose) { Text("Back") } }
+    }
+}
+
+@Composable
+private fun DisabledHousehold(onClose: () -> Unit) {
+    val family = LocalContext.current.container.family
+    var verifying by remember { mutableStateOf(false) }
+    if (verifying) {
+        PinPrompt("Turn on household profiles", onCancel = { verifying = false }) { family.unlock(HouseholdProfile.ADMIN, it) }
+        return
+    }
+    Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Text("Household profiles are off", style = MaterialTheme.typography.headlineLarge)
+        Text("The full library is visible. Your saved profiles, permissions and viewing histories are kept. Enter your existing Admin PIN to turn protection back on.", color = SecondaryText)
+        Button(onClick = { verifying = true }) { Text("Turn on with Admin PIN") }
+        OutlinedButton(onClick = onClose) { Text("Back") }
     }
 }
 

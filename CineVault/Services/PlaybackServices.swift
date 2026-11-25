@@ -24,19 +24,22 @@ final class PlaybackServices: ObservableObject {
         #endif
     }
 
-    func canResume(_ movie: Movie) -> Bool {
+    func canResume(_ movie: Movie, household: HouseholdStore = .shared) -> Bool {
+        guard household.allows(movie) else { return false }
         #if CINEVAULT_COMMERCIAL
-        return commercial.canResume(mediaID: HouseholdStore.shared.playbackID(movie.id)) || movie.isInProgress
+        return commercial.canResume(mediaID: household.playbackID(movie.id)) || movie.isInProgress
         #else
         return movie.isInProgress
         #endif
     }
 
-    func resumePosition(_ movie: Movie) -> Double {
+    func resumePosition(_ movie: Movie, household: HouseholdStore = .shared) -> Double {
+        guard household.allows(movie) else { return 0 }
+        let position = household.progress(movie.id)?.position ?? movie.playbackPosition
         #if CINEVAULT_COMMERCIAL
-        return commercial.resumePosition(mediaID: HouseholdStore.shared.playbackID(movie.id), fallback: movie.householdPosition)
+        return commercial.resumePosition(mediaID: household.playbackID(movie.id), fallback: position)
         #else
-        return movie.householdPosition
+        return position
         #endif
     }
 

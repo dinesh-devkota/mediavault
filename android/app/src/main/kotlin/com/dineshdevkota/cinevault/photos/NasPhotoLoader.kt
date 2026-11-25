@@ -37,7 +37,8 @@ class PhotoLoadException(message: String) : Exception(message)
 /** Local-only image loading. Neither source credentials nor photo bytes enter an HTTP/image URL. */
 class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
     private val secrets: SecretBox, private val smb: SmbService = photoService(),
-    private val family: com.dineshdevkota.cinevault.family.FamilyStore) {
+    private val family: com.dineshdevkota.cinevault.family.FamilyStore,
+    private val openFile: (SourceConfig, String) -> com.dineshdevkota.cinevault.smb.RemoteHandle = smb::open) {
     private val cacheDirectory = File(context.cacheDir, "nas-photos").apply {
         mkdirs()
         // Only our own temporary files can survive a killed process; no persistent photo copies.
@@ -73,7 +74,9 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             var decoded: Bitmap? = null
             try {
                 val loadContext = currentCoroutineContext()
-                runInterruptible { smb.open(config, photo.filePath).use { remote ->
+                runInterruptible {
+                    check(family.isCurrent(session) && family.permits(photo)) { "Your household session has locked." }
+                    openFile(config, photo.filePath).use { remote ->
                     check(family.isCurrent(session) && family.permits(photo)) { "Your household session has locked." }
                     if (remote.length > PhotoDecodePolicy.MAX_FILE_BYTES) throw PhotoLoadException("This photo is larger than the 64 MB viewing limit.")
                     remote.stream(0).use { input ->
@@ -84,6 +87,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                                 loadContext.ensureActive()
                                 check(family.isCurrent(session)) { "Your household session has locked." }
                                 val read = input.read(buffer)
+                                check(family.isCurrent(session)) { "Your household session has locked." }
                                 if (read < 0) break
                                 total += read
                                 if (total > PhotoDecodePolicy.MAX_FILE_BYTES) throw PhotoLoadException("This photo is larger than the 64 MB viewing limit.")

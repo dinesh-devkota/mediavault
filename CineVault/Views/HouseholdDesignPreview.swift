@@ -19,9 +19,9 @@ struct HouseholdDesignPreview: View {
     @State private var ready = false
     @State private var error: String?
     @StateObject private var scanner = LibraryScanner()
-    private let container: ModelContainer
+    @State private var container: ModelContainer
     init() {
-        container = try! ModelContainer(for: MediaSource.self, Movie.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        _container = State(initialValue: try! ModelContainer(for: MediaSource.self, Movie.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true)))
     }
     var body: some View {
         Group {

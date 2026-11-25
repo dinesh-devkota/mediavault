@@ -3,6 +3,7 @@ package com.dineshdevkota.cinevault
 import android.content.Intent
 import android.view.WindowManager
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.lifecycle.Lifecycle
@@ -136,7 +137,9 @@ class FamilyNavigationTest {
         visible(text)
         val node = compose.onNodeWithText(text)
         runCatching { node.performScrollTo() }
-        node.performSemanticsAction(SemanticsActions.OnClick)
+        node.performSemanticsAction(SemanticsActions.RequestFocus)
+        compose.waitForIdle()
+        node.assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
         compose.waitForIdle()
     }
     private fun field(label: String, value: String) {

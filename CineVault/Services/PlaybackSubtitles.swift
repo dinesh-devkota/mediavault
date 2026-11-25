@@ -398,6 +398,7 @@ final class PlaybackSubtitles: ObservableObject {
     func stop() {
         guard !stopped else { return }
         stopped = true; generation = UUID(); task?.cancel(); loadTask?.cancel(); searchTask?.cancel(); caption = ""; document = nil
+        presented = false; local = []; embedded = []; online = []; message = nil; onlineMessage = nil
         if let observer { player.removeTimeObserver(observer) }; observer = nil
         if let mediaObserver { NotificationCenter.default.removeObserver(mediaObserver) }; mediaObserver = nil
         if let jumpObserver { NotificationCenter.default.removeObserver(jumpObserver) }; jumpObserver = nil

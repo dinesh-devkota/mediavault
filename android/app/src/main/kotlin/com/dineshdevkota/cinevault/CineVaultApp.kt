@@ -38,9 +38,9 @@ class AppContainer(context: Context) {
             CoroutineExceptionHandler { _, error -> Log.e("CineVault", "Background task failed", error) },
     )
     val secrets = SecretBox()
-    val settings = Settings(context, secrets)
-    val database = CineVaultDatabase.create(context)
     val family = com.dineshdevkota.cinevault.family.FamilyStore(context, secrets)
+    val settings = Settings(context, secrets) { family.current.historyId }
+    val database = CineVaultDatabase.create(context)
     val library = com.dineshdevkota.cinevault.family.FamilyLibrary(database, family)
     val smb = SmbService()
     val photos = NasPhotoLoader(context, database, secrets, family = family)

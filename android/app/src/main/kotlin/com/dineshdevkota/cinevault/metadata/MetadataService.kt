@@ -106,7 +106,8 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
         matchLocked(current)
     }
 
-    private suspend fun matchLocked(movie: MovieEntity) {
+    private suspend fun matchLocked(movie: MovieEntity, authorize: () -> Unit = {}) {
+        authorize()
         if (MediaFile.isAudio(movie.filePath) || movie.isPhoto) return
         if (movie.metadataFetched && !movie.certificationFetched) {
             val certification = when {
@@ -116,18 +117,20 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
             }
             if (movie.seriesTmdbId != null || movie.tmdbId != null) {
                 if (certification != null) database.withTransaction {
+                    authorize()
                     val current = database.movies().get(movie.id) ?: return@withTransaction
                     if (sameMatch(current, movie)) database.movies().setCertification(movie.id, certification.first)
                 }
                 return
             }
         }
-        movie.episodeInfo?.let { return matchTVLocked(movie, it) }
-        movie.tmdbId?.let { return applyLocked(it, movie.id) }
+        movie.episodeInfo?.let { return matchTVLocked(movie, it, authorize) }
+        movie.tmdbId?.let { return applyLocked(it, movie.id, authorize = authorize) }
         val title = if (movie.isLocked) movie.title else movie.parsedTitle
         val year = if (movie.isLocked) movie.year else movie.parsedYear
         val best = title.takeIf { it.isNotBlank() }?.let { TitleMatcher.bestMatch(it, year, tmdb.search(it, year)) }
-        if (best != null) applyLocked(best.id, movie.id) else database.withTransaction {
+        if (best != null) applyLocked(best.id, movie.id, authorize = authorize) else database.withTransaction {
+            authorize()
             val current = database.movies().get(movie.id) ?: return@withTransaction
             if (sameMatch(current, movie)) database.movies().markMetadataFetched(movie.id)
         }
@@ -137,13 +140,14 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
         (!movie.certificationFetched && (movie.tmdbId != null || movie.seriesTmdbId != null)) ||
         (!movie.isLocked && movie.seriesTitle == null && movie.episodeInfo != null))
 
-    private suspend fun matchTVLocked(movie: MovieEntity, info: EpisodeInfo) {
+    private suspend fun matchTVLocked(movie: MovieEntity, info: EpisodeInfo, authorize: () -> Unit = {}) {
         val id = movie.seriesTmdbId ?: TitleMatcher.bestMatch(info.seriesTitle, info.year,
             tmdb.searchTV(info.seriesTitle, info.year))?.id
         if (id != null) {
-            applyTVLocked(id, movie, info)
+            applyTVLocked(id, movie, info, authorize = authorize)
         } else {
             database.withTransaction {
+                authorize()
                 val current = database.movies().get(movie.id) ?: return@withTransaction
                 if (sameMatch(current, movie)) {
                     database.movies().rememberEpisode(movie.id, info.seriesTitle, info.season, info.episode)
@@ -210,7 +214,7 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
         if (!tmdb.hasKey()) return@withLock
         val reset = movies.get(movieId) ?: return@withLock
         try {
-            matchLocked(reset)
+            matchLocked(reset, authorize)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

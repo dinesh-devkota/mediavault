@@ -36,6 +36,10 @@ keeps unknown or unrated video hidden. Photos and audio use folder permissions.
 Ratings lookup uses the optional TMDB connection described below. No household
 profile names or PINs are sent to TMDB.
 
+Turning off household profiles requires the Admin PIN and keeps saved profiles
+and viewer histories for later use. Removing an individual viewer is a separate,
+confirmed action in the Admin section.
+
 ## Optional metadata
 
 If you configure a TMDB credential, MediaVault sends movie search terms, identifiers,
