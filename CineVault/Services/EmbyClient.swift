@@ -70,6 +70,15 @@ struct EmbyClient: Sendable {
         fileprivate let mediaSourceID: String
         fileprivate let sessionID: String
         let container: String
+        let textSubtitles: [TextSubtitle]
+    }
+
+    struct TextSubtitle: Identifiable, Sendable {
+        let id: Int
+        let language: String?
+        let title: String?
+        let forced: Bool
+        let hearingImpaired: Bool
     }
 
     struct ByteRange: Sendable {
@@ -90,10 +99,25 @@ struct EmbyClient: Sendable {
     }
 
     private struct PlaybackInfo: Decodable {
+        struct MediaStream: Decodable {
+            enum CodingKeys: String, CodingKey {
+                case type = "Type"
+                case Index, IsTextSubtitleStream, IsExternal, Language, DisplayTitle, IsForced, IsHearingImpaired
+            }
+            let type: String?
+            let Index: Int?
+            let IsTextSubtitleStream: Bool?
+            let IsExternal: Bool?
+            let Language: String?
+            let DisplayTitle: String?
+            let IsForced: Bool?
+            let IsHearingImpaired: Bool?
+        }
         struct Source: Decodable {
             let Id: String?
             let Container: String?
             let SupportsDirectPlay: Bool?
+            let MediaStreams: [MediaStream]?
         }
         let MediaSources: [Source]?
         let PlaySessionId: String?
@@ -197,11 +221,21 @@ struct EmbyClient: Sendable {
             throw EmbyError.invalidResponse
         }
         for source in info.MediaSources ?? [] where source.SupportsDirectPlay == true {
-            if let sourceID = source.Id, Self.headerValue(sourceID),
+            if let sourceID = source.Id, EmbySourceConnection.validID(sourceID),
                let container = source.Container, containers.contains(container.lowercased()) {
+                var seen: Set<Int> = []
+                let subtitles = (source.MediaStreams ?? []).prefix(128).compactMap { stream -> TextSubtitle? in
+                    guard stream.type == "Subtitle", stream.IsTextSubtitleStream == true, stream.IsExternal == true,
+                          let index = stream.Index, (0...Int(Int32.max)).contains(index), seen.insert(index).inserted else {
+                        return nil
+                    }
+                    return TextSubtitle(id: index, language: stream.Language.map { String($0.prefix(16)) },
+                                        title: stream.DisplayTitle.map { String($0.prefix(100)) },
+                                        forced: stream.IsForced == true, hearingImpaired: stream.IsHearingImpaired == true)
+                }
                 return DirectPlayback(owner: playbackOwner, accountToken: account.AccessToken,
                                       accountID: account.User.Id, itemID: itemID, mediaSourceID: sourceID,
-                                      sessionID: sessionID, container: container)
+                                      sessionID: sessionID, container: container, textSubtitles: subtitles)
             }
         }
         throw EmbyError.unsupportedPlayback
@@ -241,6 +275,14 @@ struct EmbyClient: Sendable {
         return ByteRange(bytes: data, totalLength: total)
     }
 
+    func textSubtitle(_ account: Account, playback: DirectPlayback, index: Int, maximumBytes: Int) async throws -> Data {
+        guard playback.owner == playbackOwner, playback.accountToken == account.AccessToken,
+              playback.accountID == account.User.Id, playback.textSubtitles.contains(where: { $0.id == index }),
+              (1...Self.maximumBody).contains(maximumBytes) else { throw EmbyError.invalidResponse }
+        return try await send(["Videos", playback.itemID, playback.mediaSourceID, "Subtitles", String(index), "Stream.srt"],
+                              account: account, maximumBytes: maximumBytes)
+    }
+
     func report(_ account: Account, playback: DirectPlayback, event: PlaybackEvent, positionMillis: Int64,
                 paused: Bool = false) async throws {
         guard playback.owner == playbackOwner, playback.accountToken == account.AccessToken,
@@ -257,7 +299,7 @@ struct EmbyClient: Sendable {
 
     private func makeRequest(_ path: [String], account: Account? = nil, query: [URLQueryItem] = [],
                       body: Data? = nil) throws -> URLRequest {
-        guard path.allSatisfy(EmbySourceConnection.validID) else { throw EmbyError.invalidResponse }
+        guard path.allSatisfy({ $0 == "Stream.srt" || EmbySourceConnection.validID($0) }) else { throw EmbyError.invalidResponse }
         let url = path.reduce(endpoint) { $0.appendingPathComponent($1, isDirectory: false) }
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw EmbyError.invalidEndpoint }
         if !query.isEmpty { components.queryItems = query }
@@ -278,16 +320,16 @@ struct EmbyClient: Sendable {
     }
 
     private func send(_ path: [String], account: Account? = nil, query: [URLQueryItem] = [],
-                      body: Data? = nil) async throws -> Data {
+                      body: Data? = nil, maximumBytes: Int = EmbyClient.maximumBody) async throws -> Data {
         let request = try makeRequest(path, account: account, query: query, body: body)
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw EmbyError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else { throw EmbyError.http(http.statusCode) }
-        guard response.expectedContentLength <= Int64(Self.maximumBody) else { throw EmbyError.invalidResponse }
+        guard response.expectedContentLength <= Int64(maximumBytes) else { throw EmbyError.invalidResponse }
         var data = Data()
         for try await byte in bytes {
-            guard data.count < Self.maximumBody else { throw EmbyError.invalidResponse }
+            guard data.count < maximumBytes else { throw EmbyError.invalidResponse }
             data.append(byte)
         }
         return data

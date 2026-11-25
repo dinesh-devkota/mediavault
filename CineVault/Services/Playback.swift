@@ -16,7 +16,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     fileprivate let config: SourceConfig
     private let path: String
     private let emby: EmbySourceConnection?
-    private let embyPlayback: EmbyClient.DirectPlayback?
+    fileprivate let embyPlayback: EmbyClient.DirectPlayback?
     private let stillAvailable: (@MainActor () -> Bool)?
     private let household: HouseholdStore
     private let householdSession: UUID
@@ -131,6 +131,16 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         }
         try await verifyAccess()
         return size
+    }
+
+    fileprivate func embySubtitle(_ index: Int) async throws -> SubtitleDocument {
+        guard let emby, let embyPlayback else { throw EmbyError.invalidResponse }
+        try await verifyAccess()
+        let data = try await emby.client.textSubtitle(emby.account, playback: embyPlayback, index: index,
+                                                     maximumBytes: SubtitleDocument.maximumBytes)
+        try Task.checkCancellation()
+        try await verifyAccess()
+        return try SubtitleDocument.parse(data)
     }
 
     func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
@@ -281,7 +291,12 @@ final class PlaybackController: ObservableObject {
         item.externalMetadata = Self.metadata(for: movie)
         let player = AVPlayer(playerItem: item)
         self.player = player
-        subtitles = PlaybackSubtitles(player: player, movie: movie, config: loader.config, defaults: defaults)
+        subtitles = PlaybackSubtitles(player: player, movie: movie, config: loader.config, defaults: defaults,
+                                      serverTracks: loader.embyPlayback?.textSubtitles ?? [],
+                                      readServerTrack: { [weak loader] index in
+            guard let loader else { throw CancellationError() }
+            return try await loader.embySubtitle(index)
+        })
         #if CINEVAULT_COMMERCIAL
         commercialSession = services.commercial.makePlaybackSession(
             player: player, mediaID: household.playbackID(movie.id), resume: resume,

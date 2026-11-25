@@ -1,3 +1,4 @@
+import CineVaultCore
 import Foundation
 import XCTest
 @testable import CineVault
@@ -25,6 +26,18 @@ final class EmbyClientTests: XCTestCase {
         let range = try await client.read(account, playback: playback, offset: 5, length: 4)
         XCTAssertEqual(range.totalLength, 20)
         XCTAssertEqual(range.bytes, Data("5678".utf8))
+        XCTAssertEqual(playback.textSubtitles.map(\.id), [3])
+        XCTAssertEqual(playback.textSubtitles.first?.language, "eng")
+        let text = try await client.textSubtitle(account, playback: playback, index: 3, maximumBytes: 4096)
+        XCTAssertNoThrow(try SubtitleDocument.parse(text))
+        do {
+            _ = try await client.textSubtitle(account, playback: playback, index: 4, maximumBytes: 4096)
+            XCTFail("An unadvertised track should fail before the server request")
+        } catch EmbyError.invalidResponse {}
+        do {
+            _ = try await client.textSubtitle(account, playback: playback, index: 3, maximumBytes: 8)
+            XCTFail("Oversized text subtitle should be rejected")
+        } catch EmbyError.invalidResponse {}
         try await client.report(account, playback: playback, event: .progress, positionMillis: 500)
         try await client.report(account, playback: playback, event: .stopped, positionMillis: 500)
         try await client.signOut(account)
@@ -172,7 +185,9 @@ private final class EmbyFixture: URLProtocol {
             }
         case "/emby/Items/movie-a/PlaybackInfo":
             guard query["UserId"] == "viewer" else { return failure }
-            return (200, #"{"PlaySessionId":"fixture-session","MediaSources":[{"Id":"fixture-source","Container":"mp4","SupportsDirectPlay":true}]}"#, [:])
+            return (200, #"{"PlaySessionId":"fixture-session","MediaSources":[{"Id":"fixture-source","Container":"mp4","SupportsDirectPlay":true,"MediaStreams":[{"Type":"Subtitle","Index":3,"IsTextSubtitleStream":true,"IsExternal":true,"Language":"eng","DisplayTitle":"English (SRT)"},{"Type":"Subtitle","Index":4,"IsTextSubtitleStream":false,"IsExternal":true}]}]}"#, [:])
+        case "/emby/Videos/movie-a/fixture-source/Subtitles/3/Stream.srt":
+            return (200, "1\n00:00:00,100 --> 00:00:02,500\nHello from Emby\n", ["Content-Type": "application/x-subrip"])
         case "/emby/Videos/movie-a/stream":
             guard query["Static"] == "true", query["MediaSourceId"] == "fixture-source",
                   query["PlaySessionId"] == "fixture-session",

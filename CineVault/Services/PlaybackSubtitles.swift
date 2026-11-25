@@ -73,6 +73,10 @@ final class PlaybackSubtitles: ObservableObject {
         var label: String { option.displayName }
         var preference: String { "embedded|" + (option.extendedLanguageTag ?? option.locale?.identifier ?? option.displayName) }
     }
+    let serverTracks: [EmbyClient.TextSubtitle]
+    private let readServerTrack: ((Int) async throws -> SubtitleDocument)?
+    var usesProviderSubtitles: Bool { config.isEmby }
+
     @Published private(set) var local: [SubtitleFile] = []
     @Published private(set) var embedded: [Embedded] = []
     @Published private(set) var online: [SubDLSubtitle] = []
@@ -104,8 +108,15 @@ final class PlaybackSubtitles: ObservableObject {
     private var nativeLoaded = false
     private var nativeSelection = NativeSubtitleSelectionTracker(current: nil)
 
-    init(player: AVPlayer, movie: Movie, config: SourceConfig, defaults: UserDefaults = .standard) {
+    init(player: AVPlayer, movie: Movie, config: SourceConfig, defaults: UserDefaults = .standard,
+         serverTracks: [EmbyClient.TextSubtitle] = [], readServerTrack: ((Int) async throws -> SubtitleDocument)? = nil) {
         self.player = player; self.movie = movie; self.config = config; path = movie.filePath; self.defaults = defaults
+        self.serverTracks = serverTracks
+        self.readServerTrack = readServerTrack
+    }
+
+    private static func serverPreference(_ track: EmbyClient.TextSubtitle) -> String {
+        "emby|" + (track.language ?? "") + "|" + (track.forced ? "forced" : track.hearingImpaired ? "sdh" : "standard")
     }
 
     func start() {
@@ -155,10 +166,16 @@ final class PlaybackSubtitles: ObservableObject {
         let preference = defaults.string(forKey: Self.preferenceKey) ?? "system"
         if preference == "off" { select("off", remember: false) }
         else if let file = local.first(where: { $0.preference == preference }) { select(file.path, remember: false) }
+        else if let track = serverTracks.first(where: { Self.serverPreference($0) == preference }) {
+            select("emby:\(track.id)", remember: false)
+        }
         else if let native = embedded.first(where: { $0.preference == preference }) { select("embedded:\(native.id)", remember: false) }
         else if preference != "system" || defaults.bool(forKey: SubtitleSettings.enabledKey) {
             if let file = local.first(where: { Self.sameLanguage($0.language, preferredLanguage) && !$0.forced && !$0.hearingImpaired }) ?? local.first(where: { Self.sameLanguage($0.language, preferredLanguage) }) {
                 select(file.path, remember: false)
+            } else if let track = serverTracks.first(where: { Self.sameLanguage($0.language, preferredLanguage) && !$0.forced && !$0.hearingImpaired })
+                ?? serverTracks.first(where: { Self.sameLanguage($0.language, preferredLanguage) }) {
+                select("emby:\(track.id)", remember: false)
             } else if let native = embedded.first(where: { Self.sameLanguage($0.option.extendedLanguageTag ?? $0.option.locale?.identifier, preferredLanguage) }) {
                 select("embedded:\(native.id)", remember: false)
             } else if defaults.bool(forKey: SubtitleSettings.enabledKey) {
@@ -207,26 +224,38 @@ final class PlaybackSubtitles: ObservableObject {
             selectNative(native.option)
             if remember { defaults.set(native.preference, forKey: Self.preferenceKey) }
         } else if let file = local.first(where: { $0.path == id }) {
-            guard disableNative() else { return }
-            selection = id; loading = true; localPreference = file.preference
-            if remember { defaults.set(file.preference, forKey: Self.preferenceKey) }
-            let token = generation
-            loadTask = Task { [weak self] in
-                guard let self else { return }
-                do {
-                    guard self.sourceUnchanged else { throw SMBError.sourceChanged }
-                    let document = try await LocalSubtitleService.read(file, config: self.config)
-                    try Task.checkCancellation()
-                    guard self.generation == token, self.sourceUnchanged else { return }
-                    self.document = document; self.loading = false; self.updateCaption()
-                } catch is CancellationError { }
-                catch {
-                    guard !self.stopped, self.generation == token else { return }
-                    self.loading = false; self.selection = "off"; self.localPreference = nil
-                    self.message = "This subtitle file is unreadable, invalid, or larger than 2 MB. Choose another track; playback can continue."
-                    if !remember, self.defaults.bool(forKey: SubtitleSettings.enabledKey) {
-                        self.findOnline(automatically: true)
-                    }
+            let config = self.config
+            loadTextTrack(id: id, preference: file.preference, remember: remember) {
+                try await LocalSubtitleService.read(file, config: config)
+            }
+        } else if let track = serverTracks.first(where: { "emby:\($0.id)" == id }), let readServerTrack {
+            loadTextTrack(id: id, preference: Self.serverPreference(track), remember: remember) {
+                try await readServerTrack(track.id)
+            }
+        }
+    }
+
+    private func loadTextTrack(id: String, preference: String, remember: Bool,
+                               read: @escaping () async throws -> SubtitleDocument) {
+        guard disableNative() else { return }
+        selection = id; loading = true; localPreference = preference
+        if remember { defaults.set(preference, forKey: Self.preferenceKey) }
+        let token = generation
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard self.sourceUnchanged else { throw SMBError.sourceChanged }
+                let document = try await read()
+                try Task.checkCancellation()
+                guard self.generation == token, self.sourceUnchanged else { return }
+                self.document = document; self.loading = false; self.updateCaption()
+            } catch is CancellationError { }
+            catch {
+                guard !self.stopped, self.generation == token else { return }
+                self.loading = false; self.selection = "off"; self.localPreference = nil
+                self.message = "This subtitle file is unreadable, invalid, or larger than 2 MB. Choose another track; playback can continue."
+                if !remember, self.defaults.bool(forKey: SubtitleSettings.enabledKey) {
+                    self.findOnline(automatically: true)
                 }
             }
         }
@@ -438,10 +467,22 @@ struct SubtitleSelectionView: View {
                     choice("Automatic", id: "system")
                     ForEach(subtitles.embedded) { track in choice(track.label + " · Embedded", id: "embedded:\(track.id)") }
                 }
-                Section("From this video’s folder") {
-                    if subtitles.loading { ProgressView("Loading subtitles…") }
-                    ForEach(subtitles.local) { file in choice(file.label, id: file.path) }
-                    if subtitles.local.isEmpty && !subtitles.loading { Text("No matching SRT or WebVTT files found.").foregroundStyle(.secondary) }
+                if subtitles.usesProviderSubtitles {
+                    Section("From Emby") {
+                        if subtitles.loading { ProgressView("Loading subtitles…") }
+                        ForEach(subtitles.serverTracks) { track in
+                            choice(track.title ?? track.language ?? "Subtitle \(track.id)", id: "emby:\(track.id)")
+                        }
+                        if subtitles.serverTracks.isEmpty && !subtitles.loading {
+                            Text("No server text subtitles are available.").foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    Section("From this video’s folder") {
+                        if subtitles.loading { ProgressView("Loading subtitles…") }
+                        ForEach(subtitles.local) { file in choice(file.label, id: file.path) }
+                        if subtitles.local.isEmpty && !subtitles.loading { Text("No matching SRT or WebVTT files found.").foregroundStyle(.secondary) }
+                    }
                 }
                 Section("Online · SubDL") {
                     Button(subtitles.searching ? "Searching…" : "Find online subtitles") { subtitles.findOnline() }
@@ -473,7 +514,7 @@ struct SubtitleSelectionView: View {
                     }
                 }
                 if let message = subtitles.message { Text(message).foregroundStyle(.secondary) }
-                Section {
+                if !subtitles.usesProviderSubtitles {
                     Text("Place subtitle files beside the video using the same filename, such as Movie.en.srt or Movie.es.vtt. Your Off or language choice carries to the next episode when available.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
