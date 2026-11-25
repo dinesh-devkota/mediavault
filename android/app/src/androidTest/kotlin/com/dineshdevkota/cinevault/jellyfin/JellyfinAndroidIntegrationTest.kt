@@ -59,7 +59,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class JellyfinAndroidIntegrationTest {
     @Test
-    fun protectedImportPlaysAndSeeksOnATvSurfaceWithAnExplicitGrant() = runBlocking {
+    fun protectedImportPlaysAndSeeksOnATvSurfaceWithAnExplicitGrant() = runBlocking<Unit> {
         val certificate = InstrumentationRegistry.getArguments().getString("jellyfinCertificate")
         assumeTrue("Run this journey on the disposable Android TV fixture.", !certificate.isNullOrBlank())
         val http = fixtureClient(checkNotNull(certificate))
@@ -76,9 +76,10 @@ class JellyfinAndroidIntegrationTest {
                 id = id, name = library.name, host = endpoint, share = library.id,
                 username = session.user.id, encryptedPassword = sealed, sourceType = JELLYFIN,
             )
-            Room.inMemoryDatabaseBuilder(
+            val database = Room.inMemoryDatabaseBuilder(
                 ApplicationProvider.getApplicationContext<Context>(), CineVaultDatabase::class.java,
-            ).build().use { database ->
+            ).build()
+            try {
                 database.sources().upsert(source)
                 assertEquals(1 to 1, importJellyfinLibrary(database, source, secrets, http) {})
                 val movie = database.movies().forSource(id).single()
@@ -102,6 +103,8 @@ class JellyfinAndroidIntegrationTest {
                 verifyRenderedSeek(transport, uri)
                 current.set(viewer)
                 assertDeniedBeforeOpening(transport, uri)
+            } finally {
+                database.close()
             }
         } finally {
             client.signOut(session)
