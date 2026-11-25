@@ -135,8 +135,11 @@ class SearchNavigationTest {
                 device.pressDPadCenter()
                 focused(hasTestTag("tv-season:tmdb:9876:2"))
                 container.database.sources().upsert(source.copy(ignoredFolders = listOf("TV")))
-                focused(hasTestTag("library-search-field"))
+                // Ignored media must disappear even if the nested season browser
+                // was restoring focus when the new source policy arrived.
                 visible(hasText("No results"))
+                compose.onNode(hasTestTag("tv-season:tmdb:9876:2")).assertDoesNotExist()
+                focused(hasTestTag("library-search-field"))
                 compose.onNode(hasTestTag("library-search-field")).assertTextContains("Zeta Horizon")
             }
         } finally { cleanup(source) }
