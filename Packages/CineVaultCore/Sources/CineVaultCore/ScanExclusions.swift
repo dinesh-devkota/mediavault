@@ -40,7 +40,10 @@ public enum ScanExclusions {
     }
 
     private static func startsWith(_ path: [String], prefix: [String], caseSensitive: Bool) -> Bool {
-        path.count >= prefix.count && prefix.indices.allSatisfy { path[$0].lowercased() == prefix[$0].lowercased() }
+        path.count >= prefix.count && prefix.indices.allSatisfy { index in
+            if caseSensitive { return path[index].utf8.elementsEqual(prefix[index].utf8) }
+            return path[index].lowercased() == prefix[index].lowercased()
+        }
     }
 
     private static func components(_ path: String, allowRoot: Bool, caseSensitive: Bool = false) -> [String]? {
