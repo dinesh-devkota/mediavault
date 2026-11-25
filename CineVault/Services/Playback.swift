@@ -97,7 +97,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
                     guard !overflow else { throw SMBError.invalidByteRange }
                     end = min(size, requestedEnd)
                 }
-                try await streamBytes(from: offset, to: end) { data in
+                try await streamBytes(from: offset, to: end, expectedLength: size) { data in
                     dataRequest.respond(with: data)
                 }
             }
@@ -143,7 +143,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         return try SubtitleDocument.parse(data)
     }
 
-    func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
+    func streamBytes(from start: Int64, to end: Int64, expectedLength: Int64? = nil, respond: (Data) -> Void) async throws {
         try await verifyAccess()
         guard start >= 0, end >= start else { throw SMBError.invalidByteRange }
         var offset = start
@@ -153,7 +153,9 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             try await verifyAccess()
             let data: Data
             if let emby, let embyPlayback {
-                data = try await emby.client.read(emby.account, playback: embyPlayback, offset: offset, length: length).bytes
+                let range = try await emby.client.read(emby.account, playback: embyPlayback, offset: offset, length: length)
+                guard expectedLength.map({ $0 == range.totalLength }) ?? true else { throw EmbyError.invalidRange }
+                data = range.bytes
             } else {
                 guard !config.isEmby else { throw PlaybackPreparationError.fileUnavailable }
                 data = try await SMBService.shared.read(config, path: path, offset: offset, length: length)
