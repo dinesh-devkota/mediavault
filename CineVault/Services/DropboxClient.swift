@@ -48,7 +48,7 @@ struct DropboxClient: Sendable {
         let has_more: Bool
     }
 
-    private static let session: URLSession = {
+    private static let defaultSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.urlCredentialStorage = nil
@@ -59,14 +59,16 @@ struct DropboxClient: Sendable {
     }()
     private let appKey: String
     private let callback: URL
+    private let session: URLSession
 
-    init(appKey: String, callback: URL) throws {
+    init(appKey: String, callback: URL, session: URLSession? = nil) throws {
         guard !appKey.isEmpty, callback.scheme == "https", callback.host?.isEmpty == false,
               callback.user == nil, callback.password == nil, callback.query == nil, callback.fragment == nil else {
             throw DropboxClientError.invalidConfiguration
         }
         self.appKey = appKey
         self.callback = callback
+        self.session = session ?? Self.defaultSession
     }
 
     func beginAuthorization() throws -> Authorization {
@@ -136,6 +138,48 @@ struct DropboxClient: Sendable {
         }
     }
 
+    /// Dropbox file IDs keep reads tied to the catalog entry when a file is renamed or moved.
+    func read(fileID: String, offset: Int64, length: Int, accessToken: String) async throws -> Data {
+        guard fileID.hasPrefix("id:"), (4...256).contains(fileID.utf8.count),
+              fileID.utf8.dropFirst(3).allSatisfy({
+                  (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95
+              }),
+              offset >= 0, (1...8 * 1024 * 1024).contains(length),
+              offset <= Int64.max - Int64(length) else { throw DropboxClientError.invalidConfiguration }
+        let end = offset + Int64(length) - 1
+        var request = try authorizedRequest(
+            url: URL(string: "https://content.dropboxapi.com/2/files/download")!,
+            accessToken: accessToken)
+        request.httpMethod = "POST"
+        let arguments = try JSONEncoder().encode(["path": fileID])
+        request.setValue(String(decoding: arguments, as: UTF8.self), forHTTPHeaderField: "Dropbox-API-Arg")
+        request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw DropboxClientError.invalidResponse }
+        guard http.statusCode == 206 else { throw DropboxClientError.http(http.statusCode) }
+        guard let header = http.value(forHTTPHeaderField: "Content-Range"),
+              Self.matchesRange(header, offset: offset, end: end),
+              response.expectedContentLength < 0 || response.expectedContentLength == Int64(length),
+              http.value(forHTTPHeaderField: "Content-Encoding").map({ $0.lowercased() == "identity" }) ?? true else {
+            throw DropboxClientError.invalidResponse
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < length else { throw DropboxClientError.invalidResponse }
+            data.append(byte)
+        }
+        guard data.count == length else { throw DropboxClientError.invalidResponse }
+        return data
+    }
+
+    private static func matchesRange(_ header: String, offset: Int64, end: Int64) -> Bool {
+        let prefix = "bytes \(offset)-\(end)/"
+        guard header.hasPrefix(prefix), let total = Int64(header.dropFirst(prefix.count)) else { return false }
+        return total > end && header == prefix + String(total)
+    }
+
     private func token(_ fields: [String: String]) async throws -> Credentials {
         var form = URLComponents()
         form.queryItems = (fields.merging(["client_id": appKey]) { existing, _ in existing }).map {
@@ -148,24 +192,31 @@ struct DropboxClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(body.utf8)
-        return try JSONDecoder().decode(Credentials.self, from: await Self.send(request))
+        return try JSONDecoder().decode(Credentials.self, from: await send(request))
     }
 
     private func jsonRequest(path: String, accessToken: String, arguments: [String: String]?) async throws -> Data {
-        guard !accessToken.isEmpty, accessToken.utf8.allSatisfy({ (33...126).contains($0) }) else {
-            throw DropboxClientError.invalidAuthorization
-        }
-        var request = URLRequest(url: URL(string: "https://api.dropboxapi.com/2/" + path)!)
+        var request = try authorizedRequest(
+            url: URL(string: "https://api.dropboxapi.com/2/" + path)!,
+            accessToken: accessToken)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         if let arguments {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(arguments)
         }
-        return try await Self.send(request)
+        return try await send(request)
     }
 
-    private static func send(_ request: URLRequest) async throws -> Data {
+    private func authorizedRequest(url: URL, accessToken: String) throws -> URLRequest {
+        guard !accessToken.isEmpty, accessToken.utf8.allSatisfy({ (33...126).contains($0) }) else {
+            throw DropboxClientError.invalidAuthorization
+        }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    private func send(_ request: URLRequest) async throws -> Data {
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         let limit = 8 * 1024 * 1024
