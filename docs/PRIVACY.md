@@ -12,7 +12,7 @@ MediaVault does not operate a user-account service or send your viewing history 
 playback time to developer-operated servers. Profiles and history do not sync
 between devices.
 
-SMB and WebDAV passwords and the optional TMDB and SubDL API credentials use the Keychain on Apple TV.
+SMB and WebDAV passwords and the optional TMDB and SubDL API credentials use the Keychain on Apple devices.
 On Android, they are encrypted with a key held in the Android Keystore.
 The device reads media directly from your configured source for playback. MediaVault does not upload your media.
 A WebDAV connection sends your configured credentials and media paths to your WebDAV server over HTTPS.
@@ -32,7 +32,7 @@ own resume positions and Watchlist separate for each household profile.
 Household profiles are local to this installation. Names, allowed folders and
 rating restrictions are stored on the device. PINs are verified using salted,
 derived values; plaintext PINs are not stored. Profile permissions and PIN verifiers
-use protected local storage: Keychain on Apple TV and Keystore-backed encryption
+use protected local storage: Keychain on Apple devices and Keystore-backed encryption
 on Android. Failed-attempt delays survive app restarts.
 
 Each viewer has separate local watched status, resume positions and Watchlist.

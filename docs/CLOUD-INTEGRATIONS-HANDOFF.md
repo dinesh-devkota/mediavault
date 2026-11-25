@@ -224,3 +224,22 @@ checks.
 `codex/mediavault-android-phone` branches from Android TV WebDAV/household checkpoint `1cbd47977ed07222cf6a44400c10a5757b3d5221`. The same Android app exposes a phone launcher and a TV launcher. Phone layouts use touch Material buttons, persistent navigation, compact library and form layouts, and safe areas for the system bars and keyboard. Existing TV navigation and transport are covered by their existing checks.
 
 The separate Android phone workflow runs a clean API 36 phone emulator against the synthetic SMB fixture. It verifies launcher discovery, touch source-form validation, credential entry, folder selection and scan, opening the imported movie and seeking through native playback controls. Phone WebDAV reuses the shared implementation and source editor. This phone smoke covers SMB; WebDAV transport has its existing Android TV fixture. Physical phone testing and app distribution remain separate.
+
+## iPhone
+
+The iPhone integration candidate is on `codex/mediavault-ios-integration`.
+It shares the public app’s SMB, HTTPS WebDAV, and Jellyfin setup, household
+rules, database, and native playback code. The iPhone target uses iOS 17 and
+later, with touch navigation for administrative settings and
+subtitle controls. The app treats each device’s household and library as local.
+It does not sync profiles or progress across devices.
+
+Generate the iPhone Xcode project with `xcodegen generate --spec project.ios.yml`.
+The `CineVaultPhone` scheme builds the app and runs shared tests and iPhone UI
+tests. The hosted `iPhone simulator` workflow builds an unsigned release with iOS SDK 26 or later and runs
+simulator setup and playback tests against temporary SMB, WebDAV, and Jellyfin fixtures.
+This app branch needs a green simulator run before merge. Physical iPhone testing,
+signing, export-compliance confirmation, App Store Connect setup, and App Review
+are separate release steps.
+
+[Original iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)

@@ -149,7 +149,7 @@ enum PlaybackPreparationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedFormat:
-            return "Apple TV's native player cannot play this file's container or audio/video codecs. Use a supported container with compatible codecs."
+            return "This device’s native player cannot play this file's container or audio/video codecs. Use a supported container with compatible codecs."
         case .fileUnavailable:
             return "This file is missing or ignored by its NAS source. Include it again and rescan before playing."
         }
@@ -527,6 +527,16 @@ final class PlaybackController: ObservableObject {
     }
 }
 
+extension View {
+    @ViewBuilder func playbackScreenEdges() -> some View {
+        #if os(tvOS)
+        ignoresSafeArea()
+        #else
+        self
+        #endif
+    }
+}
+
 struct PlaybackScreen: View {
     @StateObject private var session: ContinuousPlayback
     @Environment(\.dismiss) private var dismiss
@@ -577,7 +587,7 @@ struct PlaybackScreen: View {
             }
             #endif
         }
-        .onExitCommand {
+        .onTVExit {
             if session.next != nil { session.cancel() }
             else { close() }
         }
@@ -607,16 +617,25 @@ private struct ActivePlaybackView: View {
             CommercialPlayerView(session: controller.commercialSession, stopsSessionOnDisappear: false)
         #else
             PlayerView(controller: controller, close: close)
+                #if os(iOS)
+                .ignoresSafeArea()
+                #endif
         #endif
             LocalCaptionOverlay(subtitles: subtitles)
-            #if CINEVAULT_COMMERCIAL
+            #if CINEVAULT_COMMERCIAL || os(iOS)
             VStack {
                 HStack {
                     Button(action: close) { Label("Back", systemImage: "chevron.left") }
+                        .accessibilityIdentifier("playback-close")
                     Spacer()
                     Button { subtitles.presented = true } label: { Label("Subtitles", systemImage: "captions.bubble") }
                         .accessibilityIdentifier("playback-subtitles")
-                }.buttonStyle(.bordered).padding(48)
+                }.buttonStyle(.bordered)
+                #if os(iOS)
+                    .padding()
+                #else
+                    .padding(48)
+                #endif
                 Spacer()
             }
             #endif
@@ -646,6 +665,7 @@ struct PlayerView: UIViewControllerRepresentable {
             viewController.view.isUserInteractionEnabled = false
         }
         #endif
+        #if os(tvOS)
         viewController.transportBarCustomMenuItems = [
             UIAction(title: "Subtitles", image: UIImage(systemName: "captions.bubble")) { _ in
                 controller.subtitles.presented = true
@@ -654,6 +674,7 @@ struct PlayerView: UIViewControllerRepresentable {
                 close()
             }
         ]
+        #endif
         controller.player.play()
         return viewController
     }
@@ -683,10 +704,12 @@ private struct NextEpisodeCountdown: View {
                         .focused($playFocused).disabled(session.preparing).accessibilityIdentifier("autoplay-play-now")
                     Button("Cancel") { session.cancel() }.accessibilityIdentifier("autoplay-cancel")
                 }
+                #if os(tvOS)
                 Text("Press Back to cancel").font(.caption).foregroundStyle(.secondary)
+                #endif
             }.padding(70)
         }
         .onAppear { playFocused = true }
-        .onExitCommand { session.cancel() }
+        .onTVExit { session.cancel() }
     }
 }

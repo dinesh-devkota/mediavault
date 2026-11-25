@@ -80,7 +80,7 @@ struct HomeShelfHeader: View {
             if let collection { HomeSeeAllButton(collection: collection) }
         }
         .frame(maxWidth: .infinity)
-        .focusSection()
+        .tvFocusSection()
     }
 }
 
@@ -122,8 +122,8 @@ struct HomeCollectionView: View {
     @FocusState private var focusedItem: String?
     @State private var lastFocusedItem: String?
     @State private var focusedMovieAnchor: UUID?
-    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
-    private let wideColumns = [GridItem(.adaptive(minimum: 400, maximum: 400), spacing: 48)]
+    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: CinemaTheme.gridSpacing)]
+    private let wideColumns = [GridItem(.adaptive(minimum: CinemaTheme.episodeWidth, maximum: CinemaTheme.episodeWidth), spacing: CinemaTheme.gridSpacing)]
 
     var body: some View {
         let items = collection == .continueWatching ? [] : collection.items(in: library)
@@ -144,7 +144,7 @@ struct HomeCollectionView: View {
                             .accessibilityIdentifier("home-collection-count")
                     }
                     .frame(maxWidth: .infinity)
-                    .focusSection()
+                    .tvFocusSection()
                     if count == 0 {
                         ContentUnavailableView {
                             Label("Nothing here yet", systemImage: "rectangle.stack")
@@ -176,7 +176,7 @@ struct HomeCollectionView: View {
                         }.padding(.vertical, 24)
                     }
                 }
-                .padding(.horizontal, 70).padding(.bottom, 100)
+                .padding(.horizontal, CinemaTheme.edgeInset).padding(.bottom, 100)
             }
             .onChange(of: focusedItem) { _, value in
                 if let value {

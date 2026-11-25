@@ -120,7 +120,7 @@ struct BulkWatchSheet: View {
             }
             Text("\(selectedMovies.count) of \(available.count) files selected")
                 .accessibilityIdentifier("bulk-watch-count")
-            HStack(spacing: 24) {
+            CinemaTheme.actionLayout {
                 Button("Select all results") { selected = Set(available.map(\.id)) }
                     .disabled(available.isEmpty).focused($focus, equals: "all")
                     .accessibilityIdentifier("bulk-watch-all")
@@ -155,14 +155,14 @@ struct BulkWatchSheet: View {
                         .accessibilityIdentifier("bulk-watch-row-\(row.id)")
                         .accessibilityValue(row.ids.isSubset(of: selected) ? "Selected" : "Not selected")
                         .accessibilityAddTraits(row.ids.isSubset(of: selected) ? .isSelected : [])
-                        .onMoveCommand { direction in
+                        .onTVMove { direction in
                             if direction == .right && !selectedMovies.isEmpty { focus = "watched" }
                         }
                     }
                 }.padding(18)
             }
         }
-        .padding(48)
+        .padding(CinemaTheme.featuredInset)
         .frame(maxWidth: 1550)
         .task {
             await Task.yield()
@@ -175,7 +175,7 @@ struct BulkWatchSheet: View {
             if let focus, focus != "done", !["all", "clear", "watched", "unwatched"].contains(focus),
                !rows.contains(where: { $0.id == focus }) { self.focus = "done" }
         }
-        .onExitCommand { dismiss() }
+        .onTVExit { dismiss() }
     }
 
     private func toggle(_ row: Row) {
