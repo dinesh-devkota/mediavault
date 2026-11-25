@@ -10,6 +10,7 @@ fi
 RESULTS="${RUNNER_TEMP:?}/android-runtime-results"
 APP_ID="com.dineshdevkota.cinevault"
 FAMILY_TEST="${APP_ID}.FamilyNavigationTest"
+PHONE_TEST="${APP_ID}.AndroidPhoneNavigationTest"
 SERIAL=$(adb devices | awk '$1 ~ /^emulator-/ && $2 == "device" { print $1 }')
 if [[ -z "$SERIAL" || "$SERIAL" == *$'\n'* || "$(adb -s "$SERIAL" shell getprop ro.kernel.qemu | tr -d '\r')" != "1" ]]; then
   echo "Expected exactly one disposable Android emulator." >&2
@@ -57,7 +58,7 @@ WEBDAV_CERTIFICATE=$(openssl base64 -A -in "$RUNNER_TEMP/android-webdav-fixture/
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   "-Pandroid.testInstrumentationRunnerArguments.webDavCertificate=$WEBDAV_CERTIFICATE" \
-  "-Pandroid.testInstrumentationRunnerArguments.notClass=$FAMILY_TEST" || status=$?
+  "-Pandroid.testInstrumentationRunnerArguments.notClass=$FAMILY_TEST,$PHONE_TEST" || status=$?
 archive_results baseline
 if [[ "$status" != "0" ]]; then exit "$status"; fi
 
