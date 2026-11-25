@@ -98,6 +98,7 @@ jobs:
       - name: Start the synthetic SMB and WebDAV fixtures
         run: |
           set -euo pipefail
+          command -v ffmpeg >/dev/null || (sudo apt-get update && sudo apt-get install -y ffmpeg)
           python -m pip install -r scripts/nas-test-requirements.txt
           python scripts/nas_fixture.py "$RUNNER_TEMP/android-nas-fixture" >"$RUNNER_TEMP/android-nas-fixture.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/android-nas-fixture.pid"

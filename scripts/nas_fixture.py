@@ -5,6 +5,7 @@ from pathlib import Path
 
 from impacket import smbserver
 from impacket.ntlm import compute_lmhash, compute_nthash
+from media_library_fixture import library_fixtures, format_fixtures
 
 
 MOVIE_SIZE = 60 * 1024 * 1024
@@ -94,11 +95,18 @@ def main() -> None:
     playback_root = root.with_name(root.name + "-playback")
     playback_fixtures(playback_root)
 
+    library_root = root.with_name(root.name + "-library")
+    library_fixtures(library_root)
+    formats_root = root.with_name(root.name + "-formats")
+    format_fixtures(formats_root)
+
     logging.basicConfig(level=logging.INFO)
     server = smbserver.SimpleSMBServer(listenAddress="127.0.0.1", listenPort=1445)
     server.addShare("CINEVAULT", str(root), readOnly="yes")
     server.addShare("COVEPHOTOS", str(photo_root), readOnly="yes")
     server.addShare("MEDIAPLAYBACK", str(playback_root), readOnly="yes")
+    server.addShare("MEDIALIBRARY", str(library_root), readOnly="yes")
+    server.addShare("FORMATPLAYBACK", str(formats_root), readOnly="yes")
     server.setSMB2Support(True)
     server.addCredential("cinevault", 0, compute_lmhash("fixture-only"), compute_nthash("fixture-only"))
     server.start()

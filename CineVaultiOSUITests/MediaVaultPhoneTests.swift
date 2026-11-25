@@ -50,7 +50,17 @@ final class MediaVaultPhoneTests: XCTestCase {
         let scan = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "1 item · Scanned ")).firstMatch
         XCTAssertTrue(scan.waitForExistence(timeout: 25), app.debugDescription)
 
-        app.tabBars.buttons["Library"].tap()
+        // A completed scan can appear while the nested source-editor sheets are
+        // still dismissing. Wait for the actual Sources screen before changing tabs.
+        let sources = app.navigationBars["Sources"]
+        XCTAssertTrue(sources.waitForExistence(timeout: 10))
+        let editorClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: save)
+        XCTAssertEqual(XCTWaiter.wait(for: [editorClosed], timeout: 10), .completed)
+        let library = app.tabBars.buttons["Library"]
+        XCTAssertTrue(library.isHittable)
+        library.tap()
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: library)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed, app.debugDescription)
         let poster = app.buttons["Film"]
         for _ in 0..<3 where !poster.isHittable { app.swipeUp() }
         XCTAssertTrue(poster.isHittable, app.debugDescription)
