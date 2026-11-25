@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import signal
 import ssl
 import subprocess
@@ -182,11 +183,14 @@ def main():
         movie = movies / "Fixture Film (2026)" / "Fixture Film (2026).mp4"
         movie.parent.mkdir(parents=True)
         movie.with_suffix(".nfo").write_text("<movie><title>Fixture Film</title><year>2026</year></movie>", encoding="utf-8")
-        subprocess.run([
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "9" if args.serve_android else "3", "-c:v", "libx264",
-            "-c:a", "aac", "-movflags", "+faststart", str(movie),
-        ], check=True)
+        if args.serve_android:
+            shutil.copyfile(root / "CineVaultTests" / "Fixtures" / "playback.mp4", movie)
+        else:
+            subprocess.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "3", "-c:v", "libx264",
+                "-c:a", "aac", "-movflags", "+faststart", str(movie),
+            ], check=True)
         subprocess.run(["docker", "run", "--rm", "-d", "--name", name, "--publish", "127.0.0.1:18096:8096", image],
                        check=True, stdout=subprocess.DEVNULL)
         try:
