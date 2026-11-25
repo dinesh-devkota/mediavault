@@ -16,6 +16,7 @@ import com.dineshdevkota.cinevault.core.TitleMatcher
 import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.emby.embyItemId
+import com.dineshdevkota.cinevault.emby.embyPhotoId
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -43,7 +44,7 @@ data class SourceEntity(
     @ColumnInfo(defaultValue = "0") val allowInsecureHttp: Boolean = false,
 ) {
     fun includesFile(filePath: String): Boolean {
-        if (sourceType == EMBY) return embyItemId(filePath) != null
+        if (sourceType == EMBY) return embyItemId(filePath) != null || embyPhotoId(filePath) != null
         if (sourceType != "smb") return false
         val path = ScanExclusions.normalizeFile(filePath) ?: return false
         val root = if (rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(rootPath) ?: return false

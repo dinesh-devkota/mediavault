@@ -2,10 +2,11 @@ package com.dineshdevkota.cinevault.photos
 
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
 import java.util.Locale
 
-data class PhotoAlbum(val id: String, val sourceId: String, val folder: String, val photos: List<MovieEntity>) {
-    val title: String get() = folder.substringAfterLast('/').ifBlank { "Shared folder" }
+data class PhotoAlbum(val id: String, val sourceId: String, val folder: String, val photos: List<MovieEntity>, val label: String? = null) {
+    val title: String get() = label ?: folder.substringAfterLast('/').ifBlank { "Shared folder" }
 }
 
 fun photoAlbumId(photo: MovieEntity): String = "${photo.sourceId}:${photo.filePath.replace('\\', '/').substringBeforeLast('/', "") }"
@@ -23,6 +24,7 @@ fun photoAlbums(items: List<MovieEntity>, sources: List<SourceEntity>? = null): 
     .groupBy(::photoAlbumId)
     .map { (id, photos) ->
         PhotoAlbum(id, photos.first().sourceId, photos.first().filePath.replace('\\', '/').substringBeforeLast('/', ""),
-            photos.sortedWith(compareBy<MovieEntity> { it.fileName.lowercase(Locale.ROOT) }.thenBy { it.id }))
+            photos.sortedWith(compareBy<MovieEntity> { it.fileName.lowercase(Locale.ROOT) }.thenBy { it.id }),
+            sourceById?.get(photos.first().sourceId)?.takeIf { it.sourceType == EMBY }?.name)
     }.sortedWith(compareBy<PhotoAlbum> { it.title.lowercase(Locale.ROOT) }.thenBy { it.sourceId }.thenBy { it.folder })
 }

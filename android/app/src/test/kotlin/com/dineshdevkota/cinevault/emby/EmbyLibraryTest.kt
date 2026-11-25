@@ -1,6 +1,8 @@
 package com.dineshdevkota.cinevault.emby
 
+import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.family.FamilyPolicy
+import com.dineshdevkota.cinevault.photos.photoAlbums
 import com.dineshdevkota.cinevault.family.FolderAccess
 import com.dineshdevkota.cinevault.family.HouseholdProfile
 import org.junit.Assert.*
@@ -32,6 +34,23 @@ class EmbyLibraryTest {
         assertEquals("Owner title", refreshed.title)
         assertTrue(refreshed.isWatchlisted)
         assertEquals(50_000L, refreshed.playbackPositionMs)
+    }
+
+    @Test fun photoLibraryUsesDistinctPathsAndKeepsHouseholdPermissions() {
+        val source = SourceEntity(id = "source-id", name = "Family Albums", host = "https://emby.example",
+            share = "photo-library", sourceType = EMBY)
+        val item = EmbyClient.Item("PhotoID", "Family landscape", "Photo")
+        val image = checkNotNull(embyMovie(source.id, item, null, null))
+        assertTrue(image.isPhoto)
+        assertEquals("PhotoID", embyPhotoId(image.filePath))
+        assertNull(embyItemId(image.filePath))
+        assertTrue(source.includesFile(image.filePath))
+        val viewer = HouseholdProfile("viewer", "Viewer")
+        assertFalse(FamilyPolicy.allows(viewer, image, requiresWholeSource = true))
+        val partial = viewer.copy(folders = listOf(FolderAccess(source.id, "emby-photos")))
+        assertFalse(FamilyPolicy.allows(partial, image, requiresWholeSource = true))
+        assertTrue(FamilyPolicy.allows(viewer.copy(folders = listOf(FolderAccess(source.id, ""))), image, requiresWholeSource = true))
+        assertEquals("Family Albums", photoAlbums(listOf(image), listOf(source)).single().title)
     }
 
     @Test fun malformedEpisodesAndProviderIdentifiersAreRejected() {

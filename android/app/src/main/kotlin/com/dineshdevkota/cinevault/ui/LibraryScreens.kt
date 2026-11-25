@@ -283,7 +283,7 @@ private fun FeaturedCard(movie: MovieEntity, onClick: () -> Unit) {
         scale = CardDefaults.scale(focusedScale = 1.02f),
     ) {
         Box(Modifier.fillMaxSize()) {
-            Artwork(Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w1280"), "", Modifier.fillMaxSize())
+            MovieArtwork(movie, Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w1280"), "", Modifier.fillMaxSize(), 780)
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.85f), 0.7f to Color.Transparent),

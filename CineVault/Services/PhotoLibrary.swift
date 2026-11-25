@@ -39,7 +39,7 @@ enum PhotoLibrary {
     static func albums(_ items: [Movie]) -> [PhotoAlbum] {
         let photos = items.filter(isAvailable)
         let groups = Dictionary(grouping: photos) { photo in
-            PhotoAlbum.ID(sourceID: photo.source!.id, folder: parentFolder(photo.filePath))
+            PhotoAlbum.ID(sourceID: photo.source!.id, folder: photo.source?.isEmby == true ? "" : parentFolder(photo.filePath))
         }
         return groups.compactMap { id, items in
             guard let source = items.first?.source else { return nil }
@@ -47,7 +47,8 @@ enum PhotoLibrary {
                 let order = title($0).localizedStandardCompare(title($1))
                 return order == .orderedSame ? $0.filePath < $1.filePath : order == .orderedAscending
             }
-            return PhotoAlbum(id: id, title: id.folder.split(separator: "/").last.map(String.init) ?? source.share,
+            let title = source.isEmby ? source.name : id.folder.split(separator: "/").last.map(String.init) ?? source.share
+            return PhotoAlbum(id: id, title: title,
                 sourceName: source.name, folder: id.folder, photos: sorted)
         }.sorted {
             let sourceOrder = $0.sourceName.localizedStandardCompare($1.sourceName)
@@ -59,7 +60,7 @@ enum PhotoLibrary {
 
     static func album(containing photo: Movie, in items: [Movie]) -> [Movie] {
         guard let source = photo.source else { return [] }
-        let key = PhotoAlbum.ID(sourceID: source.id, folder: parentFolder(photo.filePath))
+        let key = PhotoAlbum.ID(sourceID: source.id, folder: source.isEmby ? "" : parentFolder(photo.filePath))
         return albums(items).first { $0.id == key }?.photos ?? []
     }
 

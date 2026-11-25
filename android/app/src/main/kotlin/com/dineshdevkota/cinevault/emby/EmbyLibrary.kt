@@ -42,10 +42,15 @@ private fun EmbyClient.Item?.subtitleIdentity(): Int? =
     this?.ProviderIds?.entries?.firstOrNull { it.key.equals("Tmdb", ignoreCase = true) }
         ?.value?.toIntOrNull()?.takeIf { it > 0 }
 
-private fun embyPath(id: String) = "emby/$id.mp4"
+internal fun embyPhotoId(path: String): String? =
+    path.takeIf { it.startsWith("emby-photos/") && it.endsWith(".jpg") }
+        ?.removePrefix("emby-photos/")?.removeSuffix(".jpg")?.takeIf(::validEmbyIdentifier)
+
+private fun embyPath(id: String, photo: Boolean) = if (photo) "emby-photos/$id.jpg" else "emby/$id.mp4"
 
 internal fun embyMovie(sourceId: String, item: EmbyClient.Item, series: EmbyClient.Item?, prior: MovieEntity?): MovieEntity? {
-    if (item.Type != "Movie" && item.Type != "Episode") return null
+    val photo = item.Type == "Photo"
+    if (item.Type != "Movie" && item.Type != "Episode" && !photo) return null
     if (!validEmbyIdentifier(item.Id)) throw EmbyException("Emby returned an invalid item identifier.")
     val episode = item.Type == "Episode"
     val seriesName = if (episode) series?.Name ?: item.SeriesName else null
@@ -55,12 +60,13 @@ internal fun embyMovie(sourceId: String, item: EmbyClient.Item, series: EmbyClie
     val ratingLimit = if (episode) FamilyPolicy.tvRatings.last() else FamilyPolicy.movieRatings.last()
     val title = item.Name.trim().takeIf(String::isNotEmpty) ?: return null
     val runtime = item.RunTimeTicks?.takeIf { it > 0 } ?: 0L
+    val filename = if (photo) "$title.jpg" else "$title.mp4"
     val movie = prior ?: MovieEntity(
-        sourceId = sourceId, filePath = embyPath(item.Id), fileName = "$title.mp4", fileSize = 0,
+        sourceId = sourceId, filePath = embyPath(item.Id, photo), fileName = filename, fileSize = 0,
         parsedTitle = title, parsedYear = item.ProductionYear, title = title, year = item.ProductionYear,
     )
     return movie.copy(
-        fileName = "$title.mp4",
+        fileName = filename,
         parsedTitle = title,
         parsedYear = item.ProductionYear,
         title = if (movie.isLocked) movie.title else title,
@@ -103,7 +109,7 @@ internal suspend fun importEmbyLibrary(
         var total = 0
         var added = 0
         for (item in catalog) {
-            val path = embyPath(item.Id)
+            val path = embyPath(item.Id, item.Type == "Photo")
             val prior = previous[path]
             val movie = embyMovie(source.id, item, item.SeriesId?.let { series[it] }, prior) ?: continue
             previous.remove(path)

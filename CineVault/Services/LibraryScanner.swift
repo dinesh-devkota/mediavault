@@ -123,7 +123,7 @@ final class LibraryScanner: ObservableObject {
               !source.isDeleted, source.modelContext != nil, try source.config() == config else {
             throw SMBError.sourceChanged
         }
-        let videos = EmbyCatalogVideo.videos(items)
+        let media = EmbyCatalogEntry.media(items)
         var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { first, _ in first })
         let previous = existing.values.map {
             ($0, $0.isMissing, $0.usContentRating, $0.tmdbID, $0.seriesTMDBID,
@@ -131,8 +131,8 @@ final class LibraryScanner: ObservableObject {
         }
         let scanDate = source.lastScanDate
         var inserted: [Movie] = []
-        for video in videos {
-            let path = EmbySourceConnection.path(video.id)
+        for video in media {
+            let path = video.path
             if let movie = existing.removeValue(forKey: path) {
                 movie.usContentRating = video.rating
                 movie.providerSeriesID = video.seriesID
@@ -147,7 +147,7 @@ final class LibraryScanner: ObservableObject {
                 continue
             }
             let movie = Movie(filePath: path, fileSize: 0, source: source)
-            movie.fileName = video.title + ".mp4"
+            movie.fileName = video.title + (video.isPhoto ? ".jpg" : ".mp4")
             movie.parsedTitle = video.title
             movie.parsedYear = video.year
             movie.setTitle(video.title)
@@ -184,7 +184,8 @@ final class LibraryScanner: ObservableObject {
             for movie in inserted { context.delete(movie) }
             throw error
         }
-        status = "\(source.name): \(videos.count) videos (\(inserted.count) new)"
+        let photos = media.filter(\.isPhoto).count
+        status = "\(source.name): \(media.count - photos) videos, \(photos) photos (\(inserted.count) new)"
     }
 
     func scanAll(context: ModelContext) async {

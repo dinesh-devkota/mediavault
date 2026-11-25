@@ -19,6 +19,13 @@ class EmbyLiveServerTest {
             val catalog = mutableListOf<EmbyClient.Item>()
             client.catalog(account, library.Id) { catalog += it }
             val movie = catalog.single { it.Type == "Movie" && it.Name.startsWith("Fixture Movie") }
+            val photoLibrary = client.libraries(account).single { it.Name == "Fixture Photos" }
+            val photos = mutableListOf<EmbyClient.Item>()
+            client.catalog(account, photoLibrary.Id) { photos += it.filter { item -> item.Type == "Photo" } }
+            val image = client.primaryImage(account, photos.single().Id, 512)
+            assertTrue(image.size > 100)
+            assertEquals(0xff.toByte(), image[0])
+            assertEquals(0xd8.toByte(), image[1])
             val playback = client.directPlayback(account, movie.Id, setOf("mp4"))
             val subtitle = client.textSubtitle(account, playback, playback.textSubtitles.single())
             assertTrue(subtitle.toString(Charsets.UTF_8).contains("Hello from Emby fixture"))

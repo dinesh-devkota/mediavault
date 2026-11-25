@@ -374,7 +374,7 @@ class PlayerActivity : ComponentActivity() {
         val active = target?.movie
         if (active == null || active.id != movie.id || active.sourceId != movie.sourceId || active.filePath != movie.filePath ||
             active.isMissing || active.isHidden ||
-            !container.family.isCurrent(householdSession) || !container.family.permits(active)) {
+            !container.family.isCurrent(householdSession) || !container.family.permits(active, requiresWholeSource = true)) {
             throw EmbyException("This item is no longer available.", 403)
         }
     }
@@ -465,8 +465,8 @@ class PlayerActivity : ComponentActivity() {
         val tracks = emby.playback.textSubtitles.sortedBy { !SubtitleTracks.sameLanguage(it.language, language) }
         val worker = container.scope.async(Dispatchers.IO) {
             tracks.take(4).mapNotNull { track ->
-                requirePlaybackAccess(loaded.movie)
                 try {
+                    requirePlaybackAccess(loaded.movie)
                     val data = emby.connection.client.textSubtitle(emby.connection.account, emby.playback, track)
                     requirePlaybackAccess(loaded.movie)
                     SubtitleTracks.configuration(data, "application/x-subrip", track.language,

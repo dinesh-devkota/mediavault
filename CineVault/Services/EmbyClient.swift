@@ -277,7 +277,7 @@ struct EmbyClient: Sendable {
     }
 
     func primaryImage(_ account: Account, itemID: String, width: Int) async throws -> Data {
-        guard EmbySourceConnection.validID(itemID), (64...1280).contains(width) else { throw EmbyError.invalidResponse }
+        guard EmbySourceConnection.validID(itemID), (64...1920).contains(width) else { throw EmbyError.invalidResponse }
         return try await send(["Items", itemID, "Images", "Primary"], account: account, query: [
             URLQueryItem(name: "MaxWidth", value: String(width)),
             URLQueryItem(name: "MaxHeight", value: String(width * 2)),

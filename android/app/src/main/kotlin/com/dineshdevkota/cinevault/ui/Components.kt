@@ -26,6 +26,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
@@ -34,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -52,9 +56,19 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.embyConnection
+import com.dineshdevkota.cinevault.emby.embyItemId
+import com.dineshdevkota.cinevault.family.FamilySession
+import kotlinx.coroutines.CancellationException
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -66,6 +80,11 @@ private val CardShape = RoundedCornerShape(10.dp)
 /** Remote artwork over a titled placeholder, so missing or failed images still read well. */
 @Composable
 fun Artwork(url: String?, title: String, modifier: Modifier = Modifier) {
+    ArtworkImage(url, title, modifier)
+}
+
+@Composable
+private fun ArtworkImage(model: Any?, title: String, modifier: Modifier) {
     Box(
         modifier.background(Brush.verticalGradient(listOf(Color(0xFF2A2D36), Color(0xFF15161B)))),
         contentAlignment = Alignment.Center,
@@ -81,15 +100,56 @@ fun Artwork(url: String?, title: String, modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(12.dp),
             )
         }
-        if (url != null) {
+        if (model != null) {
             AsyncImage(
-                model = url,
+                model = model,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize(),
             )
         }
     }
+}
+
+private data class EmbyArtworkScope(val source: SourceEntity, val session: FamilySession, val movieId: String,
+    val itemId: String, val width: Int)
+
+@Composable
+internal fun MovieArtwork(movie: MovieEntity, fallback: String?, title: String, modifier: Modifier, width: Int) {
+    val id = embyItemId(movie.filePath)
+    if (id == null) {
+        Artwork(fallback, title, modifier)
+        return
+    }
+    val context = LocalContext.current
+    val container = context.container
+    val source by remember(movie.sourceId) { container.database.sources().observe(movie.sourceId) }.collectAsStateWithLifecycle(null)
+    val session by container.family.session.collectAsStateWithLifecycle()
+    val scope = source?.takeIf {
+        it.sourceType == EMBY && container.family.isCurrent(session) && container.family.permits(movie, requiresWholeSource = true)
+    }?.let { EmbyArtworkScope(it, session, movie.id, id, width) }
+    val loaded by produceState<Pair<EmbyArtworkScope, ImageRequest>?>(null, scope) {
+        value = null
+        if (scope != null) try {
+            suspend fun canRead(): Boolean {
+                if (!container.family.isCurrent(scope.session)) return false
+                if (container.database.sources().get(scope.source.id) != scope.source) return false
+                val current = container.library.get(scope.movieId) ?: return false
+                return current.sourceId == movie.sourceId && current.filePath == movie.filePath && !current.isMissing &&
+                    !current.isHidden && container.family.isCurrent(scope.session) &&
+                    container.family.permits(current, requiresWholeSource = true)
+            }
+            if (!canRead()) return@produceState
+            val connection = scope.source.embyConnection(container.secrets)
+            val bytes = connection.client.primaryImage(connection.account, scope.itemId, scope.width)
+            if (!canRead()) return@produceState
+            value = scope to ImageRequest.Builder(context).data(bytes).diskCachePolicy(CachePolicy.DISABLED)
+                .memoryCachePolicy(CachePolicy.DISABLED).build()
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Personal media may have no artwork. */ }
+    }
+    val model = if (source?.sourceType == EMBY) loaded?.takeIf { it.first == scope }?.second else fallback
+    ArtworkImage(model, title, modifier)
 }
 
 @Composable
@@ -117,7 +177,7 @@ fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Mod
             shape = CardDefaults.shape(CardShape),
         ) {
             Box(Modifier.fillMaxSize()) {
-                Artwork(Tmdb.imageUrl(movie.posterPath, "w342"), movie.title, Modifier.fillMaxSize())
+                MovieArtwork(movie, Tmdb.imageUrl(movie.posterPath, "w342"), movie.title, Modifier.fillMaxSize(), 342)
                 if (movie.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
                 selected?.let { SelectionBadge(it, Modifier.align(Alignment.TopStart).padding(8.dp)) }
                 if (movie.isInProgress) {
@@ -154,8 +214,8 @@ private fun ContinueCard(item: ContinueWatchingItem, onClick: () -> Unit) {
             shape = CardDefaults.shape(CardShape),
         ) {
             Box(Modifier.fillMaxSize()) {
-                Artwork(Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w780"), movie.title,
-                    Modifier.fillMaxSize().clearAndSetSemantics {})
+                MovieArtwork(movie, Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w780"), movie.title,
+                    Modifier.fillMaxSize().clearAndSetSemantics {}, 780)
                 if (movie.isInProgress && movie.durationMs > 0) {
                     ProgressLine(movie.progress, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp))
                 }

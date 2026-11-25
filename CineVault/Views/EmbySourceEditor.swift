@@ -229,7 +229,7 @@ private enum EmbyEditorError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noLibraries: return "This account has no compatible movie or TV libraries."
+        case .noLibraries: return "This account has no compatible movie, TV or photo libraries."
         case .originalAccountRequired: return "Sign in with the original Emby account and verify it has access to this library."
         }
     }

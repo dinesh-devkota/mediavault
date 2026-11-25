@@ -72,7 +72,11 @@ class FamilyStore(context: Context, private val secrets: SecretBox,
     fun onForeground() = synchronized(transitionLock) { authenticationActive = true }
     fun onBackground() = synchronized(transitionLock) { authenticationActive = false; lock() }
     fun isCurrent(token: FamilySession): Boolean = token == current && current.unlocked
-    fun permits(movie: MovieEntity): Boolean = current.unlocked && (!current.enabled || current.profile?.let { FamilyPolicy.allows(it, movie) } == true)
+    fun permits(movie: MovieEntity): Boolean = permits(movie, requiresWholeSource = false)
+    internal fun permits(movie: MovieEntity, requiresWholeSource: Boolean): Boolean {
+        val active = current
+        return active.unlocked && (!active.enabled || active.profile?.let { FamilyPolicy.allows(it, movie, requiresWholeSource) } == true)
+    }
     fun requireAdmin() = check(current.admin) { "Switch to Admin to make this change." }
 
     suspend fun setup(pin: String, confirmation: String, expectedEpoch: Long = authenticationEpoch) = withContext(Dispatchers.Default) { mutex.withLock {

@@ -97,7 +97,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
     LaunchedEffect(playbackRejection) { actions.requestFocus() }
 
     Box(Modifier.fillMaxSize()) {
-        Artwork(Tmdb.imageUrl(current.backdropPath, "w1280"), "", Modifier.fillMaxSize())
+        MovieArtwork(current, Tmdb.imageUrl(current.backdropPath, "w1280"), "", Modifier.fillMaxSize(), 780)
         Box(
             Modifier.fillMaxSize().background(
                 Brush.horizontalGradient(
@@ -112,10 +112,12 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Artwork(
+            MovieArtwork(
+                current,
                 Tmdb.imageUrl(current.posterPath, "w500"),
                 current.title,
                 Modifier.width(240.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)),
+                500,
             )
             Column(
                 Modifier.weight(1f).verticalScroll(rememberScrollState()),

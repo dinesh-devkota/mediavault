@@ -56,27 +56,32 @@ def configure(password):
     token = session["AccessToken"]
     user = session["User"]["Id"]
     try:
-        library_options = {
-            "EnableRealtimeMonitor": False,
-            "DisabledMetadataFetchers": ["TheMovieDb", "The Open Movie Database"],
-        }
-        selection = urllib.parse.urlencode({
-            "Name": "Fixture Movies", "CollectionType": "movies", "Paths": "/movies", "RefreshLibrary": "true",
-        })
-        request("Library/VirtualFolders?" + selection, {"LibraryOptions": library_options}, token=token)
-        for _ in range(40):
-            views = request(f"Users/{user}/Views", token=token)["Items"]
-            library = next((item for item in views if item["Name"] == "Fixture Movies"), None)
-            if library:
-                query = urllib.parse.urlencode({
-                    "ParentId": library["Id"], "Recursive": "true", "IncludeItemTypes": "Movie", "Limit": 100,
-                })
-                if request(f"Users/{user}/Items?{query}", token=token)["Items"]:
-                    return
-            time.sleep(1)
-        raise RuntimeError("Emby did not index the synthetic movie.")
+        add_library(token, user, "Fixture Movies", "movies", "/movies", "Movie")
+        add_library(token, user, "Fixture Photos", "homevideos", "/photos", "Photo")
     finally:
         request("Sessions/Logout", method="POST", token=token)
+
+
+def add_library(token, user, name, collection, path, item_type):
+    library_options = {
+        "EnableRealtimeMonitor": False,
+        "DisabledMetadataFetchers": ["TheMovieDb", "The Open Movie Database"],
+    }
+    selection = urllib.parse.urlencode({
+        "Name": name, "CollectionType": collection, "Paths": path, "RefreshLibrary": "true",
+    })
+    request("Library/VirtualFolders?" + selection, {"LibraryOptions": library_options}, token=token)
+    for _ in range(40):
+        views = request(f"Users/{user}/Views", token=token)["Items"]
+        library = next((item for item in views if item["Name"] == name), None)
+        if library:
+            query = urllib.parse.urlencode({
+                "ParentId": library["Id"], "Recursive": "true", "IncludeItemTypes": item_type, "Limit": 100,
+            })
+            if request(f"Users/{user}/Items?{query}", token=token)["Items"]:
+                return
+        time.sleep(1)
+    raise RuntimeError(f"Emby did not index the synthetic {item_type.lower()}.")
 
 
 def main():
@@ -95,11 +100,18 @@ def main():
             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "4", "-c:v", "libx264",
             "-c:a", "aac", "-movflags", "+faststart", str(movie),
         ], check=True)
+        photos = Path(temp) / "photos"
+        photos.mkdir()
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(movie), "-frames:v", "1",
+            "-threads", "1", str(photos / "Family landscape.jpg"),
+        ], check=True)
         movie.with_suffix(".en.srt").write_text("1\n00:00:00,100 --> 00:00:02,500\nHello from Emby fixture\n")
         subprocess.run([
             "docker", "run", "-d", "--rm", "--name", name, "--publish", f"127.0.0.1:{PORT}:8096",
             "--env", f"UID={os.getuid()}", "--env", f"GID={os.getgid()}",
-            "--mount", f"type=bind,src={movies},dst=/movies,readonly", IMAGE,
+            "--mount", f"type=bind,src={movies},dst=/movies,readonly",
+            "--mount", f"type=bind,src={photos},dst=/photos,readonly", IMAGE,
         ], check=True, stdout=subprocess.DEVNULL)
         try:
             configure(password)

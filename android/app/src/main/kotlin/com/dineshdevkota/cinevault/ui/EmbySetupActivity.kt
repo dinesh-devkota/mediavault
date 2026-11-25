@@ -155,10 +155,10 @@ private fun EmbySetup(sourceId: String?, close: () -> Unit) {
                             }
                             val choices = client.libraries(account)
                                 .filter { validEmbyIdentifier(it.Id) && it.Name.isNotBlank() }
-                                .filter { it.CollectionType in setOf(null, "", "movies", "tvshows", "mixed", "homevideos") }
+                                .filter { it.CollectionType in setOf(null, "", "movies", "tvshows", "mixed", "homevideos", "photos") }
                                 .distinctBy { it.Id }
                             libraries = if (saved == null) choices else choices.filter { it.Id == saved.share }
-                            if (libraries.isEmpty()) throw EmbyException("This account has no accessible movie or TV libraries for this source.")
+                            if (libraries.isEmpty()) throw EmbyException("This account has no accessible movie, TV or photo libraries for this source.")
                             authorize()
                             endpoint = address
                             connection = EmbyConnection(client, account)

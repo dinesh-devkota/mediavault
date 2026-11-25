@@ -1,4 +1,3 @@
-import ImageIO
 import SwiftUI
 
 /// Load artwork within the active household and source session; credentials stay in request headers.
@@ -43,13 +42,7 @@ struct EmbyArtwork: View {
                 let data = try await connection.client.primaryImage(connection.account, itemID: current.itemID, width: current.width)
                 try Task.checkCancellation()
                 guard request == current, household.sessionIsCurrent(current.session), try source.config() == config else { return }
-                guard let image = CGImageSourceCreateWithData(data as CFData, nil),
-                      let thumbnail = CGImageSourceCreateThumbnailAtIndex(image, 0, [
-                        kCGImageSourceCreateThumbnailFromImageAlways: true,
-                        kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceThumbnailMaxPixelSize: current.width * 2,
-                      ] as CFDictionary) else { return }
-                loaded = (current, UIImage(cgImage: thumbnail))
+                loaded = (current, try PhotoImageLoader.decode(data, maxPixelSize: current.width * 2))
             } catch {
                 // No artwork is a normal state for personal media.
             }

@@ -220,6 +220,40 @@ final class HouseholdProfilesTests: XCTestCase {
         store.lock(); await gate.release()
         do { _ = try await request.value; XCTFail("A late read leaked a photo after locking") } catch { }
     }
+    func testEmbyPhotoDoesNotReachTheImageEndpointWithoutALibraryGrant() async throws {
+        let (store, _, _) = fixture(); _ = try await enable(store)
+        let config = SourceConfig(id: UUID(), host: "https://emby.fixture.invalid", share: "photos", rootPath: "",
+                                  username: "owner", password: "fixture-token", sourceProtocol: "emby")
+        let viewer = HouseholdProfile(name: "Viewer", allowedFolders: [HouseholdFolder(sourceID: config.id, path: "emby-photos")])
+        let allowed = HouseholdProfile(name: "Allowed viewer", allowedFolders: [HouseholdFolder(sourceID: config.id, path: "")])
+        for profile in [viewer, allowed] {
+            try await store.saveViewer(profile, newPIN: nil, confirmation: "", adminPIN: adminPIN, intent: store.authenticationToken)
+        }
+        let path = EmbySourceConnection.photoPath("Photo")
+        let bytes = try PhotoImageLoaderTests.fixture("01.jpg")
+        let requested = expectation(description: "Only the explicitly granted profile can reach Emby")
+        requested.assertForOverFulfill = true
+        let loader = PhotoImageLoader(readEmby: { _, item, width in
+            XCTAssertEqual(item, "Photo")
+            XCTAssertEqual(width, 64)
+            requested.fulfill()
+            return bytes
+        }, household: store)
+        try await store.unlockAsync(viewer.id, pin: "", intent: store.authenticationToken)
+        do {
+            _ = try await loader.image(config: config, path: path, knownSize: 0, maxPixelSize: 64)
+            XCTFail("Folder grant allowed a provider photo read")
+        } catch PhotoLoadingError.unavailable {}
+        try await store.unlockAsync(allowed.id, pin: "", intent: store.authenticationToken)
+        _ = try await loader.image(config: config, path: path, knownSize: 0, maxPixelSize: 64)
+        await fulfillment(of: [requested], timeout: 1)
+        store.lock()
+        do {
+            _ = try await loader.image(config: config, path: path, knownSize: 0, maxPixelSize: 64)
+            XCTFail("Cached provider photo escaped the locked profile")
+        } catch PhotoLoadingError.unavailable {}
+    }
+
     func testPINValidationAndSaltedVerifiers() throws {
         XCTAssertFalse(HouseholdPIN.valid("１２３４５６")); XCTAssertFalse(HouseholdPIN.valid("12345")); XCTAssertFalse(HouseholdPIN.valid("1234567"))
         let first = try HouseholdPIN(adminPIN), second = try HouseholdPIN(adminPIN)

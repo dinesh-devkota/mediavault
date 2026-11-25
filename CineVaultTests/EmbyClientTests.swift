@@ -52,12 +52,18 @@ final class EmbyClientTests: XCTestCase {
                 {"Id":"video","Name":"Downstairs","Type":"Movie","OfficialRating":"R"},
                 {"Id":"show","Name":"Example Show","Type":"Series","OfficialRating":"tv-pg","ProviderIds":{"Tmdb":"101"}},
                 {"Id":"pilot","Name":"Pilot","Type":"Episode","SeriesId":"show","ParentIndexNumber":1,"IndexNumber":1,"OfficialRating":"TV-MA"},
+                {"Id":"photo","Name":"Family landscape","Type":"Photo"},
                 {"Id":"bad","Name":"No episode number","Type":"Episode","SeriesId":"show","ParentIndexNumber":1},
                 {"Id":"../bad","Name":"Unsafe ID","Type":"Movie"}
             ]
             """.utf8)
         let items = try JSONDecoder().decode([EmbyClient.Item].self, from: data)
-        let videos = EmbyCatalogVideo.videos(items)
+        let itemsFromLibrary = EmbyCatalogEntry.media(items)
+        let photos = itemsFromLibrary.filter(\.isPhoto)
+        XCTAssertEqual(photos.map(\.path), ["emby-photos/photo.jpg"])
+        XCTAssertEqual(try EmbySourceConnection.photoID(for: try XCTUnwrap(photos.first?.path)), "photo")
+        XCTAssertThrowsError(try EmbySourceConnection.itemID(for: "emby-photos/photo.jpg"))
+        let videos = itemsFromLibrary.filter { !$0.isPhoto }
         XCTAssertEqual(videos.map(\.id), ["Video", "video", "pilot"])
         XCTAssertEqual(videos.map(\.rating), ["PG", "R", "TV-PG"])
         XCTAssertEqual(videos.last?.seriesTitle, "Example Show")

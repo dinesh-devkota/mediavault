@@ -209,6 +209,21 @@ class EmbyClient internal constructor(
         }
     }
 
+    suspend fun primaryImage(account: Account, itemId: String, width: Int): ByteArray {
+        require(validEmbyIdentifier(itemId) && width in 64..1920)
+        val request = request(listOf("Items", itemId, "Images", "Primary"), account, mapOf(
+            "MaxWidth" to width.toString(), "MaxHeight" to (width * 2).toString(), "Format" to "Jpg",
+        )).header("Accept", "image/jpeg").build()
+        return execute(request) { response ->
+            if (!response.isSuccessful) throw EmbyException("Emby returned HTTP ${response.code}.", response.code)
+            val body = response.body?.takeIf { it.contentType()?.type == "image" && it.contentType()?.subtype == "jpeg" }
+                ?: throw EmbyException("Emby did not return a JPEG image.")
+            val source = body.source()
+            if (source.request(5L * 1024 * 1024 + 1)) throw EmbyException("The Emby image is larger than 5 MB.")
+            source.readByteArray()
+        }
+    }
+
     suspend fun textSubtitle(account: Account, playback: DirectPlayback, track: TextSubtitle): ByteArray {
         require(playback.owner === this && playback.account === account && track in playback.textSubtitles)
         val request = request(

@@ -25,13 +25,13 @@ object FamilyPolicy {
     val movieRatings = listOf("G", "PG", "PG-13", "R", "NC-17")
     val tvRatings = listOf("TV-Y", "TV-G", "TV-Y7", "TV-PG", "TV-14", "TV-MA")
 
-    fun allows(profile: HouseholdProfile, movie: MovieEntity): Boolean {
+    fun allows(profile: HouseholdProfile, movie: MovieEntity, requiresWholeSource: Boolean = false): Boolean {
         if (profile.isAdmin) return true
         val path = ScanExclusions.normalizeFile(movie.filePath) ?: return false
         val folderAllowed = profile.folders.any { grant ->
             if (grant.sourceId != movie.sourceId) false else {
                 val folder = if (grant.path.isEmpty()) "" else ScanExclusions.normalizeFolder(grant.path)
-                folder != null && (folder.isEmpty() || path.startsWith("$folder/", ignoreCase = true))
+                folder != null && (folder.isEmpty() || !requiresWholeSource && path.startsWith("$folder/", ignoreCase = true))
             }
         }
         if (!folderAllowed) return false

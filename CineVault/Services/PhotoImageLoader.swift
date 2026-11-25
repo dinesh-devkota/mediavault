@@ -7,7 +7,7 @@ enum PhotoLoadingError: LocalizedError, Equatable {
     case unavailable, tooLarge, invalidImage, invalidDimensions
     var errorDescription: String? {
         switch self {
-        case .unavailable: return "This photo is unavailable. Check its NAS source or scan again."
+        case .unavailable: return "This photo is unavailable. Check its source or scan again."
         case .tooLarge: return "This photo is larger than the 64 MB viewing limit."
         case .invalidImage: return "This file could not be opened as a photo. It may be damaged or use an unsupported image format."
         case .invalidDimensions: return "This photo's dimensions are too large to display safely."
@@ -50,7 +50,7 @@ private actor PhotoLoadSlots {
     }
 }
 
-/// NAS-only image reads. ImageIO creates a bounded thumbnail directly, without decoding a full-size UIImage.
+/// Source image reads. ImageIO creates a bounded thumbnail directly, without decoding a full-size UIImage.
 actor PhotoImageLoader {
     static let shared = PhotoImageLoader()
     static let maximumEncodedBytes: Int64 = 64 * 1024 * 1024
@@ -62,6 +62,7 @@ actor PhotoImageLoader {
     private let household: HouseholdStore
     private let fileSize: (SourceConfig, String) async throws -> Int64
     private let read: (SourceConfig, String, Int64, Int) async throws -> Data
+    private let readEmby: (SourceConfig, String, Int) async throws -> Data
     private var cache: [CacheKey: CachedImage] = [:]
     private var cacheOrder: [CacheKey] = []
     private var cacheCost = 0
@@ -87,12 +88,17 @@ actor PhotoImageLoader {
 
     init(fileSize: ((SourceConfig, String) async throws -> Int64)? = nil,
          read: ((SourceConfig, String, Int64, Int) async throws -> Data)? = nil,
+         readEmby: ((SourceConfig, String, Int) async throws -> Data)? = nil,
          onQueued: @escaping () -> Void = {}, household: HouseholdStore = .shared) {
         self.household = household
         slots = PhotoLoadSlots(onQueued: onQueued)
         let service = SMBService(timeout: 15)
         self.fileSize = fileSize ?? { try await service.fileSize($0, path: $1) }
         self.read = read ?? { try await service.read($0, path: $1, offset: $2, length: $3) }
+        self.readEmby = readEmby ?? { config, id, width in
+            let connection = try EmbySourceConnection(config: config)
+            return try await connection.client.primaryImage(connection.account, itemID: id, width: width)
+        }
     }
 
     private func cachedImage(for key: CacheKey) -> UIImage? {
@@ -117,7 +123,7 @@ actor PhotoImageLoader {
         let session = household.sessionToken
         func checkAccess() throws {
             guard household.sessionIsCurrent(session),
-                  household.allowsPath(sourceID: config.id, path: path) else { throw PhotoLoadingError.unavailable }
+                  household.allowsPath(sourceID: config.id, path: path, entireSourceOnly: config.isEmby) else { throw PhotoLoadingError.unavailable }
         }
         try checkAccess()
         try Task.checkCancellation()
@@ -134,6 +140,18 @@ actor PhotoImageLoader {
             // Another waiting thumbnail may already have completed this request.
             if let cached = cachedImage(for: key) {
                 await slots.release(); return cached
+            }
+            if config.isEmby {
+                let item = try EmbySourceConnection.photoID(for: path)
+                let data = try await readEmby(config, item, min(1920, max(pixels, 64)))
+                try Task.checkCancellation()
+                try checkAccess()
+                let image = try Self.decode(data, maxPixelSize: pixels)
+                try checkAccess()
+                let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? pixels * pixels * 4
+                store(image, for: key, cost: cost)
+                await slots.release()
+                return image
             }
             let size = try await fileSize(config, path)
             try Task.checkCancellation()

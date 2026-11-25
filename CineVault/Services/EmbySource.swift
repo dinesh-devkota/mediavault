@@ -25,9 +25,19 @@ struct EmbySourceConnection: Sendable {
 
     static func path(_ id: String) -> String { "emby/\(id).mp4" }
 
+    static func photoPath(_ id: String) -> String { "emby-photos/\(id).jpg" }
+
     static func itemID(for path: String) throws -> String {
-        guard path.hasPrefix("emby/"), path.hasSuffix(".mp4") else { throw EmbyError.invalidCatalog }
-        let id = String(path.dropFirst(5).dropLast(4))
+        try itemID(for: path, prefix: "emby/", suffix: ".mp4")
+    }
+
+    static func photoID(for path: String) throws -> String {
+        try itemID(for: path, prefix: "emby-photos/", suffix: ".jpg")
+    }
+
+    private static func itemID(for path: String, prefix: String, suffix: String) throws -> String {
+        guard path.hasPrefix(prefix), path.hasSuffix(suffix) else { throw EmbyError.invalidCatalog }
+        let id = String(path.dropFirst(prefix.count).dropLast(suffix.count))
         guard validID(id) else { throw EmbyError.invalidCatalog }
         return id
     }
@@ -36,7 +46,7 @@ struct EmbySourceConnection: Sendable {
         var seen: Set<String> = []
         return values.filter {
             validID($0.Id) && !$0.Name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-                ["movies", "tvshows", "mixed", ""].contains($0.CollectionType ?? "") &&
+                ["movies", "tvshows", "mixed", "homevideos", "photos", ""].contains($0.CollectionType ?? "") &&
                 seen.insert($0.Id).inserted
         }
     }
@@ -46,8 +56,10 @@ struct EmbySourceConnection: Sendable {
     }
 }
 
-struct EmbyCatalogVideo {
+struct EmbyCatalogEntry {
     let id: String
+    let isPhoto: Bool
+    var path: String { isPhoto ? EmbySourceConnection.photoPath(id) : EmbySourceConnection.path(id) }
     let title: String
     let year: Int?
     let overview: String?
@@ -60,7 +72,7 @@ struct EmbyCatalogVideo {
     let season: Int?
     let episode: Int?
 
-    static func videos(_ items: [EmbyClient.Item]) -> [Self] {
+    static func media(_ items: [EmbyClient.Item]) -> [Self] {
         let series = Dictionary(items.filter { $0.type == "Series" }.map { ($0.Id, $0) },
                                 uniquingKeysWith: { first, _ in first })
         return items.compactMap { item in
@@ -72,7 +84,7 @@ struct EmbyCatalogVideo {
                       let season = item.ParentIndexNumber, (0...999).contains(season),
                       let episode = item.IndexNumber, (0...999).contains(episode) else { return nil }
                 show = series[id]
-            } else if item.type == "Movie" { show = nil }
+            } else if item.type == "Movie" || item.type == "Photo" { show = nil }
             else { return nil }
             let rating = item.type == "Episode" ? show?.OfficialRating : item.OfficialRating
             let normalized = rating?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -80,7 +92,7 @@ struct EmbyCatalogVideo {
             let ids = item.type == "Episode" ? show?.ProviderIds : item.ProviderIds
             let providerID = ids?.first(where: { $0.key.caseInsensitiveCompare("tmdb") == .orderedSame })?.value
             let id = providerID.flatMap { Int($0) }.flatMap { $0 > 0 ? $0 : nil }
-            return Self(id: item.Id, title: item.Name, year: item.ProductionYear,
+            return Self(id: item.Id, isPhoto: item.type == "Photo", title: item.Name, year: item.ProductionYear,
                         overview: item.Overview, runtimeMinutes: runtime, rating: normalized,
                         tmdbID: item.type == "Movie" ? id : nil, seriesTMDBID: item.type == "Episode" ? id : nil,
                         seriesID: item.type == "Episode" ? item.SeriesId : nil,
