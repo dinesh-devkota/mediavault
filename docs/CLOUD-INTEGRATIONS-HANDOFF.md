@@ -164,11 +164,15 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   direct-play range reads, photos and artwork, and provider text captions.
   Android TV passed the photos and captions checkpoint. The unsigned Apple
   build passed on Xcode 26 after restoring the required household core.
-  The full Apple TV simulator gate is open. Authenticated Android HLS passed
-  rendering and seek on its isolated branch. Apple TV transcoding is open.
+  The Apple TV simulator ran 199 tests with zero failures or skips, including
+  Emby source entry, catalog and range validation, and household photo access.
+  Authenticated Android HLS passed rendering and seek and has been ported into
+  the draft. The combined Android check, integration against current
+  development and Apple TV transcoding are still open.
   [Emby](https://github.com/dinesh-devkota/mediavault/pull/3)
   · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45673892183)
   · [Apple build](https://github.com/dinesh-devkota/mediavault/actions/runs/45678384113)
+  · [Apple TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45678390628)
   · [Android HLS](https://github.com/dinesh-devkota/mediavault/actions/runs/45677454484)
 - Plex has protected account PIN, server discovery, catalog, and byte reads
   in provider clients. Full TV setup, protected player wiring and a signed-in
@@ -259,8 +263,11 @@ authorization. The unsigned iOS 26.5 build passed. The previous simulator
 checkpoint passed 188 of 189, including native playback and seeking, household
 access and the underlying HTTPS WebDAV transport. The WebDAV touch journey is
 being verified again against the current library accessibility fixes. Keep the
-branch in draft through the current iPhone and Apple TV regression checks.
-[Draft iPhone PR](https://github.com/dinesh-devkota/mediavault/pull/11)
+branch in draft through the iPhone and Apple TV checks on the Jellyfin-inclusive
+development base. The draft currently uses a separate iPhone bundle ID.
+[Current iPhone PR](https://github.com/dinesh-devkota/mediavault/pull/16)
+· [iPhone simulator](https://github.com/dinesh-devkota/mediavault/actions/runs/45680750211)
+· [Apple TV regression](https://github.com/dinesh-devkota/mediavault/actions/runs/45680750202)
 
 ## Repository display name
 
