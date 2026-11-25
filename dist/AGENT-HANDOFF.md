@@ -33,10 +33,13 @@ the test saved `Movie N` before all of `Movie Night` had arrived. `9bf7d62` wait
 for each field edit before keyboard dismissal; its Apple TV run passed 233/233
 (`45713647345`). Repeated iPhone runs exposed an intermittent fixture TLS failure
 and controls remaining in the accessibility tree after hiding. `f8282b4` hides
-inactive controls from accessibility and keeps controls visible for VoiceOver;
-its rerun is pending. Four fixture tests pass, with explicit TLS-stage diagnostics.
-The phone connection journey also resumes a Library tap only when an observed
-system Save Password sheet actually interrupted it.
+inactive controls from accessibility and keeps controls visible for VoiceOver.
+Its full Apple TV run passed 233/233 (`45718498997`) and iPhone passed 223/223
+plus unsigned release (`45718499092`). Four fixture tests pass, with explicit
+TLS-stage diagnostics. A duplicate iPhone run exposed the system Save Password
+sheet arriving before Library became tappable. The latest test waits within one
+ten-second navigation budget and repeats a tap only after an observed interruption;
+that final test follow-up remains under hosted validation.
 
 Earlier actual defects are corrected: TCP send completion, VLC parser timeout
 units, pending-pause acknowledgement, synchronous stream revocation, nested
@@ -48,6 +51,11 @@ Android core/app tests, debug lint and APK builds passed. The Fire branch has
 without their server. Hosted modern Android TV passed 110/110 (run `45709711876`)
 and phone passed 7/7 (run `45709711901`). Never run disposable test fixtures
 against the owner's installed emulator or real NAS.
+
+Repeated Android TV testing found a nested-focus handoff that could keep an
+ignored season visible. `643cb35` suspends child focus restoration while removing
+content and bounds the handoff. Its full Android TV workflow passed
+(`45722101734`), retaining the real ignored-folder/navigation regression.
 
 The private companion branch is `codex/mediavault-playback-engines` at
 `5cd626eba6ce3b534ec1f0b3e74cc7cbfe0bb6c0`, in
