@@ -284,6 +284,36 @@ struct JellyfinClient: Sendable {
         return request
     }
 
+    func readDirect(_ playback: JellyfinPlayback, account: JellyfinAccount,
+                    offset: Int64, length: Int) async throws -> (data: Data, size: Int64) {
+        guard playback.method == .directPlay, (1...Self.maxResponse).contains(length),
+              offset >= 0, Int64(length) <= Int64.max - offset else { throw JellyfinClientError.unplayable }
+        var request = try assetRequest(playback.url, account: account)
+        let end = offset + Int64(length) - 1
+        request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let (bytes, response) = try await Self.session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw JellyfinClientError.invalidResponse }
+        guard http.statusCode == 206 else {
+            if http.statusCode == 200 { throw JellyfinClientError.invalidResponse }
+            throw JellyfinClientError.status(http.statusCode)
+        }
+        guard let header = http.value(forHTTPHeaderField: "Content-Range"),
+              let range = WebDAVTransport.parseRange(header), range.start == offset, range.end == end,
+              response.expectedContentLength < 0 || response.expectedContentLength == Int64(length),
+              http.value(forHTTPHeaderField: "Content-Encoding").map({ $0.lowercased() == "identity" }) ?? true else {
+            throw JellyfinClientError.invalidResponse
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < length else { throw JellyfinClientError.invalidResponse }
+            data.append(byte)
+        }
+        guard data.count == length else { throw JellyfinClientError.invalidResponse }
+        return (data, range.total)
+    }
+
     private func pathFor(_ parts: String...) throws -> String {
         guard parts.allSatisfy({ !$0.contains("/") && WebDAVAddress.contains($0, within: "") }) else {
             throw JellyfinClientError.invalidResponse

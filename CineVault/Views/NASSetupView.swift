@@ -81,6 +81,9 @@ struct NASSetupView: View {
 
     @ViewBuilder private var deviceSections: some View {
         Section {
+            NavigationLink("Connect Jellyfin") {
+                JellyfinSourceEditor(source: nil, onSaved: { dismiss() })
+            }
             NavigationLink("Connect WebDAV") {
                 SourceEditorView(source: nil, addingWebDAV: true, onSaved: { dismiss() })
             }

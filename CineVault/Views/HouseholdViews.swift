@@ -310,7 +310,7 @@ private struct HouseholdFolderChooser: View {
             Section {
                 Text("Allow all current and future folders in this source, or browse to choose a smaller folder.").font(.caption)
                 Button("Allow entire source: \(source.name)") { add(source.rootPath) }
-                if let configuration {
+                if let configuration, !source.isJellyfin {
                     NavigationLink("Browse folders") {
                         NASPathPicker(configuration: configuration, mode: .household) { path, _ in add(path) }
                     }
@@ -326,7 +326,7 @@ private struct HouseholdFolderChooser: View {
     }
     private func add(_ path: String) {
         guard HouseholdStore.shared.isAdmin else { return }
-        let folder = HouseholdFolder(sourceID: source.id, path: path, caseSensitive: source.isWebDAV ? true : nil)
+        let folder = HouseholdFolder(sourceID: source.id, path: path, caseSensitive: (source.isWebDAV || source.isJellyfin) ? true : nil)
         if !allowed.contains(where: { $0.id == folder.id }) { allowed.append(folder) }
         dismiss()
     }
