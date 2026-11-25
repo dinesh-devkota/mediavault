@@ -22,22 +22,27 @@ final class MediaVaultPhoneTests: XCTestCase {
         connect.tap()
         let address = app.textFields["HTTPS WebDAV address"]
         XCTAssertTrue(address.waitForExistence(timeout: 10))
+        let guest = app.switches["source-guest-access"]
+        XCTAssertTrue(guest.waitForExistence(timeout: 10))
+        // The SwiftUI accessibility element includes the label and switch.
+        guest.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertEqual(guest.value as? String, "0")
+
         let name = app.textFields["Library name"]
         name.tap()
         name.typeText("Fixture media")
         address.tap()
         address.typeText("https://127.0.0.1:15443/dav/")
 
-        app.switches["Guest access"].tap()
-        let username = app.textFields["Username"]
+        let username = app.textFields["source-username"]
+        XCTAssertTrue(username.waitForExistence(timeout: 10))
         username.tap()
         username.typeText("cinevault")
-        let password = app.secureTextFields["Password"]
+        let password = app.secureTextFields["source-password"]
         password.tap()
         password.typeText("fixture-only")
 
-        let save = app.buttons["Save & scan"]
-        for _ in 0..<5 where !save.isHittable { app.swipeUp() }
+        let save = app.buttons["source-save-and-scan"]
         XCTAssertTrue(save.isHittable)
         save.tap()
         XCTAssertTrue(app.staticTexts["Fixture media"].waitForExistence(timeout: 25), "Expected the authenticated source to be saved.")

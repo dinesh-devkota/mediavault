@@ -148,13 +148,16 @@ struct SourceEditorView: View {
                 Toggle("Guest access", isOn: Binding(get: { guestAccess }, set: {
                     guestAccess = $0; shares = []; message = nil
                 }))
+                .accessibilityIdentifier("source-guest-access")
                 if !guestAccess {
                     TextField("Username", text: Binding(get: { username }, set: { username = $0; shares = []; message = nil }))
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     #endif
+                    .accessibilityIdentifier("source-username")
                     SecureField("Password", text: Binding(get: { password }, set: { password = $0; shares = []; message = nil }))
+                        .accessibilityIdentifier("source-password")
                 }
                 if credentialReadFailed {
                     Button("Retry loading saved password") { loadPassword() }
@@ -192,8 +195,9 @@ struct SourceEditorView: View {
                 if let deletedSourceID {
                     Button("Retry removing stored password") { removePassword(for: deletedSourceID) }
                 } else {
-                    Button("Save & scan") { validateAndSave() }.buttonStyle(.borderedProminent)
-                        .disabled(fieldsDisabled || (credentialReadFailed && !guestAccess))
+                    #if os(tvOS)
+                    saveButton.buttonStyle(.borderedProminent)
+                    #endif
                     Button("Test connection") { testConnection() }.disabled(fieldsDisabled || (credentialReadFailed && !guestAccess))
                     if source != nil {
                         Button("Remove source", role: .destructive) { confirmingDelete = true }.disabled(fieldsDisabled)
@@ -206,6 +210,11 @@ struct SourceEditorView: View {
         }
         #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            if deletedSourceID == nil {
+                ToolbarItem(placement: .confirmationAction) { saveButton }
+            }
+        }
         #endif
         .navigationTitle(isWebDAV ? (source == nil ? "Connect WebDAV" : "Edit WebDAV") : (source == nil ? "Add NAS" : "Edit NAS"))
         .confirmationDialog("Remove this source from MediaVault? Your NAS files will be kept.", isPresented: $confirmingDelete, titleVisibility: .visible) {
@@ -215,6 +224,12 @@ struct SourceEditorView: View {
         .onAppear { if !loaded { load(); loaded = true } }
         .onDisappear { cancelRequest() }
         .onTVExit { if busy { cancelRequest() } else { dismiss() } }
+    }
+
+    private var saveButton: some View {
+        Button("Save & scan", action: validateAndSave)
+            .disabled(fieldsDisabled || (credentialReadFailed && !guestAccess))
+            .accessibilityIdentifier("source-save-and-scan")
     }
 
     private func clearExclusionsForChangedRoot() {
