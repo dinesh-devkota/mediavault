@@ -60,7 +60,7 @@ jobs:
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
-      - name: Test against local SMB fixture
+      - name: Test against local SMB and WebDAV fixtures
         env:
           UI_ONLY: ${{ inputs.ui_only || false }}
         run: |
@@ -69,6 +69,9 @@ jobs:
           python scripts/nas_fixture.py "$RUNNER_TEMP/nas-fixture" >"$RUNNER_TEMP/nas-fixture.log" 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_webdav_fixture.sh "$RUNNER_TEMP/webdav-fixture"
+          WEBDAV_PID=$(cat "$RUNNER_TEMP/webdav-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" 2>/dev/null || true' EXIT
           for attempt in {1..30}; do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               cat "$RUNNER_TEMP/nas-fixture.log" >&2
@@ -84,6 +87,8 @@ jobs:
           fi
           xcrun simctl boot "$DEVICE"
           xcrun simctl bootstatus "$DEVICE" -b
+          # Install the ephemeral fixture's trust anchor only on this simulator.
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
           # Bash 3.2 treats an empty array as unset under nounset. Keep the full
           # invocation nonempty, then append the optional focused-test filters.
           TEST_ARGS=(-project CineVault.xcodeproj -scheme CineVault
@@ -127,6 +132,7 @@ jobs:
           name: nas-integration-diagnostics
           path: |
             ${{ runner.temp }}/nas-fixture.log
+            ${{ runner.temp }}/webdav-fixture/server.log
             ${{ runner.temp }}/nas-results.xcresult
           if-no-files-found: warn
           retention-days: 7

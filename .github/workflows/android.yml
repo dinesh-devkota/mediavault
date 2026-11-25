@@ -6,6 +6,8 @@ on:
       - "android/**"
       - ".github/workflows/android.yml"
       - "scripts/nas_fixture.py"
+      - "scripts/webdav_fixture.py"
+      - "scripts/start_webdav_fixture.sh"
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
       - "CineVaultTests/Fixtures/**"
@@ -14,6 +16,8 @@ on:
       - "android/**"
       - ".github/workflows/android.yml"
       - "scripts/nas_fixture.py"
+      - "scripts/webdav_fixture.py"
+      - "scripts/start_webdav_fixture.sh"
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
       - "CineVaultTests/Fixtures/**"
@@ -89,12 +93,13 @@ jobs:
             echo '::error title=Android emulator acceleration::The runner cannot read and write /dev/kvm after udev settled.'
             exit 1
           fi
-      - name: Start the synthetic SMB fixture
+      - name: Start the synthetic SMB and WebDAV fixtures
         run: |
           set -euo pipefail
           python -m pip install -r scripts/nas-test-requirements.txt
           python scripts/nas_fixture.py "$RUNNER_TEMP/android-nas-fixture" >"$RUNNER_TEMP/android-nas-fixture.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/android-nas-fixture.pid"
+          bash scripts/start_webdav_fixture.sh "$RUNNER_TEMP/android-webdav-fixture"
           python - <<'PY'
           import socket, time
           for attempt in range(30):
@@ -150,14 +155,20 @@ jobs:
           executed = {case.get("classname", "").rsplit(".", 1)[-1] for case in cases}
           identities = [(case.get("classname"), case.get("name")) for case in cases]
           duplicate = len(set(identities)) != len(cases)
+          webdav = ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "webDavAuthenticationScanPlaybackAndSeek")
+          if webdav not in identities:
+              raise SystemExit("WebDAV playback did not execute in the Android TV emulator")
           if not required <= executed or failures or skipped or duplicate:
               raise SystemExit("Required runtime tests did not all execute successfully: " + str(sorted(required - executed)))
           PY
-      - name: Stop the SMB fixture
+      - name: Stop the SMB and WebDAV fixtures
         if: always()
         run: |
           if [[ -f "$RUNNER_TEMP/android-nas-fixture.pid" ]]; then
             kill "$(cat "$RUNNER_TEMP/android-nas-fixture.pid")" 2>/dev/null || true
+          fi
+          if [[ -f "$RUNNER_TEMP/android-webdav-fixture/server.pid" ]]; then
+            kill "$(cat "$RUNNER_TEMP/android-webdav-fixture/server.pid")" 2>/dev/null || true
           fi
       - name: Upload runtime test reports
         if: always()
@@ -169,5 +180,6 @@ jobs:
             android/app/build/outputs/androidTest-results/
             ${{ runner.temp }}/android-runtime-results/
             ${{ runner.temp }}/android-nas-fixture.log
+            ${{ runner.temp }}/android-webdav-fixture/server.log
           if-no-files-found: error
           retention-days: 7

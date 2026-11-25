@@ -57,6 +57,7 @@ import com.dineshdevkota.cinevault.subtitles.SubDlSubtitle
 import com.dineshdevkota.cinevault.smb.SmbException
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
+import com.dineshdevkota.cinevault.webdav.DavAddress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -344,7 +345,7 @@ class PlayerActivity : ComponentActivity() {
         exo.addListener(listener)
         exo.setMediaItem(
             MediaItem.Builder()
-                .setUri(smbUri(target.config, target.movie.filePath))
+                .setUri(filePlaybackUri(target.config, target.movie.filePath))
                 .setMediaId(target.movie.id)
                 .setSubtitleConfigurations(preparedSubtitles.map { it.configuration })
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(target.movie.title)
@@ -795,10 +796,15 @@ class PlayerActivity : ComponentActivity() {
         }
 
         /** Display URI (no credentials); its file extension helps ExoPlayer pick the right extractor first. */
-        fun smbUri(config: SourceConfig, path: String): Uri = Uri.Builder()
-            .scheme("smb")
-            .authority(SmbService.normalizedHost(config.host))
-            .apply { (config.share.split('/', '\\') + path.split('/')).filter { it.isNotEmpty() }.forEach(::appendPath) }
-            .build()
+        fun filePlaybackUri(config: SourceConfig, path: String): Uri {
+            if (config.isWebDav) {
+                return Uri.parse(DavAddress(config.host, config.allowInsecureHttp).url(path).toString())
+            }
+            return Uri.Builder()
+                .scheme("smb")
+                .authority(SmbService.normalizedHost(config.host))
+                .apply { (config.share.split('/', '\\') + path.split('/')).filter { it.isNotEmpty() }.forEach(::appendPath) }
+                .build()
+        }
     }
 }
