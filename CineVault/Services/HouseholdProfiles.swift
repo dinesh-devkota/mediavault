@@ -111,6 +111,7 @@ final class HouseholdStore: ObservableObject {
     private let pinMatches: (HouseholdPIN, String) async -> Bool
     private var record: Record?
     private var authenticationGeneration = UUID()
+    private var foreground = true
     @Published private(set) var configured = false
     @Published private(set) var storageFailure = false
     @Published private(set) var activeID: UUID?
@@ -132,7 +133,7 @@ final class HouseholdStore: ObservableObject {
         if let data = defaults.data(forKey: Self.historyKey), let saved = try? JSONDecoder().decode([String: HouseholdProgress].self, from: data) { history = saved }
         reload()
     }
-    private func synced<T>(_ action: () -> T) -> T { mutex.lock(); defer { mutex.unlock() }; return action() }
+    private func synced<T>(_ action: () throws -> T) rethrows -> T { mutex.lock(); defer { mutex.unlock() }; return try action() }
     var profiles: [HouseholdProfile] { synced { record?.profiles ?? [] } }
     var current: HouseholdProfile? { synced { record?.profiles.first { $0.id == activeID } } }
     var isAdmin: Bool { synced { !configured && !storageFailure || current?.isAdmin == true } }
@@ -140,6 +141,7 @@ final class HouseholdStore: ObservableObject {
     var viewerID: UUID? { synced { current.flatMap { $0.isAdmin ? nil : $0.id } } }
     var hasSavedProfiles: Bool { synced { record != nil } }
     var sessionToken: UUID { synced { generation } }
+    var authenticationToken: UUID { synced { authenticationGeneration } }
     var preferenceDefaults: UserDefaults { viewerID.flatMap { UserDefaults(suiteName: "mediavault.viewer.\($0.uuidString)") } ?? defaults }
 
     func reload() {
@@ -167,6 +169,7 @@ final class HouseholdStore: ObservableObject {
         }
     }
     private func persist(_ next: Record) throws {
+        mutex.lock(); defer { mutex.unlock() }
         do {
             let data = try JSONEncoder().encode(next)
             guard let value = String(data: data, encoding: .utf8) else { throw HouseholdError.storage }
@@ -175,7 +178,7 @@ final class HouseholdStore: ObservableObject {
     }
     func setup(pin: String, confirmation: String) throws {
         mutex.lock(); defer { mutex.unlock() }
-        guard !configured, !storageFailure else { throw HouseholdError.denied }
+        guard foreground, !configured, !storageFailure else { throw HouseholdError.denied }
         guard pin == confirmation else { throw HouseholdError.mismatch }
         if let admin = record?.profiles.first(where: \.isAdmin) {
             try verify(admin.id, pin: pin, now: Date())
@@ -211,6 +214,7 @@ final class HouseholdStore: ObservableObject {
     }
     func unlock(_ id: UUID, pin: String, now: Date = Date()) throws {
         mutex.lock(); defer { mutex.unlock() }
+        guard foreground else { throw HouseholdError.denied }
         try verify(id, pin: pin, now: now)
         lock(); activeID = id; generation = UUID()
     }
@@ -233,6 +237,12 @@ final class HouseholdStore: ObservableObject {
             guard configured || storageFailure else { return }
             NotificationCenter.default.post(name: Self.willLock, object: self)
             activeID = nil; generation = UUID()
+        }
+    }
+    func setActive(_ active: Bool) {
+        synced {
+            foreground = active
+            if !active { lock() }
         }
     }
     private func saveViewerVerified(_ draft: HouseholdProfile, replacementPIN: HouseholdPIN??) throws {
@@ -270,13 +280,15 @@ final class HouseholdStore: ObservableObject {
         try disableVerified()
     }
     private func disableVerified() throws {
+        mutex.lock(); defer { mutex.unlock() }
         guard isAdmin, var next = record else { throw HouseholdError.storage }
         lock()
         next.enabled = false; try persist(next); configured = false; storageFailure = false
     }
     /// Expensive derivation stays off the UI thread. A lock while it runs invalidates the result.
     @MainActor
-    private func checkPIN(_ id: UUID, pin: String, now: Date = Date()) async throws {
+    private func checkPIN(_ id: UUID, pin: String, intent: UUID, now: Date = Date()) async throws {
+        guard synced({ foreground && intent == authenticationGeneration }) else { throw HouseholdError.denied }
         let token = synced { authenticationGeneration }
         guard let profile = profiles.first(where: { $0.id == id }), !storageFailure else { throw HouseholdError.storage }
         if let retry = profile.retryAfter, retry > now { throw HouseholdError.cooldown(retry) }
@@ -284,39 +296,44 @@ final class HouseholdStore: ObservableObject {
         if let verifier = profile.pin { matched = await pinMatches(verifier, pin) }
         else { matched = true }
         try Task.checkCancellation()
-        guard synced({ token == authenticationGeneration }), profiles.first(where: { $0.id == id })?.pin == profile.pin else { throw CancellationError() }
+        guard synced({ foreground && token == authenticationGeneration }), profiles.first(where: { $0.id == id })?.pin == profile.pin else { throw CancellationError() }
         try verifyResult(id, matches: matched, now: now)
     }
     @MainActor
-    func unlockAsync(_ id: UUID, pin: String) async throws {
-        try await checkPIN(id, pin: pin)
-        lock(); activeID = id; generation = UUID()
+    func unlockAsync(_ id: UUID, pin: String, intent: UUID) async throws {
+        try await checkPIN(id, pin: pin, intent: intent)
+        synced { lock(); activeID = id; generation = UUID() }
     }
     @MainActor
-    func setupAsync(pin: String, confirmation: String) async throws {
-        guard !configured, !storageFailure else { throw HouseholdError.denied }
+    func setupAsync(pin: String, confirmation: String, intent: UUID) async throws {
+        guard synced({ foreground && intent == authenticationGeneration }), !configured, !storageFailure else { throw HouseholdError.denied }
         guard pin == confirmation else { throw HouseholdError.mismatch }
         if let admin = profiles.first(where: \.isAdmin) {
-            try await checkPIN(admin.id, pin: pin)
-            guard var next = record else { throw HouseholdError.storage }
-            next.enabled = true; try persist(next); configured = true; lock(); return
+            try await checkPIN(admin.id, pin: pin, intent: intent)
+            try synced {
+                guard var next = record else { throw HouseholdError.storage }
+                next.enabled = true; try persist(next); configured = true; lock()
+            }
+            return
         }
         let token = synced { authenticationGeneration }
         let verifier = try await Task.detached(priority: .userInitiated) { try HouseholdPIN(pin) }.value
         try Task.checkCancellation()
-        guard synced({ token == authenticationGeneration }), !configured, !storageFailure else { throw CancellationError() }
-        let admin = HouseholdProfile(name: "Admin", isAdmin: true, pin: verifier)
-        try persist(Record(profiles: [admin])); configured = true; lock()
+        try synced {
+            guard foreground && token == authenticationGeneration, !configured, !storageFailure else { throw CancellationError() }
+            let admin = HouseholdProfile(name: "Admin", isAdmin: true, pin: verifier)
+            try persist(Record(profiles: [admin])); configured = true; lock()
+        }
     }
     @MainActor
-    private func checkAdmin(_ pin: String) async throws {
+    private func checkAdmin(_ pin: String, intent: UUID) async throws {
         guard isAdmin, let admin = profiles.first(where: \.isAdmin) else { throw HouseholdError.denied }
-        try await checkPIN(admin.id, pin: pin)
+        try await checkPIN(admin.id, pin: pin, intent: intent)
         guard isAdmin else { throw HouseholdError.denied }
     }
     @MainActor
-    func saveViewer(_ draft: HouseholdProfile, newPIN: String?, confirmation: String, adminPIN: String) async throws {
-        try await checkAdmin(adminPIN)
+    func saveViewer(_ draft: HouseholdProfile, newPIN: String?, confirmation: String, adminPIN: String, intent: UUID) async throws {
+        try await checkAdmin(adminPIN, intent: intent)
         let token = sessionToken
         var replacement: HouseholdPIN?? = nil
         if let newPIN {
@@ -332,25 +349,27 @@ final class HouseholdStore: ObservableObject {
         try saveViewerVerified(draft, replacementPIN: replacement)
     }
     @MainActor
-    func deleteViewer(_ id: UUID, adminPIN: String) async throws {
-        try await checkAdmin(adminPIN)
+    func deleteViewer(_ id: UUID, adminPIN: String, intent: UUID) async throws {
+        try await checkAdmin(adminPIN, intent: intent)
         try deleteViewerVerified(id)
     }
     @MainActor
-    func disableAsync(adminPIN: String) async throws {
-        try await checkAdmin(adminPIN)
+    func disableAsync(adminPIN: String, intent: UUID) async throws {
+        try await checkAdmin(adminPIN, intent: intent)
         try disableVerified()
     }
     @MainActor
-    func changeAdminPINAsync(current: String, pin: String, confirmation: String) async throws {
-        try await checkAdmin(current)
+    func changeAdminPINAsync(current: String, pin: String, confirmation: String, intent: UUID) async throws {
+        try await checkAdmin(current, intent: intent)
         guard pin == confirmation else { throw HouseholdError.mismatch }
         let token = sessionToken
         let verifier = try await Task.detached(priority: .userInitiated) { try HouseholdPIN(pin) }.value
         try Task.checkCancellation()
-        guard token == sessionToken, var next = record, let index = next.profiles.firstIndex(where: \.isAdmin) else { throw CancellationError() }
-        next.profiles[index].pin = verifier
-        try persist(next); lock()
+        try synced {
+            guard token == generation, var next = record, let index = next.profiles.firstIndex(where: \.isAdmin) else { throw CancellationError() }
+            next.profiles[index].pin = verifier
+            try persist(next); lock()
+        }
     }
     func allowsPath(sourceID: UUID?, path: String) -> Bool {
         synced {

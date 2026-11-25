@@ -18,7 +18,7 @@ final class HouseholdRemoteTests: XCTestCase {
         select(app.buttons["household-switch"], app)
         XCTAssertTrue(kids.waitForExistence(timeout: 10))
         select(app.buttons["household-profile-Guest"], app)
-        XCTAssertTrue(app.staticTexts["Your library is ready for sharing"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["No media available for this profile yet"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Family Adventure"].exists)
         capture("Empty profile explains how to get access", app)
         XCUIRemote.shared.press(.home)
@@ -60,8 +60,8 @@ final class HouseholdRemoteTests: XCTestCase {
         XCTAssertTrue(app.buttons["household-switch"].waitForExistence(timeout: 15), app.debugDescription)
         select(app.buttons["Settings"], app)
         select(app.buttons["household-settings"], app)
-        select(app.buttons["Kids"], app)
-        XCTAssertTrue(app.staticTexts["Allowed folders"].waitForExistence(timeout: 10), app.debugDescription)
+        select(app.buttons["household-edit-Kids"], app)
+        XCTAssertTrue(app.staticTexts["household-folder-permissions"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.secureTextFields["household-authorize-pin"].exists, app.debugDescription)
         capture("Admin viewer folder and rating permissions", app)
         XCUIRemote.shared.press(.menu)
@@ -73,8 +73,8 @@ final class HouseholdRemoteTests: XCTestCase {
         XCTAssertTrue(target.waitForExistence(timeout: 10), app.debugDescription)
         let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == YES")).firstMatch
         func hasFocus() -> Bool {
-            target.hasFocus || (!target.identifier.isEmpty && app.cells.containing(.button, identifier: target.identifier)
-                .matching(NSPredicate(format: "hasFocus == YES")).firstMatch.exists)
+            target.hasFocus || app.cells.containing(target.elementType, identifier: target.identifier.isEmpty ? target.label : target.identifier)
+                .matching(NSPredicate(format: "hasFocus == YES")).firstMatch.exists
         }
         for _ in 0..<25 {
             if hasFocus() { break }

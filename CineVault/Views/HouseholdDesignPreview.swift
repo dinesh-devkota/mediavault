@@ -48,15 +48,15 @@ struct HouseholdDesignPreview: View {
                 }
                 try context.save()
                 let store = HouseholdPreview.store
-                try await store.setupAsync(pin: "328614", confirmation: "328614")
+                try await store.setupAsync(pin: "328614", confirmation: "328614", intent: store.authenticationToken)
                 guard let admin = store.profiles.first(where: \.isAdmin) else { return }
-                try await store.unlockAsync(admin.id, pin: "328614")
+                try await store.unlockAsync(admin.id, pin: "328614", intent: store.authenticationToken)
                 var kids = HouseholdProfile(name: "Kids")
                 kids.allowedFolders = [HouseholdFolder(sourceID: source.id, path: "Family")]
                 kids.maximumMovieRating = "PG"; kids.maximumTVRating = "TV-PG"
-                try await store.saveViewer(kids, newPIN: nil, confirmation: "", adminPIN: "328614")
+                try await store.saveViewer(kids, newPIN: nil, confirmation: "", adminPIN: "328614", intent: store.authenticationToken)
                 let guest = HouseholdProfile(name: "Guest")
-                try await store.saveViewer(guest, newPIN: nil, confirmation: "", adminPIN: "328614")
+                try await store.saveViewer(guest, newPIN: nil, confirmation: "", adminPIN: "328614", intent: store.authenticationToken)
                 store.lock(); ready = true
             } catch { self.error = error.localizedDescription }
         }

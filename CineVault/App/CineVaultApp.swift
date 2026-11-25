@@ -59,14 +59,15 @@ struct RootView: View {
             else { unlockedTabs.id(household.generation) }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { household.lock() }
-            else {
+            household.setActive(phase == .active)
+            if phase == .active {
                 #if DEBUG
                 if HouseholdPreview.isEnabled { return }
                 #endif
                 Task { await playbackServices.refresh() }
             }
         }
+        .onAppear { household.setActive(scenePhase == .active) }
         .onChange(of: household.generation) { _, _ in
             tab = .home; homeNavigation.path = NavigationPath()
         }

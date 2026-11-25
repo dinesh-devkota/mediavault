@@ -332,7 +332,7 @@ struct HomeView: View {
                         homePrompt("Your photo albums are ready", symbol: "photo.on.rectangle",
                                    detail: "Browse your photos by folder.", button: "Browse Photos", action: openPhotos)
                     } else if !HouseholdStore.shared.isAdmin {
-                        homePrompt("Your library is ready for sharing", symbol: "person.crop.circle.badge.checkmark",
+                        homePrompt("No media available for this profile yet", symbol: "person.crop.circle.badge.checkmark",
                                    detail: "Ask an Admin to allow folders or adjust your ratings. Unknown ratings remain hidden when a limit is set.",
                                    button: "Switch profile") { HouseholdStore.shared.lock() }
                     } else if sources.isEmpty {
