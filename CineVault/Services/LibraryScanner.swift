@@ -114,9 +114,9 @@ final class LibraryScanner: ObservableObject {
         try await connection.client.catalog(connection.account, libraryID: config.share) { items in
             guard household.sessionIsCurrent(session), household.isAdmin else { throw HouseholdError.denied }
             for item in items {
-                if let path = JellyfinSourceConnection.videoPath(item) { catalog.append((path, item)) }
+                if let path = JellyfinSourceConnection.mediaPath(item) { catalog.append((path, item)) }
             }
-            self.status = "Scanning \(source.name): \(catalog.count) videos…"
+            self.status = "Scanning \(source.name): \(catalog.count) items…"
         }
         try Task.checkCancellation()
         guard household.sessionIsCurrent(session), household.isAdmin,
@@ -134,10 +134,12 @@ final class LibraryScanner: ObservableObject {
             let movie: Movie
             if let current = existing.removeValue(forKey: item.id) {
                 let previous = (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
-                                current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched)
+                                current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
+                                current.providerImageTag)
                 undo.append {
                     (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
-                     current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched) = previous
+                     current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
+                     current.providerImageTag) = previous
                 }
                 movie = current
             } else {
@@ -160,6 +162,7 @@ final class LibraryScanner: ObservableObject {
             movie.episodeNumber = item.number
             movie.usContentRating = item.rating
             movie.usContentRatingFetched = true
+            movie.providerImageTag = item.primaryImage?["Primary"]
         }
         for movie in existing.values where !movie.isMissing {
             undo.append { movie.isMissing = false }
@@ -173,7 +176,7 @@ final class LibraryScanner: ObservableObject {
             for movie in inserted { context.delete(movie) }
             throw error
         }
-        status = "\(source.name): \(catalog.count) videos (\(inserted.count) new)"
+        status = "\(source.name): \(catalog.count) items (\(inserted.count) new)"
     }
 
     func scanAll(context: ModelContext) async {

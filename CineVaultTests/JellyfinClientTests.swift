@@ -73,11 +73,11 @@ final class JellyfinClientTests: XCTestCase {
     func testVideoPathsUseScopedProviderIDsRatherThanCatalogTitles() throws {
         let data = Data(#"{"Id":"episode52","Name":"../share","Type":"Episode","SeriesId":"show3","SeriesName":"Show","ParentIndexNumber":0,"IndexNumber":2}"#.utf8)
         let item = try JSONDecoder().decode(JellyfinCatalogItem.self, from: data)
-        let path = try XCTUnwrap(JellyfinSourceConnection.videoPath(item))
+        let path = try XCTUnwrap(JellyfinSourceConnection.mediaPath(item))
         XCTAssertEqual(path, "show3/0/episode52.mp4")
         XCTAssertEqual(try JellyfinSourceConnection.itemID(for: path), "episode52")
         XCTAssertThrowsError(try JellyfinSourceConnection.itemID(for: "season/..%2fsecret.mp4"))
         let ungrouped = Data(#"{"Id":"episode52","Name":"Episode","Type":"Episode"}"#.utf8)
-        XCTAssertNil(JellyfinSourceConnection.videoPath(try JSONDecoder().decode(JellyfinCatalogItem.self, from: ungrouped)))
+        XCTAssertNil(JellyfinSourceConnection.mediaPath(try JSONDecoder().decode(JellyfinCatalogItem.self, from: ungrouped)))
     }
 }

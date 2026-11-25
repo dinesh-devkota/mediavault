@@ -12,8 +12,11 @@ from urllib.parse import parse_qs, urlsplit
 
 ACCOUNT = {"AccessToken": "fixture-jellyfin-token", "User": {"Id": "fixture-user", "Name": "Fixture"}}
 LIBRARY = {"Id": "fixture-library", "Name": "Fixture Movies", "Type": "CollectionFolder"}
-MOVIE = {"Id": "fixture-movie", "Name": "Fixture Film", "Type": "Movie", "OfficialRating": "G"}
-MEDIA = Path(__file__).resolve().parents[1] / "CineVaultTests" / "Fixtures" / "playback.mp4"
+MOVIE = {"Id": "fixture-movie", "Name": "Fixture Film", "Type": "Movie", "OfficialRating": "G", "ImageTags": {"Primary": "fixture-poster"}}
+PHOTO = {"Id": "fixture-photo", "Name": "Fixture Photo", "Type": "Photo"}
+SAMPLES = Path(__file__).resolve().parents[1] / "CineVaultTests" / "Fixtures"
+MEDIA = SAMPLES / "playback.mp4"
+IMAGE = SAMPLES / "Photos" / "01.jpg"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -77,10 +80,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"Items": [LIBRARY], "StartIndex": 0, "TotalRecordCount": 1})
         elif (parts.path == "/jellyfin/Items" and query.get("parentId") == ["fixture-library"]
               and query.get("enableUserData") == ["false"]):
-            self.send_json({"Items": [MOVIE], "StartIndex": 0, "TotalRecordCount": 1})
+            self.send_json({"Items": [MOVIE, PHOTO], "StartIndex": 0, "TotalRecordCount": 2})
         elif (parts.path == "/jellyfin/Videos/fixture-movie/stream" and query.get("static") == ["true"]
               and query.get("playSessionId") == ["fixture-playback"]):
             self.send_range()
+        elif parts.path == "/jellyfin/Items/fixture-photo/Images/Primary" or (
+            parts.path == "/jellyfin/Items/fixture-movie/Images/Primary" and query.get("tag") == ["fixture-poster"]
+        ):
+            self.send_body(200, IMAGE.read_bytes(), [("Content-Type", "image/jpeg")])
         elif parts.path == "/jellyfin/Videos/fixture-movie/fixture-media-source/Subtitles/2/Stream.vtt":
             self.send_body(200, b"WEBVTT\n\n00:00:07.000 --> 00:00:11.000\nFixture Jellyfin caption.\n",
                            [("Content-Type", "text/vtt")])

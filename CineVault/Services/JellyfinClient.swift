@@ -276,6 +276,17 @@ struct JellyfinClient: Sendable {
         ])
     }
 
+    func readPrimaryImage(itemID: String, tag: String?, maxPixels: Int, account: JellyfinAccount) async throws -> Data {
+        let limit = min(4096, max(1, maxPixels))
+        var query = [
+            URLQueryItem(name: "maxWidth", value: String(limit)),
+            URLQueryItem(name: "maxHeight", value: String(limit)),
+        ]
+        if let tag, !tag.isEmpty { query.append(URLQueryItem(name: "tag", value: tag)) }
+        let url = try target(pathFor("Items", itemID, "Images", "Primary"), query: query)
+        return try await send(assetRequest(url, account: account))
+    }
+
     func assetRequest(_ url: URL, account: JellyfinAccount) throws -> URLRequest {
         guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               parts.queryItems?.contains(where: { $0.name.lowercased() == "api_key" }) != true,

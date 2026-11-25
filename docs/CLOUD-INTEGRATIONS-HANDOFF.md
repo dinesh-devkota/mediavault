@@ -165,8 +165,9 @@ HTTPS fixture, server artwork, photos and finer-grained catalog permissions.
 The tvOS Jellyfin draft includes password and Quick Connect setup, Keychain
 token storage, rescanning with stable catalog IDs, and authenticated direct play,
 seeking, session reporting and text subtitle tracks. The simulator has a
-dedicated loopback HTTPS fixture. HLS fallback, server artwork and photos still
-need tvOS app wiring.
+dedicated loopback HTTPS fixture. Photos appear in a source-specific album, and
+supported poster views fetch scoped artwork from the same server. Transcoded
+HLS still needs tvOS app wiring.
 
 Subsequent providers will each have a separate feature branch and validation.
 Keep each PR in draft while its own implementation and tests are incomplete.

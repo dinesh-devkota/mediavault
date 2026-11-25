@@ -60,9 +60,21 @@ class JellyfinServerTest {
             assertTrue("api_key" !in hls.url.queryParameterNames)
             client.report(session, hls, JellyfinPlaybackEvent.STARTED, 0)
             try {
-                http.newCall(client.assetRequest(session, hls.url)).execute().use { response ->
+                val master = http.newCall(client.playbackAssetRequest(session, hls, hls.url)).execute().use { response ->
                     assertEquals(200, response.code)
-                    assertTrue(response.body?.string().orEmpty().startsWith("#EXTM3U"))
+                    requireNotNull(response.body).string()
+                }
+                assertTrue(master.startsWith("#EXTM3U"))
+                val adaptive = requireNotNull(hls.url.resolve(firstMediaLink(master)))
+                val playlist = http.newCall(client.playbackAssetRequest(session, hls, adaptive)).execute().use { response ->
+                    assertEquals(200, response.code)
+                    requireNotNull(response.body).string()
+                }
+                assertTrue(playlist.startsWith("#EXTM3U"))
+                val segment = requireNotNull(adaptive.resolve(firstMediaLink(playlist)))
+                http.newCall(client.playbackAssetRequest(session, hls, segment)).execute().use { response ->
+                    assertEquals(200, response.code)
+                    assertEquals(16, requireNotNull(response.body).source().readByteArray(16).size)
                 }
             } finally {
                 client.report(session, hls, JellyfinPlaybackEvent.STOPPED, 0)
@@ -71,4 +83,8 @@ class JellyfinServerTest {
             client.signOut(session)
         }
     }
+
+    private fun firstMediaLink(playlist: String): String =
+        playlist.lineSequence().map(String::trim).first { it.isNotEmpty() && !it.startsWith("#") }
+
 }

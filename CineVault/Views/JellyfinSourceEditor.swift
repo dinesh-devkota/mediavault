@@ -51,7 +51,7 @@ struct JellyfinSourceEditor: View {
             } else if let account {
                 Section("Choose a library") {
                     if libraries.isEmpty {
-                        Text("This account has no available libraries.")
+                        Text("This account has no available movie, TV, or photo libraries.")
                     }
                     ForEach(libraries) { library in
                         Button(library.name) { save(library: library, account: account) }
@@ -127,7 +127,9 @@ struct JellyfinSourceEditor: View {
                     throw JellyfinEditorError.accountChanged
                 }
                 let found = try await client.libraries(received).filter {
-                    JellyfinSourceConnection.validItemID($0.id) && !$0.name.isEmpty
+                    let type = $0.collection?.lowercased()
+                    let supported = type == nil || ["movies", "tvshows", "homevideos", "photos", "mixed"].contains(type ?? "")
+                    return supported && JellyfinSourceConnection.validItemID($0.id) && !$0.name.isEmpty
                 }
                 try Task.checkCancellation()
                 guard household.sessionIsCurrent(session), household.isAdmin else { throw HouseholdError.denied }

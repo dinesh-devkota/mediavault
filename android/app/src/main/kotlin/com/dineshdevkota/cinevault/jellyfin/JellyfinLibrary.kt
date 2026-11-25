@@ -9,17 +9,19 @@ import com.dineshdevkota.cinevault.data.SecretBox
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.family.FamilyPolicy
 import com.dineshdevkota.cinevault.webdav.DavAddress
+import okhttp3.OkHttpClient
 
 internal const val JELLYFIN = "jellyfin"
 
 internal class JellyfinConnection(val client: JellyfinClient, val session: JellyfinSession)
 
-internal fun SourceEntity.jellyfinConnection(secrets: SecretBox): JellyfinConnection {
+internal fun SourceEntity.jellyfinConnection(secrets: SecretBox, fixtureHttp: OkHttpClient? = null): JellyfinConnection {
     require(sourceType == JELLYFIN && username.isNotBlank())
     val token = secrets.decrypt(encryptedPassword)
     if (token.isBlank()) throw JellyfinException("Reconnect this Jellyfin source in Sources.")
-    return JellyfinConnection(JellyfinClient(host, id, BuildConfig.VERSION_NAME),
-        JellyfinSession(token, JellyfinUser(username, "")))
+    val client = if (fixtureHttp == null) JellyfinClient(host, id, BuildConfig.VERSION_NAME)
+        else JellyfinClient(host, id, BuildConfig.VERSION_NAME, http = fixtureHttp)
+    return JellyfinConnection(client, JellyfinSession(token, JellyfinUser(username, "")))
 }
 
 internal fun jellyfinEndpoint(raw: String): String = DavAddress(raw).base.toString()
@@ -73,9 +75,10 @@ internal suspend fun importJellyfinLibrary(
     database: CineVaultDatabase,
     source: SourceEntity,
     secrets: SecretBox,
+    fixtureHttp: OkHttpClient? = null,
     onProgress: (Int) -> Unit,
 ): Pair<Int, Int>? {
-    val connection = source.jellyfinConnection(secrets)
+    val connection = source.jellyfinConnection(secrets, fixtureHttp)
     val catalog = mutableListOf<JellyfinItem>()
     connection.client.catalog(connection.session, source.share) { page ->
         catalog.addAll(page)

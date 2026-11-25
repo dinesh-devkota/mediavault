@@ -16,6 +16,25 @@ if [[ -z "$SERIAL" || "$SERIAL" == *$'\n'* || "$(adb -s "$SERIAL" shell getprop 
   exit 1
 fi
 export ANDROID_SERIAL="$SERIAL"
+JELLYFIN_FIXTURE=$(mktemp -d "$RUNNER_TEMP/jellyfin-android.XXXXXX")
+python3 scripts/test_jellyfin_fixture.py --serve-android "$JELLYFIN_FIXTURE" >"$RUNNER_TEMP/jellyfin-android.log" 2>&1 &
+JELLYFIN_PID=$!
+cleanup_jellyfin() {
+  kill "$JELLYFIN_PID" 2>/dev/null || true
+  wait "$JELLYFIN_PID" || true
+}
+trap cleanup_jellyfin EXIT
+for attempt in {1..100}; do
+  if [[ -s "$JELLYFIN_FIXTURE/jellyfin.cer" ]]; then break; fi
+  if ! kill -0 "$JELLYFIN_PID" 2>/dev/null; then break; fi
+  sleep 1
+done
+if [[ ! -s "$JELLYFIN_FIXTURE/jellyfin.cer" ]]; then
+  cat "$RUNNER_TEMP/jellyfin-android.log" >&2
+  echo "The disposable Jellyfin fixture did not become ready." >&2
+  exit 1
+fi
+JELLYFIN_CERTIFICATE=$(base64 -w0 "$JELLYFIN_FIXTURE/jellyfin.cer")
 mkdir -p "$RESULTS/baseline" "$RESULTS/family"
 cd android
 
@@ -55,6 +74,7 @@ status=0
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
+  "-Pandroid.testInstrumentationRunnerArguments.jellyfinCertificate=$JELLYFIN_CERTIFICATE" \
   "-Pandroid.testInstrumentationRunnerArguments.notClass=$FAMILY_TEST" || status=$?
 archive_results baseline
 if [[ "$status" != "0" ]]; then exit "$status"; fi

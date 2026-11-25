@@ -16,9 +16,12 @@ struct JellyfinSourceConnection: Sendable {
         account = JellyfinAccount(token: config.password, user: JellyfinUser(id: config.username, name: ""))
     }
 
-    static func videoPath(_ item: JellyfinCatalogItem) -> String? {
-        guard (item.type == "Movie" || item.type == "Episode"), validItemID(item.id),
-              !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    static func mediaPath(_ item: JellyfinCatalogItem) -> String? {
+        guard validItemID(item.id), !item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if item.type == "Photo" {
+            return "Photos/\(item.id).jpg"
+        }
+        guard item.type == "Movie" || item.type == "Episode" else { return nil }
         if item.type == "Episode" {
             guard let seriesID = item.seriesID, validItemID(seriesID),
                   let seriesName = item.seriesName, !seriesName.isEmpty,
@@ -31,9 +34,8 @@ struct JellyfinSourceConnection: Sendable {
 
     static func itemID(for filePath: String) throws -> String {
         let filename = filePath.split(separator: "/").last.map(String.init) ?? ""
-        let suffix = ".mp4"
-        guard filename.hasSuffix(suffix) else { throw JellyfinClientError.invalidCatalog }
-        let id = String(filename.dropLast(suffix.count))
+        guard filename.hasSuffix(".mp4") || filename.hasSuffix(".jpg") else { throw JellyfinClientError.invalidCatalog }
+        let id = String(filename.dropLast(4))
         guard validItemID(id) else { throw JellyfinClientError.invalidCatalog }
         return id
     }
@@ -45,6 +47,7 @@ struct JellyfinSourceConnection: Sendable {
     }
 
     func directPlayback(path: String) async throws -> JellyfinPlayback {
+        guard path.hasSuffix(".mp4") else { throw JellyfinClientError.unplayable }
         let id = try Self.itemID(for: path)
         let profile = Data("""
         {

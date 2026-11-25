@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import SwiftData
+import UIKit
 import XCTest
 @testable import CineVault
 
@@ -32,11 +33,19 @@ final class JellyfinIntegrationTests: XCTestCase {
         try context.save()
         let scanner = LibraryScanner()
         await scanner.scan(source, context: context)
-        let movie = try XCTUnwrap(source.movies.first, scanner.status ?? "The catalog was empty.")
+        let movie = try XCTUnwrap(source.movies.first { $0.filePath.hasSuffix(".mp4") }, scanner.status ?? "The catalog was empty.")
         XCTAssertEqual(movie.filePath, "fixture-movie.mp4")
         XCTAssertEqual(movie.title, "Fixture Film")
         XCTAssertEqual(movie.usContentRating, "G")
         XCTAssertFalse(movie.isWatched)
+        let photo = try XCTUnwrap(source.movies.first { $0.filePath.hasSuffix(".jpg") })
+        let loader = PhotoImageLoader()
+        let thumbnail = try await loader.image(config: source.config(), path: photo.filePath,
+                                               knownSize: 0, maxPixelSize: 128)
+        XCTAssertLessThanOrEqual(max(thumbnail.size.height, thumbnail.size.width), 128)
+        let poster = try await loader.image(config: source.config(), path: movie.filePath,
+                                            knownSize: 0, maxPixelSize: 128, artworkTag: movie.providerImageTag)
+        XCTAssertLessThanOrEqual(max(poster.size.height, poster.size.width), 128)
 
         let restricted = HouseholdProfile(name: "Fixture viewer")
         XCTAssertFalse(HouseholdPolicy.allowsPath(profile: restricted, sourceID: source.id, path: movie.filePath, caseSensitive: true))
@@ -84,8 +93,8 @@ final class JellyfinIntegrationTests: XCTestCase {
         movie.isWatchlisted = true
         try context.save()
         await scanner.scan(source, context: context)
-        let refreshed = try XCTUnwrap(source.movies.first)
-        XCTAssertEqual(source.movies.count, 1)
+        let refreshed = try XCTUnwrap(source.movies.first { $0.filePath.hasSuffix(".mp4") })
+        XCTAssertEqual(source.movies.count, 2)
         XCTAssertEqual(refreshed.id, originalID)
         XCTAssertTrue(refreshed.isWatchlisted)
     }

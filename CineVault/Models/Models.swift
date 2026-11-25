@@ -157,6 +157,7 @@ final class Movie {
     var seriesTitle: String?
     var seriesTMDBID: Int?
     var providerSeriesID: String?
+    var providerImageTag: String?
     var seasonNumber: Int?
     var episodeNumber: Int?
     var seasonPosterPath: String?
