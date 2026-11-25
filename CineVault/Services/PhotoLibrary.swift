@@ -41,14 +41,15 @@ enum PhotoLibrary {
         let groups = Dictionary(grouping: photos) { photo in
             PhotoAlbum.ID(sourceID: photo.source!.id, folder: photo.source?.isEmby == true ? "" : parentFolder(photo.filePath))
         }
-        return groups.compactMap { id, items in
-            guard let source = items.first?.source else { return nil }
-            let sorted = items.sorted {
+        return groups.compactMap { group -> PhotoAlbum? in
+            let (id, photos) = group
+            guard let source = photos.first?.source else { return nil }
+            let sorted = photos.sorted {
                 let order = title($0).localizedStandardCompare(title($1))
                 return order == .orderedSame ? $0.filePath < $1.filePath : order == .orderedAscending
             }
-            let title = source.isEmby ? source.name : id.folder.split(separator: "/").last.map(String.init) ?? source.share
-            return PhotoAlbum(id: id, title: title,
+            let albumTitle = source.isEmby ? source.name : id.folder.split(separator: "/").last.map(String.init) ?? source.share
+            return PhotoAlbum(id: id, title: albumTitle,
                 sourceName: source.name, folder: id.folder, photos: sorted)
         }.sorted {
             let sourceOrder = $0.sourceName.localizedStandardCompare($1.sourceName)
