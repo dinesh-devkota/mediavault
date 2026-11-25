@@ -202,9 +202,10 @@ It does not sync profiles or progress across devices.
 
 Generate the iPhone Xcode project with `xcodegen generate --spec project.ios.yml`.
 The `CineVaultPhone` scheme builds the app and runs shared tests and iPhone UI
-tests. The hosted `iPhone simulator` workflow verifies an unsigned release plus
-simulator setup and playback against temporary local WebDAV and SMB fixtures.
+tests. The hosted `iPhone simulator` workflow builds an unsigned release with iOS SDK 26 or later and runs
+simulator setup and playback tests against temporary local WebDAV and SMB fixtures.
 This app branch needs a green simulator run before merge. Physical iPhone testing,
-signing, App Store Connect setup, and App Review are separate release steps.
+signing, export-compliance confirmation, App Store Connect setup, and App Review
+are separate release steps.
 
 [iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)
