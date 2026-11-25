@@ -88,6 +88,34 @@ class WebDavServiceTest {
             }
         } finally { server.shutdown() }
     }
+    @Test fun scanAndSidecarsKeepExactCaseAcrossFolders() = runBlocking {
+        MockWebServer().use { server ->
+            fun listing(vararg values: String) = MockResponse().setResponseCode(207)
+                .setBody("<d:multistatus xmlns:d=\"DAV:\">${values.joinToString("")}</d:multistatus>")
+            val root = entry("/media/", true)
+            val kids = entry("/media/Kids/", true)
+            val lowercase = entry("/media/kids/", true)
+            val movie = entry("/media/Kids/Film.mp4")
+            val photo = entry("/media/Kids/Photo.jpg")
+            val captions = entry("/media/Kids/Film.en.srt")
+            val unrelated = entry("/media/Kids/film.en.srt")
+            server.enqueue(listing(root, kids, lowercase))
+            server.enqueue(listing(kids, movie, photo, captions, unrelated))
+            server.enqueue(listing(kids, captions, unrelated))
+            server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 0-0/3").setBody("s"))
+            server.enqueue(MockResponse().setResponseCode(206).setHeader("Content-Range", "bytes 0-2/3").setBody("srt"))
+            val config = SourceConfig("test", server.url("/media/").toString(), null, "", "", "", "",
+                ignoredFolders = listOf("kids"), sourceType = "webdav", allowInsecureHttp = true)
+            val media = WebDavMedia()
+            val scanned = media.scan(config) {}
+            assertEquals(setOf("Kids/Film.mp4", "Kids/Photo.jpg"), scanned.map { it.path }.toSet())
+            val subtitles = media.subtitles(config, "Kids/Film.mp4", "en")
+            assertEquals(1, subtitles.files.size)
+            assertEquals(listOf("/media/", "/media/Kids/", "/media/Kids/", "/media/Kids/Film.en.srt", "/media/Kids/Film.en.srt"),
+                List(5) { server.takeRequest().path })
+        }
+    }
+
     @Test fun emptyFileDoesNotRequestAnInvalidRange() {
         val server = MockWebServer()
         server.enqueue(MockResponse().setResponseCode(416).setHeader("Content-Range", "bytes */0"))

@@ -102,7 +102,7 @@ struct WebDAVTransport: Sendable {
     private static let properties = """
         <d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>
         """
-    private static let session: URLSession = {
+    private static let defaultSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.httpCookieStorage = nil
@@ -116,6 +116,14 @@ struct WebDAVTransport: Sendable {
     let address: WebDAVAddress
     let username: String
     let password: String
+    private let session: URLSession
+
+    init(address: WebDAVAddress, username: String, password: String, session: URLSession? = nil) {
+        self.address = address
+        self.username = username
+        self.password = password
+        self.session = session ?? Self.defaultSession
+    }
 
     private func request(url: URL) -> URLRequest {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
@@ -134,7 +142,7 @@ struct WebDAVTransport: Sendable {
         request.setValue("1", forHTTPHeaderField: "Depth")
         request.setValue("application/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(Self.properties.utf8)
-        let (bytes, response) = try await Self.session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw WebDAVError.invalidListing }
         guard http.statusCode == 207 else { throw WebDAVError.status(http.statusCode) }
@@ -160,7 +168,7 @@ struct WebDAVTransport: Sendable {
     private func range(_ path: String, offset: Int64, length: Int, allowEmpty: Bool = false) async throws -> (data: Data, total: Int64) {
         var request = request(url: try address.url(for: path))
         request.setValue("bytes=\(offset)-\(offset + Int64(length) - 1)", forHTTPHeaderField: "Range")
-        let (bytes, response) = try await Self.session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw WebDAVError.invalidRange }
         let contentRange = http.value(forHTTPHeaderField: "Content-Range")

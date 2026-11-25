@@ -164,7 +164,9 @@ final class PlaybackController: ObservableObject {
         guard isNativeCandidate(movie) else { throw PlaybackPreparationError.unsupportedFormat }
         guard let source = movie.source else { return nil }
         guard household.allows(movie), LibrarySearch.isAvailable(movie), !source.isIgnored(filePath: movie.filePath),
-              SubtitleFile.safePath(movie.filePath, within: source.rootPath) != nil else { throw PlaybackPreparationError.fileUnavailable }
+              (source.isWebDAV
+                ? WebDAVAddress.contains(movie.filePath, within: source.rootPath)
+                : SubtitleFile.safePath(movie.filePath, within: source.rootPath) != nil) else { throw PlaybackPreparationError.fileUnavailable }
         return source
     }
 

@@ -122,7 +122,7 @@ actor PhotoImageLoader {
         try checkAccess()
         try Task.checkCancellation()
         guard MediaFile.isPhoto(path: path), MediaFile.shouldIndex(path: path, size: 1),
-              PhotoLocation.contains(path: path, root: config.rootPath), !config.excludesFile(path) else { throw PhotoLoadingError.unavailable }
+              PhotoLocation.contains(path: path, root: config.rootPath, caseSensitive: config.isWebDAV), !config.excludesFile(path) else { throw PhotoLoadingError.unavailable }
         guard knownSize <= Self.maximumEncodedBytes else { throw PhotoLoadingError.tooLarge }
         let pixels = min(Self.viewingPixels, max(1, maxPixelSize))
         let key = CacheKey(config, path, knownSize, pixels, revision)

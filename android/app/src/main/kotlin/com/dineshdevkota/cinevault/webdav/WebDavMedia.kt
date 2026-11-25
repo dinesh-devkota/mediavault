@@ -57,11 +57,13 @@ class WebDavMedia(val service: WebDavService = WebDavService()) {
     }
 
     suspend fun subtitles(config: SourceConfig, videoPath: String, language: String?): SubtitleDiscovery {
-        if (!SubtitleSidecars.includesPath(videoPath, config.rootPath, config.ignoredFolders, config.ignoredFiles)) return SubtitleDiscovery(emptyList())
+        fun includes(path: String): Boolean = DavAddress.contains(path, config.rootPath) &&
+            !ScanExclusions.isFileExcluded(path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = true)
+        if (!includes(videoPath)) return SubtitleDiscovery(emptyList())
         val entries = service.list(config, videoPath.substringBeforeLast('/', ""))
         val matches = entries.take(SubtitleSidecars.MAX_DIRECTORY_ENTRIES).filter {
-            !it.directory && it.size in 1L..SubtitleSidecars.MAX_BYTES.toLong() && SubtitleSidecars.includesPath(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles)
-        }.mapNotNull { SubtitleSidecars.match(videoPath, it.path) }
+            !it.directory && it.size in 1L..SubtitleSidecars.MAX_BYTES.toLong() && includes(it.path)
+        }.mapNotNull { SubtitleSidecars.match(videoPath, it.path, caseSensitive = true) }
             .sortedWith(compareByDescending<SubtitleSidecars.Match> { it.language?.equals(language, true) == true }.thenBy { it.path })
         val files = matches.take(SubtitleSidecars.MAX_FILES).mapNotNull { match ->
             try { SubtitleFile(match, read(config, match.path, SubtitleSidecars.MAX_BYTES)) }
