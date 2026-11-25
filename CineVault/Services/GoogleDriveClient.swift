@@ -18,6 +18,7 @@ struct GoogleDriveClient: Sendable {
         let name: String
         let mimeType: String
         let size: String?
+        let resourceKey: String?
         var isFolder: Bool { mimeType == "application/vnd.google-apps.folder" }
     }
 
@@ -28,7 +29,7 @@ struct GoogleDriveClient: Sendable {
 
     private static let base = URL(string: "https://www.googleapis.com/drive/v3/files")!
     private static let maximumBytes = 8 * 1024 * 1024
-    private static let session: URLSession = {
+    private static let defaultSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.urlCredentialStorage = nil
@@ -38,7 +39,14 @@ struct GoogleDriveClient: Sendable {
         return URLSession(configuration: config, delegate: GoogleDriveRedirectDelegate(), delegateQueue: nil)
     }()
 
-    func listChildren(parent: String, accessToken: String, onPage: ([Entry]) async throws -> Void) async throws {
+    private let session: URLSession
+
+    init(session: URLSession? = nil) {
+        self.session = session ?? Self.defaultSession
+    }
+
+    func listChildren(parent: String, resourceKey: String? = nil, accessToken: String,
+                      onPage: ([Entry]) async throws -> Void) async throws {
         guard Self.isFileID(parent) else { throw GoogleDriveError.invalidRequest }
         var cursor: String?
         var seen: Set<String> = []
@@ -46,12 +54,15 @@ struct GoogleDriveClient: Sendable {
             try Task.checkCancellation()
             var query = [
                 URLQueryItem(name: "q", value: "'\(parent)' in parents and trashed = false"),
-                URLQueryItem(name: "fields", value: "nextPageToken,files(id,name,mimeType,size)"),
+                URLQueryItem(name: "fields", value: "nextPageToken,files(id,name,mimeType,size,resourceKey)"),
+                URLQueryItem(name: "supportsAllDrives", value: "true"),
+                URLQueryItem(name: "includeItemsFromAllDrives", value: "true"),
                 URLQueryItem(name: "pageSize", value: "100"),
             ]
             if let cursor { query.append(URLQueryItem(name: "pageToken", value: cursor)) }
-            let request = try makeRequest(url: Self.base, accessToken: accessToken, query: query)
-            let (data, _) = try await Self.send(request, limit: Self.maximumBytes, expectedStatus: 200)
+            var request = try makeRequest(url: Self.base, accessToken: accessToken, query: query)
+            try Self.setResourceKey(resourceKey, for: parent, on: &request)
+            let (data, _) = try await send(request, limit: Self.maximumBytes, expectedStatus: 200)
             let page = try JSONDecoder().decode(Page.self, from: data)
             if let next = page.nextPageToken {
                 guard !next.isEmpty, seen.count < 10_000, seen.insert(next).inserted else {
@@ -63,18 +74,19 @@ struct GoogleDriveClient: Sendable {
         } while cursor != nil
     }
 
-    func read(fileID: String, offset: Int64, length: Int, accessToken: String) async throws -> Data {
+    func read(fileID: String, offset: Int64, length: Int, resourceKey: String? = nil, accessToken: String) async throws -> Data {
         guard Self.isFileID(fileID), offset >= 0, (1...Self.maximumBytes).contains(length),
               offset <= Int64.max - Int64(length) else { throw GoogleDriveError.invalidRequest }
         let end = offset + Int64(length) - 1
         var request = try makeRequest(url: Self.base.appendingPathComponent(fileID), accessToken: accessToken,
-                                      query: [URLQueryItem(name: "alt", value: "media")])
+                                      query: [URLQueryItem(name: "alt", value: "media"),
+                                              URLQueryItem(name: "supportsAllDrives", value: "true")])
+        try Self.setResourceKey(resourceKey, for: fileID, on: &request)
         request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (data, response) = try await Self.send(request, limit: length, expectedStatus: 206)
+        let (data, response) = try await send(request, limit: length, expectedStatus: 206)
         guard let range = response.value(forHTTPHeaderField: "Content-Range"),
-              range.hasPrefix("bytes \(offset)-\(end)/"), let total = Int64(range.split(separator: "/").last ?? ""),
-              total > end, data.count == length,
+              Self.matchesRange(range, offset: offset, end: end), data.count == length,
               response.value(forHTTPHeaderField: "Content-Encoding").map({ $0.lowercased() == "identity" }) ?? true else {
             throw GoogleDriveError.invalidResponse
         }
@@ -94,7 +106,19 @@ struct GoogleDriveClient: Sendable {
         return request
     }
 
-    private static func send(_ request: URLRequest, limit: Int, expectedStatus: Int) async throws -> (Data, HTTPURLResponse) {
+    private static func matchesRange(_ header: String, offset: Int64, end: Int64) -> Bool {
+        let prefix = "bytes \(offset)-\(end)/"
+        guard header.hasPrefix(prefix), let total = Int64(header.dropFirst(prefix.count)) else { return false }
+        return total > end && header == prefix + String(total)
+    }
+
+    private static func setResourceKey(_ key: String?, for fileID: String, on request: inout URLRequest) throws {
+        guard let key else { return }
+        guard isFileID(key) else { throw GoogleDriveError.invalidRequest }
+        request.setValue("\(fileID)/\(key)", forHTTPHeaderField: "X-Goog-Drive-Resource-Keys")
+    }
+
+    private func send(_ request: URLRequest, limit: Int, expectedStatus: Int) async throws -> (Data, HTTPURLResponse) {
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw GoogleDriveError.invalidResponse }
