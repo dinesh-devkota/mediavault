@@ -29,9 +29,10 @@ internal val jellyfinAndroidProfile = Json.parseToJsonElement("""
 internal fun jellyfinDataSources(
     connection: JellyfinConnection,
     playback: JellyfinPlayback,
+    fixtureHttp: OkHttpClient? = null,
     authorize: () -> Unit,
 ): DataSource.Factory {
-    val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+    val http = (fixtureHttp?.newBuilder() ?: OkHttpClient.Builder()).followRedirects(false).followSslRedirects(false)
         .addInterceptor { chain ->
             authorize()
             val request = chain.request()

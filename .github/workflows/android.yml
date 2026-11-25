@@ -8,6 +8,7 @@ on:
       - "scripts/nas_fixture.py"
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
+      - "scripts/test_jellyfin_fixture.py"
       - "CineVaultTests/Fixtures/**"
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - "scripts/nas_fixture.py"
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
+      - "scripts/test_jellyfin_fixture.py"
       - "CineVaultTests/Fixtures/**"
   workflow_dispatch:
 
@@ -142,6 +144,7 @@ jobs:
                   print(f"::error title=Android runtime test::{case.get('classname')}.{case.get('name')}: {detail}")
           required = {"TVNavigationTest", "SecretBoxInstrumentedTest", "LibraryDatabaseTest", "MetadataMutationTest",
                       "LibraryScannerTest", "SmbDataSourceContractTest", "SmbIntegrationTest", "SmbPlaybackTest",
+                      "JellyfinAndroidIntegrationTest",
                       "WatchlistMigrationTest", "WatchlistNavigationTest", "NasBrowserIntegrationTest",
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",
@@ -169,5 +172,6 @@ jobs:
             android/app/build/outputs/androidTest-results/
             ${{ runner.temp }}/android-runtime-results/
             ${{ runner.temp }}/android-nas-fixture.log
+            ${{ runner.temp }}/jellyfin-android.log
           if-no-files-found: error
           retention-days: 7
