@@ -15,16 +15,24 @@ jobs:
   loopback:
     name: Read-only NFSv3 loopback
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Install the libnfs development package
+      - name: Build libnfs 5.0.3 for the fixture
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libnfs-dev
+          archive="$RUNNER_TEMP/libnfs-5.0.3.tar.gz"
+          curl --fail --silent --show-error --location \
+            https://codeload.github.com/sahlberg/libnfs/tar.gz/refs/tags/libnfs-5.0.3 -o "$archive"
+          printf "%s  %s\n" d945cb4f4c8f82ee1f3640893a168810f794a28e1010bb007ec5add345e9df3e "$archive" | sha256sum --check
+          mkdir "$RUNNER_TEMP/libnfs-source"
+          tar -xzf "$archive" --strip-components=1 -C "$RUNNER_TEMP/libnfs-source"
+          cmake -S "$RUNNER_TEMP/libnfs-source" -B "$RUNNER_TEMP/libnfs-build" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release '-DCMAKE_C_FLAGS=-include sys/uio.h'
+          cmake --build "$RUNNER_TEMP/libnfs-build" --parallel 2
       - name: Build and exercise the read-only probe
         run: |
           cc -Wall -Wextra -Werror scripts/nfs_readonly_probe.c \
-            $(pkg-config --cflags --libs libnfs) -o "$RUNNER_TEMP/nfs_readonly_probe"
+            -I"$RUNNER_TEMP/libnfs-source/include" -L"$RUNNER_TEMP/libnfs-build/lib" \
+            -Wl,-rpath,"$RUNNER_TEMP/libnfs-build/lib" -lnfs -o "$RUNNER_TEMP/nfs_readonly_probe"
           NFS_PROBE="$RUNNER_TEMP/nfs_readonly_probe" \
             python3 -m unittest discover -v -s scripts/tests -p test_nfs_readonly_probe.py
