@@ -20,6 +20,7 @@ struct EmbySourceEditor: View {
     @State private var operation: Task<Void, Never>?
     @State private var confirmingRemoval = false
     @State private var removed = false
+    @State private var active = false
 
     private var disabled: Bool { !household.isAdmin || scanner.isScanning || operation != nil || removed }
 
@@ -72,19 +73,21 @@ struct EmbySourceEditor: View {
                         .disabled(disabled)
                 }
             }
-            Button("Close") { dismiss() }
+            Button("Close") { dismiss() }.disabled(removed && operation != nil)
         }
         .navigationTitle(source == nil ? "Add Emby Library" : "Edit Emby Library")
         .onAppear {
             guard household.isAdmin else { dismiss(); return }
+            active = true
             if let source { name = source.name; endpoint = source.host }
         }
         .onDisappear {
-            operation?.cancel()
+            // A late authentication response still has to release any issued server token.
+            active = false
             releaseDraft()
         }
         .onReceive(NotificationCenter.default.publisher(for: HouseholdStore.willLock, object: household)) { _ in
-            operation?.cancel()
+            active = false
             releaseDraft()
             dismiss()
         }
@@ -117,10 +120,10 @@ struct EmbySourceEditor: View {
             do {
                 let account = try await client.signIn(username: login, password: secret)
                 temporaryAccount = account
-                try Task.checkCancellation()
+                guard active, household.sessionIsCurrent(session), household.isAdmin else { throw CancellationError() }
                 let libraries = EmbySourceConnection.libraries(try await client.libraries(account))
                 try Task.checkCancellation()
-                guard household.sessionIsCurrent(session), household.isAdmin, !scanner.isScanning else {
+                guard active, household.sessionIsCurrent(session), household.isAdmin, !scanner.isScanning else {
                     throw CancellationError()
                 }
                 if let source {
