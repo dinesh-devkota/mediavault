@@ -71,8 +71,9 @@ status=0
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   "-Pandroid.testInstrumentationRunnerArguments.class=$FAMILY_TEST" \
   -Pandroid.testInstrumentationRunnerArguments.familyUiFixture=true || status=$?
+# Retain screenshots even when the journey fails before XML validation succeeds.
+adb -s "$SERIAL" pull "/sdcard/Android/data/$APP_ID/files/test-artifacts" "$RESULTS/screenshots" || true
 archive_results family
 if [[ "$status" != "0" ]]; then exit "$status"; fi
-adb -s "$SERIAL" pull "/sdcard/Android/data/$APP_ID/files/test-artifacts" "$RESULTS/screenshots"
 test -s "$RESULTS/screenshots/family-profile-picker.png"
 test -s "$RESULTS/screenshots/family-admin-permissions.png"

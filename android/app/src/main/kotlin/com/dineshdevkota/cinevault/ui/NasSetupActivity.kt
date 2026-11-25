@@ -242,6 +242,10 @@ private fun NasSetupScreen(onDone: () -> Unit) {
         when (step) {
             SetupStep.Devices -> {
                 item {
+                    OutlinedButton(onClick = { SourceEditorActivity.webdav(context); onDone() }) { Text("Connect WebDAV") }
+                    Text("For servers using a WebDAV web address. For SMB, choose a device below.", color = SecondaryText)
+                }
+                item {
                     NasStatusPanel(if (discovery.searching) "Looking for devices…" else "Devices on your network",
                         "Choose a NAS on this network, or enter its address.", working = discovery.searching)
                     discovery.error?.let { Text(it, color = SecondaryText) }

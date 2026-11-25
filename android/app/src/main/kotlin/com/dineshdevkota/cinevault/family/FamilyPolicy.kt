@@ -6,7 +6,7 @@ import com.dineshdevkota.cinevault.data.MovieEntity
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class FolderAccess(val sourceId: String, val path: String)
+data class FolderAccess(val sourceId: String, val path: String, val caseSensitive: Boolean = false)
 
 @Serializable
 data class HouseholdProfile(
@@ -31,7 +31,7 @@ object FamilyPolicy {
         val folderAllowed = profile.folders.any { grant ->
             if (grant.sourceId != movie.sourceId) false else {
                 val folder = if (grant.path.isEmpty()) "" else ScanExclusions.normalizeFolder(grant.path)
-                folder != null && (folder.isEmpty() || path.startsWith("$folder/", ignoreCase = true))
+                folder != null && (folder.isEmpty() || path.startsWith("$folder/", ignoreCase = !grant.caseSensitive))
             }
         }
         if (!folderAllowed) return false

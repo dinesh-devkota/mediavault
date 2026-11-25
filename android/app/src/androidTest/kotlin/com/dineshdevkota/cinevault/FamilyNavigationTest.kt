@@ -11,6 +11,9 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleCallback
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import androidx.test.uiautomator.UiDevice
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
@@ -21,6 +24,7 @@ import com.dineshdevkota.cinevault.ui.FamilyActivity
 import com.dineshdevkota.cinevault.ui.MovieDetailActivity
 import com.dineshdevkota.cinevault.ui.SourceEditorActivity
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
@@ -101,23 +105,28 @@ class FamilyNavigationTest {
                 visible("Allowed family film")
                 compose.onAllNodesWithText("PRIVATE CANARY", substring = true).assertCountEquals(0)
                 compose.onAllNodesWithText("UNRATED CANARY", substring = true).assertCountEquals(0)
-                ActivityScenario.launch<SourceEditorActivity>(Intent(app, SourceEditorActivity::class.java)).use {
-                    visible("Managed by Admin")
-                    compose.onAllNodesWithText("Save & Scan").assertCountEquals(0)
-                }
-                ActivityScenario.launch<MovieDetailActivity>(Intent(app, MovieDetailActivity::class.java).putExtra("movie_id", "family-private")).use {
-                    compose.waitForIdle()
-                    compose.onAllNodesWithText("PRIVATE CANARY", substring = true).assertCountEquals(0)
-                }
-                ActivityScenario.launch<PlayerActivity>(Intent(app, PlayerActivity::class.java).putExtra("movie_id", "family-private")).use { player ->
-                    withTimeout(10_000) { while (player.state != Lifecycle.State.DESTROYED) delay(50) }
-                }
+                // Normal activity navigation preserves Home below the protected route. Launching
+                // nested ActivityScenarios creates fresh tasks and destroys the return destination.
+                home.onActivity { SourceEditorActivity.start(it, null) }
+                visible("Managed by Admin")
+                compose.onAllNodesWithText("Save & Scan").assertCountEquals(0)
+                device.pressBack()
+                visible("Allowed family film")
+                deniedRoute(home, MovieDetailActivity::class.java)
+                compose.onAllNodesWithText("PRIVATE CANARY", substring = true).assertCountEquals(0)
+                deniedRoute(home, PlayerActivity::class.java)
                 visible("Allowed family film")
                 home.moveToState(Lifecycle.State.CREATED)
                 assertFalse(container.family.current.unlocked)
                 home.moveToState(Lifecycle.State.RESUMED)
                 visible("Who's watching?")
                 compose.onAllNodesWithText("Allowed family film", substring = true).assertCountEquals(0)
+                click("Admin · PIN required")
+                field("Six-digit PIN", "123")
+                home.moveToState(Lifecycle.State.CREATED)
+                home.moveToState(Lifecycle.State.RESUMED)
+                visible("Who's watching?")
+                compose.onAllNodesWithText("Six-digit PIN").assertCountEquals(0)
                 click("Admin · PIN required")
                 // Back from a PIN prompt returns to the chooser and never restores prior media.
                 device.pressBack()
@@ -128,10 +137,27 @@ class FamilyNavigationTest {
     }
 
     private fun visible(text: String) {
-        if (compose.onAllNodesWithText(text).fetchSemanticsNodes().isEmpty()) {
-            runCatching { compose.onNode(hasScrollAction()).performScrollToNode(hasText(text)) }
+        fun exists() = runCatching { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false)
+        if (!exists()) {
+            runCatching { compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text)) }
         }
-        compose.waitUntil(timeoutMillis = 15_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(timeoutMillis = 15_000) { exists() }
+    }
+
+    private suspend fun deniedRoute(home: ActivityScenario<MainActivity>, activityClass: Class<out android.app.Activity>) {
+        val destroyed = CompletableDeferred<Unit>()
+        val monitor = ActivityLifecycleMonitorRegistry.getInstance()
+        val callback = ActivityLifecycleCallback { activity, stage ->
+            if (activityClass.isInstance(activity) && stage == Stage.DESTROYED) destroyed.complete(Unit)
+        }
+        home.onActivity {
+            monitor.addLifecycleCallback(callback)
+            it.startActivity(Intent(it, activityClass).putExtra("movie_id", "family-private"))
+        }
+        try {
+            withTimeout(10_000) { destroyed.await() }
+            visible("Allowed family film")
+        } finally { InstrumentationRegistry.getInstrumentation().runOnMainSync { monitor.removeLifecycleCallback(callback) } }
     }
     private fun click(text: String) {
         visible(text)

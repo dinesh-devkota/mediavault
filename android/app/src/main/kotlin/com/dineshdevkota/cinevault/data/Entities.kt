@@ -36,11 +36,13 @@ data class SourceEntity(
     /** Literal folder paths relative to rootPath; excluded rows retain their history. */
     @ColumnInfo(defaultValue = "'[]'") val ignoredFolders: List<String> = emptyList(),
     @ColumnInfo(defaultValue = "'[]'") val ignoredFiles: List<String> = emptyList(),
+    @ColumnInfo(defaultValue = "'smb'") val sourceType: String = "smb",
+    @ColumnInfo(defaultValue = "0") val allowInsecureHttp: Boolean = false,
 ) {
     fun includesFile(filePath: String): Boolean {
         val path = ScanExclusions.normalizeFile(filePath) ?: return false
         val root = if (rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(rootPath) ?: return false
-        return (root.isEmpty() || path.startsWith("$root/", ignoreCase = true)) &&
+        return (root.isEmpty() || path.startsWith("$root/", ignoreCase = sourceType != "webdav")) &&
             !ScanExclusions.isFileExcluded(path, root, ignoredFolders, ignoredFiles)
     }
 
@@ -54,6 +56,7 @@ data class SourceEntity(
         password = if (username.isEmpty()) "" else secrets.decrypt(encryptedPassword),
         ignoredFolders = ignoredFolders,
         ignoredFiles = ignoredFiles,
+        sourceType = sourceType, allowInsecureHttp = allowInsecureHttp,
     )
 }
 

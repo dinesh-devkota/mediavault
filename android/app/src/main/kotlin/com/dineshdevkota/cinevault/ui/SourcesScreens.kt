@@ -112,6 +112,7 @@ private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onSca
 }
 
 fun sourceUrl(source: SourceEntity): String {
+    if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
     return "smb://" + listOf(address.authority, source.share, source.rootPath).filter { it.isNotEmpty() }.joinToString("/")
 }

@@ -266,7 +266,7 @@ private fun ProfileEditor(original: HouseholdProfile, onClose: () -> Unit) {
                 }
             } }
             sources.forEach { source -> item(key = source.id) { PermissionFolderPicker(source) { folder ->
-                val grant = FolderAccess(source.id, folder)
+                val grant = FolderAccess(source.id, folder, caseSensitive = source.sourceType == "webdav")
                 if (grant !in draft.folders) draft = draft.copy(folders = draft.folders + grant)
             } } }
             item { RatingSelector("US movies", FamilyPolicy.movieRatings, draft.movieLimit) { draft = draft.copy(movieLimit = it) } }

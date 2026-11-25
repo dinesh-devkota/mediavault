@@ -68,7 +68,7 @@ private fun IgnoredFoldersPanel(
         entries = emptyList()
         page = 0
         try {
-            require(config.host.isNotBlank() && config.share.isNotBlank()) { "Enter the NAS address and share first." }
+            require(config.host.isNotBlank() && (config.isWebDav || config.share.isNotBlank())) { "Enter the NAS address and share first." }
             require(config.port == null || config.port in 1..65535) { "Enter a valid NAS port." }
             entries = browser.listEntries(config.copy(rootPath = joined(path)))
         } catch (cancelled: CancellationException) {
