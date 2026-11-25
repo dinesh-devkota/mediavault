@@ -9,12 +9,32 @@ MediaVault connects directly to the network shares you configure. Library entrie
 watched status, resume positions, and playback usage are stored locally on your device.
 The official commercial version also stores local playback allowance information.
 MediaVault does not operate a user-account service or send your viewing history or
-playback time to developer-operated servers. Local usage is not a cross-device profile.
+playback time to developer-operated servers. Profiles and history do not sync
+between devices.
 
 NAS passwords and the optional TMDB and SubDL API credentials use the Keychain on Apple TV.
 On Android, they are encrypted with a key held in the Android Keystore.
 Media is read directly from your NAS for playback, not uploaded to a MediaVault server.
 Your NAS provider and network administrator may maintain their own connection logs.
+
+## Optional household profiles
+
+Household profiles are local to this installation. Names, allowed folders and
+rating restrictions are stored on the device. PINs are verified using salted,
+derived values; plaintext PINs are not stored. Profile permissions and PIN verifiers
+use protected local storage: Keychain on Apple TV and Keystore-backed encryption
+on Android. Failed-attempt delays survive app restarts.
+
+Each viewer has separate local watched status, resume positions and Watchlist.
+The existing library history belongs to Admin. Profile switching does not reset
+commercial playback allowances or purchases. Viewer access rules hide restricted
+library content and apply to media access within MediaVault; they do not change
+NAS permissions or restrict other apps on the device.
+
+When an age limit is selected, MediaVault uses US movie or series certifications from TMDB and
+keeps unknown or unrated video hidden. Photos and audio use folder permissions.
+Ratings lookup uses the optional TMDB connection described below. No household
+profile names or PINs are sent to TMDB.
 
 ## Optional metadata
 

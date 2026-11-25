@@ -26,6 +26,7 @@ public struct TMDBTVDetails: Decodable, Sendable {
     public let voteAverage: Double?
     public let episodeRunTime: [Int]?
     public let genres: [TMDBMovieDetails.Genre]?
+    public let contentRatings: TMDBTVContentRatings?
     public var year: Int? { firstAirDate.flatMap { Int($0.prefix(4)) } }
 }
 

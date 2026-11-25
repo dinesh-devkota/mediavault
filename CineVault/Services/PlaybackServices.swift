@@ -26,7 +26,7 @@ final class PlaybackServices: ObservableObject {
 
     func canResume(_ movie: Movie) -> Bool {
         #if CINEVAULT_COMMERCIAL
-        return commercial.canResume(mediaID: movie.id.uuidString) || movie.isInProgress
+        return commercial.canResume(mediaID: HouseholdStore.shared.playbackID(movie.id)) || movie.isInProgress
         #else
         return movie.isInProgress
         #endif
@@ -34,18 +34,19 @@ final class PlaybackServices: ObservableObject {
 
     func resumePosition(_ movie: Movie) -> Double {
         #if CINEVAULT_COMMERCIAL
-        return commercial.resumePosition(mediaID: movie.id.uuidString, fallback: movie.playbackPosition)
+        return commercial.resumePosition(mediaID: HouseholdStore.shared.playbackID(movie.id), fallback: movie.householdPosition)
         #else
-        return movie.playbackPosition
+        return movie.householdPosition
         #endif
     }
 
     @discardableResult
     func resetProgress(_ movie: Movie) -> Bool {
+        guard HouseholdStore.shared.allows(movie) else { return false }
         #if CINEVAULT_COMMERCIAL
-        guard commercial.discardResume(mediaID: movie.id.uuidString) else { return false }
+        guard commercial.discardResume(mediaID: HouseholdStore.shared.playbackID(movie.id)) else { return false }
         #endif
-        movie.playbackPosition = 0
+        movie.householdPosition = 0
         return true
     }
 }

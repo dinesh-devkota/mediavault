@@ -183,6 +183,8 @@ final class LibraryUpgradeTests: XCTestCase {
             XCTAssertEqual(movie.genres, ["Action", "Science Fiction"])
             XCTAssertEqual(movie.runtimeMinutes, 136)
             XCTAssertEqual(movie.rating, 8.7)
+            XCTAssertNil(movie.usContentRating, "Audience votes must never become a content certification during migration.")
+            XCTAssertNil(movie.usContentRatingFetched, "Old libraries need a real certification lookup.")
             XCTAssertTrue(movie.metadataFetched)
             XCTAssertTrue(movie.isLocked)
             XCTAssertEqual(movie.dateAdded, added)
@@ -199,6 +201,8 @@ final class LibraryUpgradeTests: XCTestCase {
             XCTAssertEqual(watched.duration, 600)
             XCTAssertFalse(watched.isWatchlisted)
             movie.isWatchlisted = true
+            movie.usContentRating = "R"
+            movie.usContentRatingFetched = true
             try context.save()
         }
 
@@ -206,6 +210,8 @@ final class LibraryUpgradeTests: XCTestCase {
             let movies = try context.fetch(FetchDescriptor<Movie>())
             let movie = try XCTUnwrap(movies.first { $0.id == movieID })
             XCTAssertTrue(movie.isWatchlisted, "The new field must survive closing and reopening the upgraded store.")
+            XCTAssertEqual(movie.usContentRating, "R")
+            XCTAssertEqual(movie.usContentRatingFetched, true)
             XCTAssertEqual(movie.playbackPosition, 720)
             XCTAssertTrue(movie.isHidden)
             XCTAssertTrue(movie.isMissing)

@@ -34,6 +34,8 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class MetadataMutationTest {
+    private fun library(database: CineVaultDatabase) = com.dineshdevkota.cinevault.family.FamilyLibrary(database,
+        com.dineshdevkota.cinevault.family.FamilyStore(ApplicationProvider.getApplicationContext(), com.dineshdevkota.cinevault.data.SecretBox(), "isolated-editor-${java.util.UUID.randomUUID()}"))
     private lateinit var database: CineVaultDatabase
 
     @Before
@@ -80,7 +82,7 @@ class MetadataMutationTest {
             val movie = movie()
             val replies = Replies()
             val service = MetadataService(database, TmdbClient(replies.client) { "key" })
-            val editor = LibraryEditor(database, service, PlaybackProgressWriter(this))
+            val editor = LibraryEditor(database, service, PlaybackProgressWriter(this), library(database))
             val automatic = async(Dispatchers.IO) { service.match(movie) }
             replies.started.await()
             val manual = async(start = CoroutineStart.UNDISPATCHED) { editor.fixMatch(movie.id, 2) }

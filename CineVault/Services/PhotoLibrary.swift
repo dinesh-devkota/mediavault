@@ -23,7 +23,7 @@ struct PhotoAlbum: Identifiable {
 @MainActor
 enum PhotoLibrary {
     static func isAvailable(_ photo: Movie) -> Bool {
-        MediaFile.isPhoto(path: photo.filePath) && !photo.isDeleted && !photo.isHidden && !photo.isMissing &&
+        HouseholdStore.shared.allows(photo) && MediaFile.isPhoto(path: photo.filePath) && !photo.isDeleted && !photo.isHidden && !photo.isMissing &&
             photo.source.map { !$0.isDeleted && PhotoLocation.contains(path: photo.filePath, root: $0.rootPath) &&
                 !$0.isIgnored(filePath: photo.filePath) } == true
     }

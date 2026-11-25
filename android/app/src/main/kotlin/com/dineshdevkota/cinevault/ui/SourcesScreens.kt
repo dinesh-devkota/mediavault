@@ -42,9 +42,10 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun SourcesTab(movies: List<MovieEntity>) {
+    if (!LocalContext.current.container.family.current.admin) { AdminRequired(); return }
     val context = LocalContext.current
     val container = context.container
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(emptyList())
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(emptyList())
     val scanning by container.scanner.isScanning.collectAsStateWithLifecycle()
     val status by container.scanner.status.collectAsStateWithLifecycle()
     val counts = remember(movies) { movies.filter { !it.isMissing }.groupingBy { it.sourceId }.eachCount() }
@@ -117,6 +118,13 @@ fun sourceUrl(source: SourceEntity): String {
 
 @Composable
 fun SettingsTab() {
+    if (!LocalContext.current.container.family.current.admin) {
+        Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            HouseholdButton()
+            Text("Shared settings are managed by Admin.", color = SecondaryText)
+        }
+        return
+    }
     val context = LocalContext.current
     val container = context.container
     val settings = container.settings
@@ -147,6 +155,7 @@ fun SettingsTab() {
     ) {
         item { ScreenHeader("Settings", kicker = "MEDIAVAULT",
             trailing = "Version ${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}") }
+        item { HouseholdButton() }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 OutlinedButton(onClick = { MediaGuideActivity.start(context) }) { Text("Media Guide & Help") }

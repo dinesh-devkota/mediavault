@@ -5,7 +5,7 @@ import com.dineshdevkota.cinevault.core.ScanExclusions
 import java.util.Locale
 
 /** Save the rule change and hide indexed exclusions together, without deleting history. */
-suspend fun CineVaultDatabase.saveSourceWithExclusions(source: SourceEntity) {
+suspend fun CineVaultDatabase.saveSourceWithExclusions(source: SourceEntity, authorize: () -> Unit = {}) {
     val folders = source.ignoredFolders.map {
         requireNotNull(ScanExclusions.normalizeFolder(it)) { "Enter a folder path relative to the media folder." }
     }.distinctBy { it.lowercase(Locale.ROOT) }
@@ -14,6 +14,7 @@ suspend fun CineVaultDatabase.saveSourceWithExclusions(source: SourceEntity) {
     }.distinctBy { it.lowercase(Locale.ROOT) }
     val saved = source.copy(ignoredFolders = folders, ignoredFiles = files)
     withTransaction {
+        authorize()
         sources().upsert(saved)
         if (folders.isNotEmpty() || files.isNotEmpty()) {
             movies().forSource(saved.id).filter {

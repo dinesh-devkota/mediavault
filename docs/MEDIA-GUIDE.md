@@ -304,6 +304,49 @@ are separate files and are included in the count when selected.
 
 ![Apple TV watched-status sheet with two selected movies and both bulk actions](screenshots/apple-bulk-selection.png)
 
+## Use household profiles
+
+Household profiles are optional and live on this TV. Enabling them preserves your
+library, source credentials and existing playback history. There is no email
+registration or online MediaVault account.
+
+1. Open the household-profile setup in **Settings** and enter a six-digit Admin
+   PIN twice. Keep the PIN somewhere you can recover it yourself.
+2. Enter **Admin**, add a named viewer and choose the NAS folders they may see.
+   A new viewer starts with no access. Allowing a folder includes its subfolders;
+   allowing a source includes media within that source's configured scan root.
+   A newly added source needs its own permission.
+3. Choose the highest allowed **US movie rating** and **US TV series rating** separately,
+   or choose no rating limit. Set an optional six-digit PIN for that viewer.
+4. Switch profiles to browse as that person. Admin and any protected viewer
+   require their PIN. Returning after the app goes into the background locks the
+   household session; choose a profile again.
+
+Only Admin manages shared sources, metadata and household permissions. Restricted
+titles, artwork and photos stay hidden in browsing, search and playback choices.
+An empty viewer library can mean no folders are allowed or the rating rules exclude
+the available videos; return to Admin to review those settings.
+
+Age limits use actual **US movie/TV certifications**, not the numerical audience
+score shown with movie details. With a limit active, unknown, unmatched and unrated
+videos stay hidden. Connect TMDB and fetch missing metadata to fill available
+certifications. Correct a wrong title match as Admin before relying on its rating.
+TV limits use the show's TMDB US rating, which can differ from a particular
+episode's broadcast rating. TV-G permits all-ages content; TV-Y7 also permits
+content directed to children seven and older, including TV-Y7-FV. The editor lists
+the ratings each choice includes. [US TV rating definitions](https://www.tvguidelines.org/resources/TheRatings.pdf)
+Photos and audio have no movie/TV age rating and use folder permissions instead.
+
+Each viewer starts with a separate Watchlist, watched status and resume history.
+Admin retains the history from before profiles were enabled. Bulk watched actions
+affect the current person's accessible titles. Switching profiles stops current
+playback and the next-episode countdown. Commercial trial usage and purchases remain
+shared across the installation.
+
+This is access control inside MediaVault. It does not alter files or NAS permissions,
+create cloud accounts, sync profiles to another TV, or prevent the device owner
+from changing or clearing app data. There is no unauthenticated in-app PIN reset.
+
 ## Check the scan and playback
 
 Keep the NAS reachable while scanning. Progress and partial results can appear

@@ -27,6 +27,7 @@ class CineVaultApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        registerActivityLifecycleCallbacks(com.dineshdevkota.cinevault.family.FamilyLifecycle(container.family, container.scope) { container.photos.clearMemory() })
     }
 }
 
@@ -39,8 +40,10 @@ class AppContainer(context: Context) {
     val secrets = SecretBox()
     val settings = Settings(context, secrets)
     val database = CineVaultDatabase.create(context)
+    val family = com.dineshdevkota.cinevault.family.FamilyStore(context, secrets)
+    val library = com.dineshdevkota.cinevault.family.FamilyLibrary(database, family)
     val smb = SmbService()
-    val photos = NasPhotoLoader(context, database, secrets)
+    val photos = NasPhotoLoader(context, database, secrets, family = family)
     val playbackProgress = PlaybackProgressWriter(scope)
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -49,7 +52,7 @@ class AppContainer(context: Context) {
     val metadata = MetadataService(database, TmdbClient(http) { settings.tmdbApiKey })
     val scanner = LibraryScanner(database, secrets, smb::scanVideos,
         afterScan = { metadata.fetchMissing()?.failureMessage }, scanWithProgress = smb::scanMedia)
-    val editor = LibraryEditor(database, metadata, playbackProgress)
+    val editor = LibraryEditor(database, metadata, playbackProgress, library)
 }
 
 val Context.container: AppContainer get() = (applicationContext as CineVaultApp).container

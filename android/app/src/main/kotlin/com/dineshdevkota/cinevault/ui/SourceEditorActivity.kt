@@ -298,7 +298,7 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
                         )
                         // Saving and queueing its scan form one operation after the commit begins.
                         withContext(NonCancellable) {
-                            container.database.saveSourceWithExclusions(entity)
+                            container.database.saveSourceWithExclusions(entity) { container.family.requireAdmin() }
                             container.smb.reset(entity.id)
                             container.photos.resetSource(entity.id)
                             container.scope.launch { container.scanner.scan(entity.id) }
@@ -328,6 +328,7 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
                         val source = existing ?: return@OutlinedButton
                         launchWork("Removing source…") {
                             container.database.withTransaction {
+                                container.family.requireAdmin()
                                 container.database.movies().deleteForSource(source.id)
                                 container.database.sources().delete(source.id)
                             }

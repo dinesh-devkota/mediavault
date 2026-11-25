@@ -36,7 +36,8 @@ class PhotoLoadException(message: String) : Exception(message)
 
 /** Local-only image loading. Neither source credentials nor photo bytes enter an HTTP/image URL. */
 class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
-    private val secrets: SecretBox, private val smb: SmbService = photoService()) {
+    private val secrets: SecretBox, private val smb: SmbService = photoService(),
+    private val family: com.dineshdevkota.cinevault.family.FamilyStore) {
     private val cacheDirectory = File(context.cacheDir, "nas-photos").apply {
         mkdirs()
         // Only our own temporary files can survive a killed process; no persistent photo copies.
@@ -53,21 +54,27 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
     }
 
     suspend fun load(photoId: String, thumbnail: Boolean = false): Bitmap = withContext(Dispatchers.IO) {
+        val session = family.current
         slots.withPermit {
             currentCoroutineContext().ensureActive()
             val photo = database.movies().get(photoId) ?: throw PhotoLoadException("This photo is no longer in the library.")
+            check(family.isCurrent(session) && family.permits(photo)) { "This photo is unavailable for this profile." }
             val source = database.sources().get(photo.sourceId) ?: throw PhotoLoadException("This photo's NAS source was removed.")
             val config = source.config(secrets)
             validate(photo, config)
             val edge = if (thumbnail) PhotoDecodePolicy.THUMBNAIL_EDGE else PhotoDecodePolicy.VIEWER_EDGE
             // Source changes and completed rescans invalidate decoded content without putting secrets in a key.
             val key = CacheKey(photo.id, photo.filePath, source, photo.fileSize, edge)
-            cache.get(key)?.let { return@withPermit it }
+            cache.get(key)?.let {
+                check(family.isCurrent(session) && family.permits(photo)) { "Your household session has locked." }
+                return@withPermit it
+            }
             val temporary = File.createTempFile("image-", ".tmp", cacheDirectory)
             var decoded: Bitmap? = null
             try {
                 val loadContext = currentCoroutineContext()
                 runInterruptible { smb.open(config, photo.filePath).use { remote ->
+                    check(family.isCurrent(session) && family.permits(photo)) { "Your household session has locked." }
                     if (remote.length > PhotoDecodePolicy.MAX_FILE_BYTES) throw PhotoLoadException("This photo is larger than the 64 MB viewing limit.")
                     remote.stream(0).use { input ->
                         temporary.outputStream().use { output ->
@@ -75,6 +82,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                             var total = 0L
                             while (true) {
                                 loadContext.ensureActive()
+                                check(family.isCurrent(session)) { "Your household session has locked." }
                                 val read = input.read(buffer)
                                 if (read < 0) break
                                 total += read
@@ -97,6 +105,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                     throw PhotoLoadException("The NAS source changed. Open this photo again.")
                 }
                 validate(currentPhoto, config)
+                check(family.isCurrent(session) && family.permits(currentPhoto)) { "This photo is unavailable for this profile." }
                 val bitmap = requireNotNull(decoded)
                 if (bitmap.allocationByteCount > PhotoDecodePolicy.MAX_DECODED_PIXELS * 4) {
                     throw PhotoLoadException("This photo needs more memory than this viewer allows.")

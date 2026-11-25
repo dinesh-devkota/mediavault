@@ -346,7 +346,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                                         share = source.share, rootPath = source.rootPath, username = source.username,
                                         encryptedPassword = encrypted,
                                         ignoredFolders = source.ignoredFolders, ignoredFiles = source.ignoredFiles,
-                                    ))
+                                    )) { container.family.requireAdmin() }
                                     container.scope.launch { container.scanner.scan(sourceId) }
                                 }
                                 if (generation == token) onDone()

@@ -82,7 +82,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
     var updatingWatchlist by remember(movieId) { mutableStateOf(false) }
     var watchlistError by remember(movieId) { mutableStateOf<String?>(null) }
     val movie by produceState<MovieEntity?>(null, movieId) {
-        database.movies().observe(movieId).collect { if (it == null) onClose() else value = it }
+        context.container.library.observe(movieId).collect { if (it == null) onClose() else value = it }
     }
     val current = movie ?: return
     if (current.isPhoto) {
@@ -192,7 +192,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                             watchlistError = null
                             scope.launch {
                                 try {
-                                    database.movies().setWatchlisted(current.id, watchlisted)
+                                    context.container.library.setWatchlisted(current.id, watchlisted)
                                 } catch (e: CancellationException) {
                                     throw e
                                 } catch (e: Exception) {
@@ -228,7 +228,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedButton(onClick = { scope.launch { database.movies().setHidden(current.id, !current.isHidden) } }) {
+                    OutlinedButton(onClick = { scope.launch { context.container.library.setHidden(current.id, !current.isHidden) } }) {
                         Text(if (current.isHidden) "Unhide" else "Hide")
                     }
                     OutlinedButton(onClick = { EditMovieActivity.start(context, current.id) }) {
@@ -270,7 +270,7 @@ private fun NextEpisodeButton(current: MovieEntity) {
     val context = LocalContext.current
     val database = context.container.database
     val next by remember(current.id) {
-        combine(database.movies().observeAll(), database.sources().observeAll()) { movies, sources ->
+        combine(context.container.library.observeAll(), database.sources().observeAll()) { movies, sources ->
             val selected = movies.firstOrNull { it.id == current.id }
             selected?.let { nextEpisodeFor(it, movies, sources) }
         }.flowOn(Dispatchers.Default)

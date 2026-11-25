@@ -153,6 +153,10 @@ final class Movie {
     var genres: [String] = []
     var runtimeMinutes: Int?
     var rating: Double?
+    /// US content certification, independent of the audience score above.
+    var usContentRating: String?
+    /// Nil/false needs a lookup; true with no rating means TMDB returned no known US rating.
+    var usContentRatingFetched: Bool?
     var metadataFetched: Bool = false
     /// User renamed / re-matched manually; rescans and auto-match won't overwrite.
     var isLocked: Bool = false
@@ -167,6 +171,7 @@ final class Movie {
     var isWatchlisted: Bool = false
 
     var source: MediaSource?
+    @Transient var householdRevision: Int = 0
 
     init(filePath: String, fileSize: Int64, source: MediaSource) {
         self.filePath = filePath
@@ -178,10 +183,10 @@ final class Movie {
     var displayYear: String { year.map(String.init) ?? "" }
 
     var progress: Double {
-        duration > 0 ? min(playbackPosition / duration, 1) : 0
+        duration > 0 ? min(householdPosition / duration, 1) : 0
     }
 
-    var isInProgress: Bool { !isWatched && playbackPosition > 30 }
+    var isInProgress: Bool { !householdWatched && householdPosition > 30 }
 
     func setTitle(_ newTitle: String) {
         title = newTitle
@@ -209,6 +214,8 @@ final class Movie {
         genres = []
         runtimeMinutes = nil
         rating = nil
+        usContentRating = nil
+        usContentRatingFetched = nil
         metadataFetched = localOnly
     }
 

@@ -12,7 +12,9 @@ struct CineVaultApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback") {
+                if HouseholdPreview.isEnabled {
+                    HouseholdDesignPreview()
+                } else if ProcessInfo.processInfo.arguments.contains("--ui-preview-playback") {
                     PlaybackDesignPreview()
                 } else if PhotoDesignPreview.isEnabled {
                     PhotoDesignPreview()
@@ -49,37 +51,56 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var scanner: LibraryScanner
     @EnvironmentObject private var playbackServices: PlaybackServices
+    @ObservedObject private var household = HouseholdStore.shared
 
     var body: some View {
+        Group {
+            if household.isLocked { HouseholdPickerView(household: household) }
+            else { unlockedTabs.id(household.generation) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { household.lock() }
+            else { Task { await playbackServices.refresh() } }
+        }
+        .onChange(of: household.generation) { _, _ in
+            tab = .home; homeNavigation.path = NavigationPath()
+        }
+    }
+
+    private var unlockedTabs: some View {
         TabView(selection: $tab) {
             NavigationStack(path: $homeNavigation.path) {
-                HomeView(openPhotos: { tab = .photos }, openSources: { tab = .sources }).movieDestination()
+                HomeView(openPhotos: { tab = .photos }, openSources: openSources).movieDestination()
             }.environmentObject(homeNavigation).tabItem { Text("Home") }.tag(Tab.home)
-            NavigationStack { LibraryView(openSources: { tab = .sources }).movieDestination() }.tabItem { Text("Library") }.tag(Tab.library)
+            NavigationStack { LibraryView(openSources: openSources).movieDestination() }.tabItem { Text("Library") }.tag(Tab.library)
             NavigationStack { PhotosView().movieDestination() }.tabItem { Text("Photos") }.tag(Tab.photos)
-            NavigationStack { SearchView().movieDestination() }.tabItem { Image(systemName: "magnifyingglass") }.tag(Tab.search)
-            NavigationStack { SourcesView() }.tabItem { Text("Sources") }.tag(Tab.sources)
-            NavigationStack { SettingsView() }.tabItem { Image(systemName: "gearshape") }.tag(Tab.settings)
+            NavigationStack { SearchView().movieDestination() }.tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(Tab.search)
+            if household.isAdmin {
+                NavigationStack { SourcesView() }.tabItem { Text("Sources") }.tag(Tab.sources)
+                NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(Tab.settings)
+            } else {
+                NavigationStack { HouseholdViewerSettings() }.tabItem { Text("Profile") }.tag(Tab.settings)
+            }
         }
         .tint(CinemaTheme.accent)
         .preferredColorScheme(.dark)
         .task {
             #if DEBUG
-            if DesignPreview.isEnabled { return }
+            if DesignPreview.isEnabled || HouseholdPreview.isEnabled { return }
             #endif
             await playbackServices.refresh()
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                Task { await playbackServices.refresh() }
-            }
-        }
         .task {
             #if DEBUG
-            if DesignPreview.isEnabled { return }
+            if DesignPreview.isEnabled || HouseholdPreview.isEnabled { return }
             #endif
             await scanner.scanAll(context: context)
         }
+    }
+
+    private func openSources() {
+        if household.isAdmin { tab = .sources }
+        else { household.lock() }
     }
 }
 
@@ -87,7 +108,8 @@ extension View {
     @MainActor
     func movieDestination() -> some View {
         navigationDestination(for: Movie.self) { movie in
-            if MediaFile.isPhoto(path: movie.filePath) { PhotoDestination(photo: movie) }
+            if !HouseholdStore.shared.allows(movie) { HouseholdUnavailableView() }
+            else if MediaFile.isPhoto(path: movie.filePath) { PhotoDestination(photo: movie) }
             else { MovieDetailView(movie: movie) }
         }
     }

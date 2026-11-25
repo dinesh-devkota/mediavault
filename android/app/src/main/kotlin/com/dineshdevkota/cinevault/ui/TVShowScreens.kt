@@ -116,8 +116,8 @@ internal fun TVShowBrowser(
         ?: shows.firstOrNull { candidate -> anchorId != null && candidate.episodes.any { it.id == anchorId } }
     val selection = remember { WatchSelection() }
     val container = LocalContext.current.container
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = emptyList())
-    val allMovies by remember { container.database.movies().observeAll() }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(initialValue = emptyList())
+    val allMovies by remember { container.library.observeAll() }.collectAsStateWithLifecycle(initialValue = emptyList())
     val goBack: () -> Unit = {
         selection.finish()
         if (season != null) { holdFocus(); season = null }

@@ -9,6 +9,11 @@ Built with SwiftUI on tvOS and Compose for TV on Android.
 The Library remembers your last section when you return or reopen the app.
 Find the installed version and build in **Settings**.
 
+Version **1.4.0, build 6** adds optional local household profiles. Admin chooses
+each person's allowed NAS folders and US movie/TV rating limits. Restricted media
+stays hidden, and each viewer has separate watched status, resume positions and
+Watchlist. [Household profile setup](docs/MEDIA-GUIDE.md#use-household-profiles)
+
 Choose **See all** on a Home shelf to browse its complete collection, keeping
 shows grouped and your saved Library filters intact. Back returns to the same
 shelf. Empty screens offer the next useful action, and resumed titles show
@@ -21,7 +26,7 @@ On either TV, **Continue Watching** shows one card per active series. Resume
 the file you paused or see the season and episode number before playing the
 next available file on your NAS. [Continue a series from Home](docs/MEDIA-GUIDE.md#continue-a-series-from-home)
 
-Version **1.3.0, build 5** adds SRT/WebVTT subtitles from the video's NAS folder,
+Version **1.3.0, build 5** introduced SRT/WebVTT subtitles from the video's NAS folder,
 optional SubDL searches and downloads, and continuous TV viewing with a cancellable
 next-episode countdown. Connect SubDL once in Settings and choose your subtitle
 language; local subtitle files work without an account.

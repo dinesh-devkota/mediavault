@@ -61,7 +61,7 @@ struct SourceExclusionsEditor: View {
 /// A bounded, read-only browser. Ignore mode cannot navigate above the selected scan root.
 @MainActor
 struct NASPathPicker: View {
-    enum Mode { case scanRoot, ignore }
+    enum Mode { case scanRoot, ignore, household }
     let configuration: SourceConfig
     let mode: Mode
     let onSelect: (String, Bool) -> Void
@@ -87,7 +87,10 @@ struct NASPathPicker: View {
                 Text("\(configuration.share) / \(path.isEmpty ? "Top level" : path)")
                 if busy { ProgressView("Reading folder…") }
                 if let errorText { Text(errorText).foregroundStyle(.red) }
-                if mode == .scanRoot {
+                if mode == .household {
+                    Button("Allow this folder and its subfolders") { choose(path, directory: true) }
+                        .disabled(!ready || busy)
+                } else if mode == .scanRoot {
                     Button(path.isEmpty ? "Use share root" : "Use this folder") { choose(path, directory: true) }
                         .disabled(!ready || busy)
                 } else if canGoUp {
@@ -123,7 +126,7 @@ struct NASPathPicker: View {
             if ready && entries.isEmpty { Text("This folder is empty.").foregroundStyle(.secondary) }
             Section { Button("Back") { dismiss() } }
         }
-        .navigationTitle(mode == .scanRoot ? "Choose scan folder" : "Choose item to ignore")
+        .navigationTitle(mode == .household ? "Allow folder" : mode == .scanRoot ? "Choose scan folder" : "Choose item to ignore")
         .onExitCommand {
             if canGoUp { browse(path.split(separator: "/").dropLast().joined(separator: "/")) }
             else { dismiss() }
@@ -145,9 +148,9 @@ struct NASPathPicker: View {
     }
 
     private func choose(_ selectedPath: String, directory: Bool) {
-        let selected = mode == .scanRoot ? selectedPath : selectedPath.split(separator: "/")
+        let selected = mode != .ignore ? selectedPath : selectedPath.split(separator: "/")
             .dropFirst(basePath.split(separator: "/").count).joined(separator: "/")
-        guard mode == .scanRoot || !selected.isEmpty else { return }
+        guard mode != .ignore || !selected.isEmpty else { return }
         onSelect(selected, directory)
         dismiss()
     }

@@ -108,6 +108,20 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
 
     private suspend fun matchLocked(movie: MovieEntity) {
         if (MediaFile.isAudio(movie.filePath) || movie.isPhoto) return
+        if (movie.metadataFetched && !movie.certificationFetched) {
+            val certification = when {
+                movie.seriesTmdbId != null -> tmdb.tvDetails(movie.seriesTmdbId).contentRatings?.let { it.usRating to true }
+                movie.tmdbId != null -> tmdb.details(movie.tmdbId).releaseDates?.let { it.usRating to true }
+                else -> null
+            }
+            if (movie.seriesTmdbId != null || movie.tmdbId != null) {
+                if (certification != null) database.withTransaction {
+                    val current = database.movies().get(movie.id) ?: return@withTransaction
+                    if (sameMatch(current, movie)) database.movies().setCertification(movie.id, certification.first)
+                }
+                return
+            }
+        }
         movie.episodeInfo?.let { return matchTVLocked(movie, it) }
         movie.tmdbId?.let { return applyLocked(it, movie.id) }
         val title = if (movie.isLocked) movie.title else movie.parsedTitle
@@ -120,6 +134,7 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
     }
 
     private fun needsMetadata(movie: MovieEntity): Boolean = !movie.isPhoto && (!movie.metadataFetched ||
+        (!movie.certificationFetched && (movie.tmdbId != null || movie.seriesTmdbId != null)) ||
         (!movie.isLocked && movie.seriesTitle == null && movie.episodeInfo != null))
 
     private suspend fun matchTVLocked(movie: MovieEntity, info: EpisodeInfo) {
@@ -138,21 +153,24 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
     }
 
     private fun sameMatch(current: MovieEntity, original: MovieEntity): Boolean =
+        current.sourceId == original.sourceId && current.filePath == original.filePath &&
         current.title == original.title && current.year == original.year && current.isLocked == original.isLocked &&
             current.tmdbId == original.tmdbId && current.seriesTmdbId == original.seriesTmdbId &&
             current.episodeInfo == original.episodeInfo && !current.isMissing
 
-    suspend fun applyTV(seriesId: Int, movieId: String, force: Boolean = false) = mutationLock.withLock {
+    suspend fun applyTV(seriesId: Int, movieId: String, force: Boolean = false, authorize: () -> Unit = {}) = mutationLock.withLock {
+        authorize()
         val movie = database.movies().get(movieId) ?: return@withLock
         val info = movie.episodeInfo ?: return@withLock
-        applyTVLocked(seriesId, movie, info, force)
+        applyTVLocked(seriesId, movie, info, force, authorize)
     }
 
-    private suspend fun applyTVLocked(seriesId: Int, movie: MovieEntity, info: EpisodeInfo, force: Boolean = false) {
+    private suspend fun applyTVLocked(seriesId: Int, movie: MovieEntity, info: EpisodeInfo, force: Boolean = false, authorize: () -> Unit = {}) {
         val details = tmdb.tvDetails(seriesId)
         val season = tmdb.tvSeason(seriesId, info.season)
         val episode = season.episodes.firstOrNull { it.seasonNumber == info.season && it.episodeNumber == info.episode }
         database.withTransaction {
+            authorize()
             val movies = database.movies()
             val current = movies.get(movie.id) ?: return@withTransaction
             if (!sameMatch(current, movie)) return@withTransaction
@@ -165,26 +183,30 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
                 backdropPath = episode?.stillPath ?: details.backdropPath, genresJson = converters.fromList(details.genres.orEmpty().map { it.name }),
             )
             val title = episode?.name?.takeIf { it.isNotBlank() } ?: movie.title
+            details.contentRatings?.let { movies.setCertification(movie.id, it.usRating) }
             movies.applyMatchedTitle(movie.id, title, WatchRules.sortTitle(title), details.year ?: info.year, force)
             if (force) movies.lock(movie.id)
         }
     }
 
     /** Stores TMDB details; [force] (manual re-match) also replaces a title the user locked. */
-    suspend fun apply(tmdbId: Int, movieId: String, force: Boolean = false) = mutationLock.withLock {
-        applyLocked(tmdbId, movieId, force)
+    suspend fun apply(tmdbId: Int, movieId: String, force: Boolean = false, authorize: () -> Unit = {}) = mutationLock.withLock {
+        authorize()
+        applyLocked(tmdbId, movieId, force, authorize)
     }
 
     /** Reset and optional fresh match are one user operation relative to in-flight automatic matches. */
-    suspend fun resetToFile(movieId: String) = mutationLock.withLock {
+    suspend fun resetToFile(movieId: String, authorize: () -> Unit = {}) = mutationLock.withLock {
+        authorize()
         val movies = database.movies()
         val movie = movies.get(movieId) ?: return@withLock
         if (movie.isPhoto) return@withLock
         val fromFile = MovieEdits.fromFile(movie.filePath)
-        movies.resetToFile(
-            movieId, fromFile.title, WatchRules.sortTitle(fromFile.title), fromFile.year,
-            fromFile.tmdbId, converters.fromList(emptyList()),
-        )
+        database.withTransaction {
+            authorize()
+            movies.resetToFile(movieId, fromFile.title, WatchRules.sortTitle(fromFile.title), fromFile.year,
+                fromFile.tmdbId, converters.fromList(emptyList()))
+        }
         if (!tmdb.hasKey()) return@withLock
         val reset = movies.get(movieId) ?: return@withLock
         try {
@@ -196,11 +218,12 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
         }
     }
 
-    private suspend fun applyLocked(tmdbId: Int, movieId: String, force: Boolean = false) {
+    private suspend fun applyLocked(tmdbId: Int, movieId: String, force: Boolean = false, authorize: () -> Unit = {}) {
         val movies = database.movies()
         val original = movies.get(movieId)?.takeUnless { it.isMissing || it.isPhoto } ?: return
         val details = tmdb.details(tmdbId)
         database.withTransaction {
+            authorize()
             val current = movies.get(movieId) ?: return@withTransaction
             if (!sameMatch(current, original)) return@withTransaction
             movies.applyMetadata(
@@ -214,6 +237,7 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
                 backdropPath = details.backdropPath,
                 genresJson = converters.fromList(details.genres.orEmpty().map { it.name }.filter { it.isNotBlank() }),
             )
+            details.releaseDates?.let { movies.setCertification(movieId, it.usRating) }
             if (details.title.isNotBlank()) {
                 movies.applyMatchedTitle(movieId, details.title, WatchRules.sortTitle(details.title), details.year, force)
             }
