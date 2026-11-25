@@ -5,17 +5,18 @@ versions may behave differently.
 
 ## Your library and playback
 
-MediaVault connects directly to the network shares you configure. Library entries,
+MediaVault connects directly to the SMB shares and HTTPS WebDAV sources you configure. Library entries,
 watched status, resume positions, and playback usage are stored locally on your device.
 The official commercial version also stores local playback allowance information.
 MediaVault does not operate a user-account service or send your viewing history or
 playback time to developer-operated servers. Profiles and history do not sync
 between devices.
 
-NAS passwords and the optional TMDB and SubDL API credentials use the Keychain on Apple TV.
+SMB and WebDAV passwords and the optional TMDB and SubDL API credentials use the Keychain on Apple TV.
 On Android, they are encrypted with a key held in the Android Keystore.
-Media is read directly from your NAS for playback, not uploaded to a MediaVault server.
-Your NAS provider and network administrator may maintain their own connection logs.
+The device reads media directly from your configured source for playback. MediaVault does not upload your media.
+A WebDAV connection sends your configured credentials and media paths to your WebDAV server over HTTPS.
+Your source provider and network administrator may maintain their own connection logs.
 
 ## Optional household profiles
 

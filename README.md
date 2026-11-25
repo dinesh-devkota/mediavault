@@ -269,6 +269,7 @@ Fastlane builds, the same bundle and product IDs can be provided as environment 
 
 1. **Settings** → paste your TMDB key (themoviedb.org → Settings → API; the v3 key or the v4 "read access token" both work).
 2. **Sources** → *Add NAS Source*: host/IP, username/password (empty = guest), share (use *List Shares*), and the folder inside the share (e.g. `Movies`). *Test Connection*, then *Save & Scan*.
+   For WebDAV, choose *Connect WebDAV*. Enter the full HTTPS address and the optional Basic-auth credentials. Choose a media folder, then test the connection and save. The server must respond to WebDAV folder listing requests and support HTTP byte ranges for seeking.
 3. Browse **Home** / **Movies**, press a poster to see details and play. Long scans run in the background; rescans happen on launch.
 4. Wrong poster? Open the movie → **Edit** → *Fix Match* and pick the right result, or rename it. Use *Hidden from library* to hide entries (see them under Movies → Show → Hidden).
 

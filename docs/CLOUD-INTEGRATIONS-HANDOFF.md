@@ -153,3 +153,31 @@ before calling this integration ready.
 Jellyfin implementation is tracked separately on `codex/mediavault-jellyfin`.
 Subsequent providers will each have a separate feature branch and validation.
 Keep each PR in draft while its own implementation and tests are incomplete.
+
+## tvOS submission readiness
+
+Keep provider branches in draft until their tvOS release build, simulator
+journeys and physical Apple TV smoke tests pass. Apple makes the App Review
+decision. This work does not include signing, submission, TestFlight or release.
+
+- Give reviewers a reachable, dedicated test service with temporary least-
+  privilege credentials and synthetic media the project is authorized to
+  distribute. Include steps to add a source, test a bad sign-in, select a
+  library, scan, seek, open photos and switch household profiles. The owner's
+  NAS and credentials must stay private.
+- List the permissions, scopes and connection lifecycle for each provider in
+  App Review notes. When a user links an external provider, explain that
+  authentication grants access to their existing media. MediaVault household
+  profiles are local. Recheck guideline 4.8 if app-level account behavior changes.
+- Verify each provider's access, streaming, artwork and branding terms before
+  shipping. Save evidence of provider app registration, any required approval and
+  redistribution terms for bundled dependencies. Review the intended App Store
+  packaging against the NFS library's license before adding it to Apple builds.
+- Update the privacy policy and App Store privacy details before each connector
+  ships. Cover token retention, sign-out, provider-visible playback reports,
+  library and artwork requests, and any new SDK. Validate the final signed
+  binary's privacy manifests and export-compliance declaration.
+
+[App Review guidelines](https://developer.apple.com/app-store/review/guidelines/)
+[App privacy details](https://developer.apple.com/app-store/app-privacy-details/)
+[Export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/)
