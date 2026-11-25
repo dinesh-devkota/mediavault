@@ -90,7 +90,7 @@ private struct HouseholdUnlockView: View {
                     if let error { Text(error).foregroundStyle(.red) }
                 }
                 Section { Button("Back") { pin = ""; dismiss() } }
-            }.disabled(busy).overlay { if busy { ProgressView("Checking PIN…") } }.onDisappear { operation?.cancel() }.navigationTitle(profile.name).onExitCommand { pin = ""; dismiss() }
+            }.disabled(busy).overlay { if busy { ProgressView("Checking PIN…") } }.onDisappear { operation?.cancel() }.navigationTitle(profile.name).onTVExit { pin = ""; dismiss() }
         }
     }
 }

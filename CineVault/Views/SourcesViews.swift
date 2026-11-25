@@ -199,7 +199,7 @@ struct SourceEditorView: View {
         }
         .onAppear { if !loaded { load(); loaded = true } }
         .onDisappear { cancelRequest() }
-        .onExitCommand { if busy { cancelRequest() } else { dismiss() } }
+        .onTVExit { if busy { cancelRequest() } else { dismiss() } }
     }
 
     private func clearExclusionsForChangedRoot() {

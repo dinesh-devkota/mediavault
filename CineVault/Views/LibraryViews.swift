@@ -199,7 +199,7 @@ struct LibraryView: View {
                     PosterGrid(movies: results)
                 }
             }
-            .padding(.horizontal, 70)
+            .padding(.horizontal, CinemaTheme.edgeInset)
             .padding(.bottom, 100)
         }
         }
@@ -362,7 +362,7 @@ struct HomeView: View {
                     CollectionPosterRow(title: "Unwatched", movies: available.filter { !$0.householdWatched }, collection: .unwatched)
                 }
             }
-            .padding(.horizontal, 70)
+            .padding(.horizontal, CinemaTheme.edgeInset)
             .padding(.bottom, 100)
         }
         .background(CinemaBackground())
@@ -423,8 +423,8 @@ private struct SearchResultsView: View {
     @State private var lastFocusedResult: String?
     @State private var focusedMovieAnchor: UUID?
     @FocusState private var focusedResult: String?
-    private let posterColumns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
-    private let episodeColumns = [GridItem(.adaptive(minimum: 400, maximum: 400), spacing: 48)]
+    private let posterColumns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: CinemaTheme.gridSpacing)]
+    private let episodeColumns = [GridItem(.adaptive(minimum: CinemaTheme.episodeWidth, maximum: CinemaTheme.episodeWidth), spacing: CinemaTheme.gridSpacing)]
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -464,7 +464,7 @@ private struct SearchResultsView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 70).padding(.bottom, 100)
+                .padding(.horizontal, CinemaTheme.edgeInset).padding(.bottom, 100)
             }
             .frame(maxWidth: .infinity)
             .task {
@@ -550,7 +550,7 @@ private struct SearchShowDestination: View {
 struct PosterGrid: View {
     let movies: [Movie]
     @FocusState private var focusedMovie: UUID?
-    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
+    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: CinemaTheme.gridSpacing)]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 55) {

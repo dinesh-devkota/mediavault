@@ -60,7 +60,7 @@ struct PhotosView: View {
                         }
                     }.padding(.vertical, 24)
                 }
-            }.padding(.horizontal, 70).padding(.bottom, 100)
+            }.padding(.horizontal, CinemaTheme.edgeInset).padding(.bottom, 100)
         }.background(CinemaBackground())
     }
 }
@@ -93,7 +93,7 @@ struct PhotoAlbumView: View {
                     } else {
                         ContentUnavailableView("No photos in this album", systemImage: "photo", description: Text("Scan its source to check for photos."))
                     }
-                }.padding(.horizontal, 70).padding(.bottom, 100)
+                }.padding(.horizontal, CinemaTheme.edgeInset).padding(.bottom, 100)
             }
         }.background(CinemaBackground())
     }
@@ -259,7 +259,7 @@ struct PhotoViewer: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle()).focusable().focusEffectDisabled().focused($focus, equals: .photo)
-                .onMoveCommand { direction in
+                .onTVMove { direction in
                     if direction == .left { move(-1) }
                     else if direction == .right { move(1) }
                 }
@@ -279,7 +279,7 @@ struct PhotoViewer: View {
                 }
             }.padding(.horizontal, 60).padding(.vertical, 36)
         }
-        .onExitCommand { dismiss() }
+        .onTVExit { dismiss() }
         .onReceive(NotificationCenter.default.publisher(for: HouseholdStore.willLock)) { _ in image = nil; selectedID = nil; error = nil }
         .onAppear { focus = .photo }
         .task(id: identity) {

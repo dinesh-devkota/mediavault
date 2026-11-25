@@ -66,7 +66,7 @@ struct NASSetupView: View {
                 }
             }
             .navigationTitle(step == .server ? "Add NAS" : step.rawValue)
-            .onExitCommand { goBack() }
+            .onTVExit { goBack() }
         }
         .tint(CinemaTheme.accent)
         .preferredColorScheme(.dark)

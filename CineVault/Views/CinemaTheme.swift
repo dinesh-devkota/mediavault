@@ -6,8 +6,23 @@ enum CinemaTheme {
     static let accent = Color(red: 1.0, green: 0.60, blue: 0.22)
     static let background = Color(red: 0.045, green: 0.055, blue: 0.075)
     static let secondaryText = Color.white.opacity(0.66)
+    #if os(iOS)
+    static let posterWidth: CGFloat = 120
+    static let posterHeight: CGFloat = 180
+    static let edgeInset: CGFloat = 16
+    static let gridSpacing: CGFloat = 16
+    static let episodeWidth: CGFloat = 154
+    static let detailInset: CGFloat = 16
+    static let detailTitleSize: CGFloat = 34
+    #else
     static let posterWidth: CGFloat = 240
     static let posterHeight: CGFloat = 360
+    static let edgeInset: CGFloat = 70
+    static let gridSpacing: CGFloat = 48
+    static let episodeWidth: CGFloat = 400
+    static let detailInset: CGFloat = 90
+    static let detailTitleSize: CGFloat = 72
+    #endif
 
     static func artworkColors(for title: String) -> [Color] {
         let palette = [

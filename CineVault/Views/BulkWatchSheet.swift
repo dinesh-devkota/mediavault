@@ -155,7 +155,7 @@ struct BulkWatchSheet: View {
                         .accessibilityIdentifier("bulk-watch-row-\(row.id)")
                         .accessibilityValue(row.ids.isSubset(of: selected) ? "Selected" : "Not selected")
                         .accessibilityAddTraits(row.ids.isSubset(of: selected) ? .isSelected : [])
-                        .onMoveCommand { direction in
+                        .onTVMove { direction in
                             if direction == .right && !selectedMovies.isEmpty { focus = "watched" }
                         }
                     }
@@ -175,7 +175,7 @@ struct BulkWatchSheet: View {
             if let focus, focus != "done", !["all", "clear", "watched", "unwatched"].contains(focus),
                !rows.contains(where: { $0.id == focus }) { self.focus = "done" }
         }
-        .onExitCommand { dismiss() }
+        .onTVExit { dismiss() }
     }
 
     private func toggle(_ row: Row) {
