@@ -28,6 +28,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
@@ -45,6 +46,13 @@ import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.jellyfin.JellyfinConnection
+import com.dineshdevkota.cinevault.jellyfin.JellyfinException
+import com.dineshdevkota.cinevault.jellyfin.JellyfinPlayback
+import com.dineshdevkota.cinevault.jellyfin.JellyfinPlaybackEvent
+import com.dineshdevkota.cinevault.jellyfin.jellyfinConnection
+import com.dineshdevkota.cinevault.jellyfin.jellyfinItemID
 import com.dineshdevkota.cinevault.ui.ContinueWatchingItem
 import com.dineshdevkota.cinevault.ui.nextEpisodeFor
 import com.dineshdevkota.cinevault.ui.PlaybackSettingsActivity
@@ -65,6 +73,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.combine
+import java.io.IOException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 
@@ -73,14 +82,21 @@ import kotlinx.coroutines.withContext
  * 10 seconds, on pause and on exit, and marks the movie watched past [WatchRules.WATCHED_FRACTION].
  */
 class PlayerActivity : ComponentActivity() {
-    private class Target(val movie: MovieEntity, val config: SourceConfig, val source: SourceEntity)
+    private class Target(
+        val movie: MovieEntity, val config: SourceConfig?, val source: SourceEntity,
+        val connection: JellyfinConnection? = null,
+    )
+
+    private class JellyfinPlaying(val connection: JellyfinConnection, val playback: JellyfinPlayback)
 
     private lateinit var playerView: PlayerView
     private lateinit var rootView: FrameLayout
     private lateinit var information: LinearLayout
     private lateinit var titleLabel: TextView
     private lateinit var detailLabel: TextView
-    private var target: Target? = null
+    @Volatile private var target: Target? = null
+    private var jellyfinPlaying: JellyfinPlaying? = null
+    private var jellyfinReportJob: Job? = null
     private lateinit var householdSession: com.dineshdevkota.cinevault.family.FamilySession
     private var player: ExoPlayer? = null
     private var progressJob: Job? = null
@@ -223,7 +239,7 @@ class PlayerActivity : ComponentActivity() {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Toast.makeText(this@PlayerActivity, SmbService.describe(e), Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@PlayerActivity, if (e is JellyfinException) e.message else SmbService.describe(e), Toast.LENGTH_LONG).show()
                     finish()
                     return@repeatOnLifecycle
                 }
@@ -231,7 +247,23 @@ class PlayerActivity : ComponentActivity() {
                 target = loaded
                 showInformation(loaded.movie)
                 val downloaded = preparedSubtitles.filter { it.configuration.id?.startsWith("subdl:") == true }
-                preparedSubtitles = discoverSubtitles(loaded) + downloaded
+                preparedSubtitles = if (loaded.connection == null) discoverSubtitles(loaded) + downloaded else emptyList()
+                val jellyfin = try {
+                    loaded.connection?.let { connection ->
+                        val itemID = jellyfinItemID(loaded.movie.filePath)
+                            ?: throw JellyfinException("This Jellyfin item is invalid. Scan the source again.")
+                        // Start the manifest at zero and let the player seek on the common timeline.
+                        // Passing the resume position here as well can apply it twice for HLS.
+                        JellyfinPlaying(connection, connection.client.playback(connection.session, itemID, jellyfinAndroidProfile))
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Toast.makeText(this@PlayerActivity, (error as? JellyfinException)?.message
+                        ?: "Could not open the Jellyfin stream.", Toast.LENGTH_LONG).show()
+                    finish()
+                    return@repeatOnLifecycle
+                }
                 onlineAttempted = false
                 if (isFinishing) return@repeatOnLifecycle
                 // Captions can suspend while a metadata correction changes the age rating.
@@ -239,13 +271,13 @@ class PlayerActivity : ComponentActivity() {
                 val refreshedSource = container.database.sources().get(loaded.source.id)
                 if (refreshed == null || !container.family.isCurrent(householdSession) ||
                     !sameSource(refreshedSource, loaded.source) || refreshed.sourceId != loaded.movie.sourceId ||
-                    refreshed.filePath != loaded.movie.filePath) {
+                    refreshed.filePath != loaded.movie.filePath || PlaybackValidator.rejectionReason(refreshed, loaded.config) != null) {
                     rootView.visibility = View.INVISIBLE; target = null; finish()
                     return@repeatOnLifecycle
                 }
-                target = Target(refreshed, loaded.config, loaded.source)
+                target = Target(refreshed, loaded.config, loaded.source, loaded.connection)
                 showInformation(refreshed)
-                startPlayer()
+                startPlayer(jellyfin)
                 combine(container.library.observe(movieId), container.database.sources().observe(loaded.source.id)) {
                     current, source -> current to source
                 }.collect { (current, source) ->
@@ -258,7 +290,7 @@ class PlayerActivity : ComponentActivity() {
                         finish()
                     } else {
                         if (target?.movie?.subtitleIdentity() != current.subtitleIdentity()) invalidateSubtitleRequest()
-                        target = Target(current, loaded.config, source ?: loaded.source)
+                        target = Target(current, loaded.config, source ?: loaded.source, loaded.connection)
                         showInformation(current)
                     }
                 }
@@ -273,8 +305,12 @@ class PlayerActivity : ComponentActivity() {
             ?: throw SmbException("This movie is no longer in the library.")
         PlaybackValidator.rejectionReason(movie)?.let { throw SmbException(it) }
         val source = database.sources().get(movie.sourceId) ?: throw SmbException("This movie's NAS source was removed.")
-        val config = withContext(Dispatchers.Default) { source.config(container.secrets) }
-        PlaybackValidator.validate(movie, config, container.smb::hasPlayableContent)
+        val connection = withContext(Dispatchers.IO) {
+            if (source.sourceType == JELLYFIN) source.jellyfinConnection(container.secrets) else null
+        }
+        val config = if (connection == null) withContext(Dispatchers.IO) { source.config(container.secrets) } else null
+        if (config != null) PlaybackValidator.validate(movie, config, container.smb::hasPlayableContent)
+        else if (jellyfinItemID(movie.filePath) == null) throw JellyfinException("This Jellyfin item is invalid. Scan the source again.")
         // A source edit or ignore action can complete while the NAS header read is suspended.
         return database.withTransaction {
             val currentSource = database.sources().get(source.id)
@@ -287,7 +323,7 @@ class PlayerActivity : ComponentActivity() {
             }
             PlaybackValidator.rejectionReason(current, config)?.let { throw SmbException(it) }
             check(container.family.isCurrent(householdSession)) { "Your household session has locked." }
-            Target(current, config, source)
+            Target(current, config, source, connection)
         }
     }
 
@@ -313,19 +349,26 @@ class PlayerActivity : ComponentActivity() {
         outState.putBoolean(STATE_PLAY_WHEN_READY, player?.playWhenReady ?: playWhenReady)
     }
 
-    private fun startPlayer() {
+    private fun startPlayer(jellyfin: JellyfinPlaying?) {
         val target = target ?: return
         if (player != null || isFinishing) return
         val smb = container.smb
         if (!container.family.isCurrent(householdSession) || !container.family.permits(target.movie)) { finish(); return }
-        val files = DataSource.Factory { SmbDataSource(authorize = {
+        val files = if (jellyfin != null) jellyfinDataSources(jellyfin.connection, jellyfin.playback) {
+            val active = this.target?.movie
+            if (active == null || active.id != target.movie.id || active.isHidden || active.isMissing ||
+                !container.family.isCurrent(householdSession) || !container.family.permits(active)) {
+                throw IOException("This Jellyfin item is no longer available for playback.")
+            }
+        } else DataSource.Factory { SmbDataSource(authorize = {
             val active = this.target?.movie
             check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
         }) {
             check(container.family.isCurrent(householdSession) && container.family.permits(target.movie)) { "Your household session has locked." }
-            smb.open(target.config, target.movie.filePath)
+            smb.open(checkNotNull(target.config), target.movie.filePath)
         } }
-        val dataSources = DefaultDataSource.Factory(this, files)
+        // Only the scoped HTTP transport can resolve paths from a Jellyfin manifest.
+        val dataSources = if (jellyfin != null) files else DefaultDataSource.Factory(this, files)
         val primarySources = DefaultMediaSourceFactory(dataSources,
             DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
             .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
@@ -342,11 +385,18 @@ class PlayerActivity : ComponentActivity() {
             .build()
         exo.trackSelectionParameters = SubtitleTracks.applyPreference(exo.trackSelectionParameters, container.settings.subtitlePreference)
         exo.addListener(listener)
+        val remoteSubtitles = jellyfin?.playback?.subtitles.orEmpty().map { subtitle ->
+            MediaItem.SubtitleConfiguration.Builder(Uri.parse(subtitle.url.toString()))
+                .setMimeType(MimeTypes.TEXT_VTT).setLanguage(subtitle.language)
+                .setSelectionFlags(if (subtitle.forced) C.SELECTION_FLAG_FORCED else 0).build()
+        }
         exo.setMediaItem(
             MediaItem.Builder()
-                .setUri(smbUri(target.config, target.movie.filePath))
+                .setUri(jellyfin?.playback?.url?.let { Uri.parse(it.toString()) }
+                    ?: smbUri(checkNotNull(target.config), target.movie.filePath))
+                .setMimeType(if (jellyfin?.playback?.method == "Transcode") MimeTypes.APPLICATION_M3U8 else null)
                 .setMediaId(target.movie.id)
-                .setSubtitleConfigurations(preparedSubtitles.map { it.configuration })
+                .setSubtitleConfigurations(preparedSubtitles.map { it.configuration } + remoteSubtitles)
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(target.movie.title)
                     .setDescription(target.movie.overview)
                     .setArtworkUri(com.dineshdevkota.cinevault.core.Tmdb.imageUrl(target.movie.posterPath)?.let(Uri::parse))
@@ -358,11 +408,31 @@ class PlayerActivity : ComponentActivity() {
         exo.prepare()
         playerView.player = exo
         player = exo
+        jellyfinPlaying = jellyfin
+        reportJellyfin(JellyfinPlaybackEvent.STARTED, startPositionMs.coerceAtLeast(0), !playWhenReady)
         progressJob = lifecycleScope.launch {
             while (isActive) {
                 delay(PROGRESS_INTERVAL_MS)
                 if (exo.isPlaying) record()
+                reportJellyfin(JellyfinPlaybackEvent.PROGRESS, exo.currentPosition, !exo.isPlaying)
             }
+        }
+    }
+
+    private fun reportJellyfin(event: JellyfinPlaybackEvent, position: Long, paused: Boolean = false) {
+        val playing = jellyfinPlaying ?: return
+        val previous = jellyfinReportJob
+        // Avoid an unbounded backlog when the server's reporting endpoint is slow.
+        if (event == JellyfinPlaybackEvent.PROGRESS && previous?.isCompleted == false) return
+        val failed = playbackFailed
+        jellyfinReportJob = container.scope.launch {
+            previous?.join()
+            if (event != JellyfinPlaybackEvent.STOPPED && !container.family.isCurrent(householdSession)) return@launch
+            try {
+                playing.connection.client.report(playing.connection.session, playing.playback, event,
+                    position.coerceAtLeast(0), paused, failed)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* A failed report must not interrupt local playback or history. */ }
         }
     }
 
@@ -372,7 +442,7 @@ class PlayerActivity : ComponentActivity() {
         val language = container.settings.subtitleLanguage
         val discovery = container.scope.async(Dispatchers.IO) {
             try {
-                val found = smb.readSubtitleSidecars(loaded.config, loaded.movie.filePath, language)
+                val found = smb.readSubtitleSidecars(checkNotNull(loaded.config), loaded.movie.filePath, language)
                 found.files.mapNotNull(SubtitleTracks::configuration) to found.truncated
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { emptyList<PreparedSubtitle>() to false }
@@ -411,8 +481,10 @@ class PlayerActivity : ComponentActivity() {
                 }
             }
         }
-        options += "Find subtitles online · ${languageName(container.settings.subtitleLanguage)}"
-        actions += { searchOnlineSubtitles(automatic = false) }
+        if (target?.connection == null) {
+            options += "Find subtitles online · ${languageName(container.settings.subtitleLanguage)}"
+            actions += { searchOnlineSubtitles(automatic = false) }
+        }
         options += "Preferred language"
         actions += { subtitleDialog = chooseSubtitleLanguage(this, container.settings.subtitleLanguage) {
             invalidateSubtitleRequest()
@@ -434,7 +506,7 @@ class PlayerActivity : ComponentActivity() {
     private fun considerAutomaticSubtitles() {
         val exo = player ?: return
         val settings = container.settings
-        if (onlineAttempted || onlineJob != null || !settings.automaticSubtitles || !settings.subDlConnected ||
+        if (target?.connection != null || onlineAttempted || onlineJob != null || !settings.automaticSubtitles || !settings.subDlConnected ||
             settings.subtitlePreference in setOf("off", "und") || exo.currentTracks.isEmpty) return
         onlineAttempted = true
         val desired = settings.subtitleLanguage
@@ -711,6 +783,8 @@ class PlayerActivity : ComponentActivity() {
         progressJob?.cancel()
         progressJob = null
         record()
+        reportJellyfin(JellyfinPlaybackEvent.STOPPED, exo.currentPosition)
+        jellyfinPlaying = null
         startPositionMs = exo.currentPosition
         playWhenReady = exo.playWhenReady
         exo.removeListener(listener)
@@ -771,7 +845,8 @@ class PlayerActivity : ComponentActivity() {
 
     private fun errorMessage(error: PlaybackException): String = when (error.errorCode / 1000) {
         // Media3 groups error codes by category in thousands: 2xxx I/O, 3xxx parsing, 4xxx decoding, 5xxx audio.
-        2 -> error.cause?.let { SmbService.describe(it) } ?: "Could not read the file from the NAS."
+        2 -> if (target?.connection != null) "Could not read this Jellyfin stream."
+            else error.cause?.let { SmbService.describe(it) } ?: "Could not read the file from the NAS."
         3 -> "This file's format isn't supported, or the file is damaged."
         4, 5 -> "This TV can't play this file's video or audio format."
         else -> error.message ?: "Playback failed."

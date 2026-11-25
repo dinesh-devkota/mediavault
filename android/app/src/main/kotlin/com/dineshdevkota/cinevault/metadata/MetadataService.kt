@@ -9,6 +9,7 @@ import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.Converters
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,7 +66,10 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
             return batchLock.withLock {
                 val movies = database.movies()
                 if (refreshAll) { movies.clearMetadataFetched(); tmdb.clearTVCache() }
-                val pending = movies.available().filter { needsMetadata(it) && !MediaFile.isAudio(it.filePath) }
+                val providers = database.sources().all().filter { it.sourceType == JELLYFIN }.map { it.id }.toSet()
+                val pending = movies.available().filter {
+                    it.sourceId !in providers && needsMetadata(it) && !MediaFile.isAudio(it.filePath)
+                }
                 var failed = 0
                 var firstError: String? = null
                 for ((index, queued) in pending.withIndex()) {

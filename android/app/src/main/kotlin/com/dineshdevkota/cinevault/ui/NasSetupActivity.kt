@@ -243,6 +243,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
             SetupStep.Devices -> {
                 item {
                     OutlinedButton(onClick = { SourceEditorActivity.webdav(context); onDone() }) { Text("Connect WebDAV") }
+                    OutlinedButton(onClick = { JellyfinSetupActivity.start(context); onDone() }) { Text("Connect Jellyfin") }
                     Text("For servers using a WebDAV web address. For SMB, choose a device below.", color = SecondaryText)
                 }
                 item {

@@ -126,6 +126,13 @@ class JellyfinClientTest {
             assertEquals("Transcode", playback.method)
             assertEquals("/jellyfin/videos/movie/master.m3u8", playback.url.encodedPath)
             assertEquals(setOf("PlaySessionId"), playback.url.queryParameterNames)
+            val segment = client.playbackAssetRequest(session, playback,
+                server.url("/jellyfin/Videos/movie/hls/main/1.ts?api_key=from-manifest"))
+            assertFalse("api_key" in segment.url.queryParameterNames)
+            assertTrue(segment.header("Authorization").orEmpty().contains("fixture-token"))
+            assertThrows(JellyfinException::class.java) {
+                client.playbackAssetRequest(session, playback, server.url("/jellyfin/Videos/another-item/stream"))
+            }
             assertThrows(JellyfinException::class.java) {
                 runBlocking { client.playback(session, "movie", buildJsonObject {}) }
             }

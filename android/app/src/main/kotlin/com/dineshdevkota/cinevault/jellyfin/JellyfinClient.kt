@@ -280,6 +280,18 @@ class JellyfinClient(
         return request(url, session).removeHeader("Accept").build()
     }
 
+    internal fun playbackAssetRequest(session: JellyfinSession, playback: JellyfinPlayback, url: HttpUrl): Request {
+        val parts = url.pathSegments.drop(address.base.pathSegments.size - 1)
+        if (!isScoped(url) || !parts.getOrNull(0).equals("videos", ignoreCase = true) ||
+            !sameItemId(parts.getOrNull(1), playback.itemId)) {
+            throw JellyfinException("Jellyfin returned a media address outside this item.")
+        }
+        val sanitized = url.newBuilder().apply {
+            url.queryParameterNames.filter { it.equals("api_key", ignoreCase = true) }.forEach { removeAllQueryParameters(it) }
+        }.build()
+        return assetRequest(session, sanitized)
+    }
+
     private fun millisToTicks(milliseconds: Long): Long {
         require(milliseconds in 0..Long.MAX_VALUE / 10_000)
         return milliseconds * 10_000
