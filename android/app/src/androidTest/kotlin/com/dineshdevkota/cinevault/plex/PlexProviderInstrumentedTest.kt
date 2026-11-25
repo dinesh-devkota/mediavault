@@ -1,17 +1,48 @@
 package com.dineshdevkota.cinevault.plex
 
+import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.dineshdevkota.cinevault.data.SecretBox
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import okhttp3.Headers
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PlexProviderInstrumentedTest {
+    @Test
+    fun savesOnlyKeystoreCiphertextAndClearsTheSelectedServer() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "plex-connection-fixture-" + UUID.randomUUID()
+        val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+        try {
+            val box = SecretBox()
+            val store = PlexKeystoreConnectionStore(prefs, box)
+            val fakeToken = "plex-fixture-token"
+            val server = SavedPlexServer("Home", "id", "https://fixture.example", UUID.randomUUID().toString(), fakeToken)
+            store.save(server)
+            val sealed = checkNotNull(prefs.getString(PlexKeystoreConnectionStore.KEY, null))
+            assertFalse(sealed.contains(fakeToken))
+            assertFalse(sealed.contains("fixture.example"))
+            assertFalse(prefs.all.values.toString().contains(fakeToken))
+            val restored = checkNotNull(PlexKeystoreConnectionStore(prefs, SecretBox()).read())
+            assertEquals(fakeToken, restored.serverToken)
+            assertEquals(server.endpoint, restored.endpoint)
+            assertEquals(server.deviceID, restored.deviceID)
+            store.clear()
+            assertNull(store.read())
+            assertNull(prefs.getString(PlexKeystoreConnectionStore.KEY, null))
+        } finally {
+            context.deleteSharedPreferences(name)
+        }
+    }
+
     @Test
     fun selectedServerCatalogDecodesAndReadsAnExactRange() = runBlocking {
         val connection = PlexAccountClient.Connection("https://fixture.example:32400", local = true, relay = false)
