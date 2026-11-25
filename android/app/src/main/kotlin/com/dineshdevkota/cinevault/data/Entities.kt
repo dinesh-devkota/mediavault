@@ -93,6 +93,8 @@ data class MovieEntity(
     override val genres: List<String> = emptyList(),
     val runtimeMinutes: Int? = null,
     override val rating: Double? = null,
+    val ageCertification: String? = null,
+    @ColumnInfo(defaultValue = "0") val certificationFetched: Boolean = false,
     val metadataFetched: Boolean = false,
     /** User renamed / re-matched manually; rescans and auto-match won't overwrite. */
     val isLocked: Boolean = false,

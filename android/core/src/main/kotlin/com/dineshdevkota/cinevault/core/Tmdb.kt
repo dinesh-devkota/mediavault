@@ -40,6 +40,7 @@ data class TmdbMovieDetails(
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
     val genres: List<TmdbGenre>? = null,
+    @SerialName("release_dates") val releaseDates: TmdbReleaseDates? = null,
 ) {
     val year: Int? get() = releaseDate?.take(4)?.toIntOrNull()
 }
@@ -71,7 +72,7 @@ object Tmdb {
         return request("/search/movie", query, apiKey)
     }
 
-    fun detailsRequest(id: Int, apiKey: String): Request = request("/movie/$id", apiKey = apiKey)
+    fun detailsRequest(id: Int, apiKey: String): Request = request("/movie/$id", mapOf("append_to_response" to "release_dates"), apiKey)
 
     fun tvSearchRequest(title: String, year: Int?, apiKey: String): Request {
         val query = mutableMapOf("query" to title, "include_adult" to "false")
@@ -79,7 +80,7 @@ object Tmdb {
         return request("/search/tv", query, apiKey)
     }
 
-    fun tvDetailsRequest(id: Int, apiKey: String): Request = request("/tv/$id", apiKey = apiKey)
+    fun tvDetailsRequest(id: Int, apiKey: String): Request = request("/tv/$id", mapOf("append_to_response" to "content_ratings"), apiKey)
     fun tvSeasonRequest(id: Int, season: Int, apiKey: String): Request = request("/tv/$id/season/$season", apiKey = apiKey)
 
     fun imageUrl(path: String?, size: String = "w500"): String? =
