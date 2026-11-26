@@ -7,15 +7,15 @@ Feature pull requests target `dinesh-devkota-sonepar-build-cinevault-tvos-app`.
 
 ## Current cloud checkpoint — November 26, 2026
 
-Development is `a79f627` after merging the tested iPhone provider port (#16),
+Development is `1c16357` after merging the tested iPhone provider port (#16),
 Android Google Drive (#7), Apple simulator reliability (#31), opt-in Android NFS
-(#8), Emby (#17), and Fire OS/Vega (#20). The Emby merge tree passed 269 iPhone,
+(#8), Emby (#17), Fire OS/Vega (#20), and deployment preparation (#32). The Emby merge tree passed 269 iPhone,
 272 Apple TV, 122 Android TV, 20 Android phone, and 84 Swift Core tests. The
 Fire OS and Vega candidate kept the verified Apple and Android product inputs.
 Its exact Fire OS suite passed 66 cases across API 22, 25 and 28 and its exact
 Vega workflow validated all three release architectures, 80 native tests, 32
 harness tests, guarded production startup, and all ten synthetic journeys.
-[Development](https://github.com/dinesh-devkota/mediavault/commit/a79f627ea33b09d8a35e00897acb9f08a74f138c)
+[Development](https://github.com/dinesh-devkota/mediavault/commit/1c1635701cae9ee3886f48eed89141296b25c420)
 
 Vega selected the verified source and exact media for each remote playback step.
 Its native MP4 seeks reached 11, 41, 31 and 21 seconds. Its MKV SDK rejected the
@@ -25,21 +25,30 @@ household access. Amazon's simulator leaves the physical keystore unverified.
 [Fire TV and Vega #20](https://github.com/dinesh-devkota/mediavault/pull/20) ·
 [Exact Vega test run](https://github.com/dinesh-devkota/mediavault/actions/runs/45907842850)
 
-Deployment preparation continues on draft #32. It adds the bundled Android
-privacy policy and branded Android TV and legacy Fire OS launcher assets, plus
-retained unsigned Android, iPhone and Apple TV output. The release checklist
-records the required signatures, physical-device tests, provider registrations,
-review accounts and store metadata. Signed builds and store review remain
-separate.
+Deployment preparation #32 merged with exact tested tree `29ae9bfd`. All seven
+hosted checks passed. iPhone passed 269 cases and Apple TV 272, with zero skips.
+Android TV and phone, NFS, and 66 Fire OS cases also passed. Android bundles
+one offline privacy policy and provides branded launcher artwork on Android TV
+and legacy Fire OS. Both unsigned Apple device archives used SDK 26.5 and their
+bundled manifests and policies were verified. Android APK and AAB package contents
+and 16 KiB alignment passed. The ARMv7 Vega package includes native notices and
+corresponding SMB source in the cloud staging folder. A post-merge Vega run saw
+one intermittent native MP4 seek fail to land while paused. The exact runtime-only
+retry passed all ten synthetic journeys with the same packages. A physical Vega
+device remains required for keystore, restart, and playback verification.
 [Deployment readiness #32](https://github.com/dinesh-devkota/mediavault/pull/32)
+· [iPhone release and simulator](https://github.com/dinesh-devkota/mediavault/actions/runs/45909726228)
+· [Apple TV release](https://github.com/dinesh-devkota/mediavault/actions/runs/45909726231)
+· [Vega repeat](https://github.com/dinesh-devkota/mediavault/actions/runs/45909316921)
 
 Local review branches contain subtitle source wording and download feedback
-(`4b2296b`), shared Apple release validation and Android preboot fixture builds
-(`6c92ac8`), the Apple App Review handoff in #32, platform-specific device
-names for Emby (`b0d284b`) and Jellyfin (`b28c41b`), and exact Google Drive
-Picker selection checks (`4a34f58`). Android subtitle changes passed 281 local
-unit tests, instrumentation compilation and lint. Five opt-in fixture tests
-require their local servers. See the individual branches for test scope.
+(`554d247`), shared Apple and Android validation with Android/Fire preboot
+preparation (`2c0c11a`), platform-specific device names for Emby (`b0d284b`) and
+Jellyfin (`b28c41b`), and exact Google Drive Picker selection (`4a34f58`). The
+subtitle branch passed 284 JVM cases and instrumentation compilation. Its
+Apple source parsed locally and still needs hosted runtime coverage. Diagnostics
+for the intermittent Vega clock (`7dd033e`) and the legacy OneDrive keyboard
+fixture (`02203db`) are also isolated from the staged release tree.
 
 The owner’s NAS and emulator are outside fixture testing. Physical Apple and
 Vega devices, real provider accounts, signing, and App Review require separate

@@ -19,9 +19,11 @@ of the [agent handoff](../dist/AGENT-HANDOFF.md).
 
 The tested Fire OS and Vega package branch merged at `a79f627`. Fire OS shares
 Android's provider support. Vega currently connects to SMB, WebDAV and Jellyfin.
-Both Fire TV variants still need physical-device qualification. The draft
-[deployment preparation](https://github.com/dinesh-devkota/mediavault/pull/32)
-records unsigned packages and what each distribution path requires.
+Both Fire TV variants still need physical-device qualification.
+[Deployment preparation #32](https://github.com/dinesh-devkota/mediavault/pull/32)
+merged at `1c16357` after all seven hosted checks passed. The unsigned Android
+and Apple staging builds and the Vega ARMv7 package are recorded in the cloud
+handoff. Distribution requires authorized signing, store accounts, and review.
 
 ## User request and order
 
