@@ -24,6 +24,7 @@ val releaseSigningEnabled = when (providers.gradleProperty("cinevault.releaseSig
 android {
     namespace = "com.dineshdevkota.cinevault"
     compileSdk = 36
+    sourceSets.named("androidTest") { assets.srcDir(rootProject.file("../CineVaultTests/Fixtures")) }
 
     defaultConfig {
         applicationId = "com.dineshdevkota.cinevault"

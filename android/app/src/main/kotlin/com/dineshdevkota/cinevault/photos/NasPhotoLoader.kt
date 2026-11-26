@@ -204,6 +204,13 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
         if (!MediaFile.isPhoto(photo.filePath) || photo.isMissing || photo.isHidden) {
             throw PhotoLoadException("This photo is unavailable or hidden. Check the source and rescan.")
         }
+        if (config.isGoogleDrive) {
+            if (com.dineshdevkota.cinevault.cloud.DriveDocumentPath.fileID(photo.filePath) == null ||
+                !MediaFile.shouldIndex(photo.fileName, photo.fileSize)) {
+                throw PhotoLoadException("This Google Drive photo is unavailable. Reconnect and rescan the source.")
+            }
+            return
+        }
         if (config.caseSensitivePaths) {
             if (!com.dineshdevkota.cinevault.webdav.DavAddress.contains(photo.filePath, config.rootPath) ||
                 !MediaFile.shouldIndex(photo.filePath, photo.fileSize) ||
