@@ -20,11 +20,12 @@ drive_class="$app_id.playback.SmbPlaybackTest"
 drive_tree="googleDriveFolderImportPhotosCaptionsAndSeekRequireAnExplicitHouseholdGrant"
 drive_files="googleDriveExplicitDocumentsCannotReadAnUnselectedFile"
 cd android
+status=0
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
   "-Pandroid.testInstrumentationRunnerArguments.class=$phone_class,$plex_class,$drive_class#$drive_tree,$drive_class#$drive_files" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   -Pandroid.testInstrumentationRunnerArguments.plexCertificate="$PLEX_CERTIFICATE" \
-  -Pandroid.testInstrumentationRunnerArguments.phoneUiFixture=true
+  -Pandroid.testInstrumentationRunnerArguments.phoneUiFixture=true || status=$?
 python3 - "$phone_class" "$plex_class" "$drive_class" "$drive_tree" "$drive_files" <<'PY'
 from pathlib import Path
 from sys import argv
@@ -43,11 +44,18 @@ expected = {
     (drive, files),
 }
 executed = {(case.get("classname"), case.get("name")) for case in cases}
+problems = 0
+for case in cases:
+    outcome = next((tag for tag in ("failure", "error", "skipped") if case.find(tag) is not None), "passed")
+    print(f"{case.get('classname')}.{case.get('name')} {outcome}")
+    if outcome != "passed":
+        problems += 1
+        problem = case.find(outcome)
+        print((problem.text or problem.get("message") or outcome)[:2500])
 if len(cases) != len(expected) or executed != expected:
     raise SystemExit("The phone fixture tests must execute on exactly one emulator.")
-if any(case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")):
+if problems:
     raise SystemExit("Phone runtime tests failed or skipped.")
-for class_name, test_name in sorted(executed):
-    print(f"{class_name}.{test_name} passed")
 print(f"Android phone: {len(cases)} runtime tests passed.")
 PY
+exit "$status"

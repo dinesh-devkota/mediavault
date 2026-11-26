@@ -125,7 +125,15 @@ class AndroidPhoneNavigationTest {
                 val player = view.player
                 player != null && player.isPlaying && player.currentPosition in 7_500L..11_000L
             }
-            device.pressBack()
+            assertTrue("Leave the native player", device.pressBack())
+            compose.waitUntil(timeoutMillis = 10_000) {
+                var mainResumed = false
+                instrumentation.runOnMainSync {
+                    mainResumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                        .any { it is MainActivity }
+                }
+                mainResumed
+            }
             visible(hasText("Feature") and !hasClickAction())
         }
     }
@@ -202,7 +210,17 @@ class AndroidPhoneNavigationTest {
                 if (scroll) compose.onAllNodes(hasScrollToIndexAction()).onFirst().performScrollToNode(matcher)
                 node.assertIsDisplayed()
                 true
-            } catch (_: AssertionError) { false }
+            } catch (_: AssertionError) {
+                false
+            } catch (failure: IllegalStateException) {
+                // A transition from a native Activity can briefly leave no Compose root to inspect.
+                if (failure.message?.startsWith("No compose hierarchies found") != true) throw failure
+                false
+            } catch (failure: IllegalArgumentException) {
+                // A Compose scroll assertion can race the preceding Activity's last layout pass.
+                if (failure.message != "performMeasureAndLayout called during measure layout") throw failure
+                false
+            }
         }
         return node
     }
