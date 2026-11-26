@@ -688,9 +688,9 @@ try {
     await click('action-back');
   });
   await step('06-mkv-seek-constraint', async () => {
+    await requirePlaybackHome('Returning from the MP4 detail must restore All media before opening Controls.mkv.', {section: 'All media'});
     await clickXPath('//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Controls.mkv")]');
-    await click('action-play');
-    assert.equal(await text('player-file-name'), 'Controls.mkv');
+    await playFixtureDetail('Controls', 'Controls.mkv');
     await waitFor(async () => await position() >= 1, 'The real MKV decoder must advance before seeking.', 40_000);
     await click('action-pause'); await element(byID('action-play'));
     const origin = await position();
@@ -750,7 +750,10 @@ try {
     }
     await writeFile(resolve(output, 'mkv-seek-outcome.json'), JSON.stringify({container: 'mkv', origin, target,
       native: evidence, confirmedPausedPosition: paused, verifiedCheckpoint: saved}, null, 2) + '\n');
-    await key(158); await element(byID('detail-title')); await click('action-back');
+    await key(158);
+    assert.equal(await text('detail-file-name'), 'Controls.mkv', 'Back must return to the exact MKV detail.');
+    await key(158);
+    await requirePlaybackHome('Back from the MKV detail must restore All media before adding the TV source.', {section: 'All media'});
   });
   await step('07-continuous-television', async () => {
     await addSource('Playback NAS', endpoint.replace(/MEDIALIBRARY$/, 'MEDIAPLAYBACK'));
