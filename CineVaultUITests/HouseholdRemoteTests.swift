@@ -2,6 +2,43 @@ import XCTest
 
 final class HouseholdRemoteTests: XCTestCase {
     @MainActor
+    func testPrivacyPolicyIsReadableFromTheLockedProfilePicker() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview-household"]
+        app.launch()
+
+        let remote = XCUIRemote.shared
+        let admin = app.buttons["household-profile-Admin"]
+        let kids = app.buttons["household-profile-Kids"]
+        let policy = app.buttons.matching(NSPredicate(format: "label == %@", "Privacy policy")).firstMatch
+        XCTAssertTrue(policy.waitForExistence(timeout: 10), app.debugDescription)
+
+        func assertFocus(_ button: XCUIElement, line: UInt = #line) {
+            let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == YES"), object: button)
+            XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 8), .completed, app.debugDescription, line: line)
+        }
+
+        assertFocus(admin)
+        // Move across to the centered profile without opening it.
+        remote.press(.right)
+        assertFocus(kids)
+        remote.press(.down)
+        assertFocus(policy)
+        remote.press(.select)
+
+        let intro = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@",
+            "This policy applies to the official MediaVault app.")).firstMatch
+        XCTAssertTrue(intro.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.staticTexts["Restricted Feature"].exists)
+
+        XCTAssertFalse(app.buttons["household-switch"].exists)
+
+        remote.press(.menu)
+        XCTAssertTrue(admin.waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
     func testRemoteProfileSwitchHidesRestrictedTitlesAndBackgroundLocks() {
         continueAfterFailure = false
         let app = XCUIApplication(); app.launchArguments = ["--ui-preview-household"]; app.launch()

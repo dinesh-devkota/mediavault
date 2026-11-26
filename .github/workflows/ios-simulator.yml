@@ -153,6 +153,7 @@ jobs:
               "testOneDriveSetupEntryValidatesClientIDAndReturnsWithoutConnecting",
               "testNativePlaybackAndSubtitleControls",
               "testViewerOnlySeesAllowedTitlesOnPhone",
+              "testPrivacyPolicyIsReadableFromTheLockedProfilePicker",
               "testPlaybackAndSeekStreamTheScannedMovie",
               "testWebDAVAuthenticationScanPlaybackAndSeek",
               "testSignInImportDirectPlayAndSeekOverHTTPS",
@@ -201,6 +202,11 @@ jobs:
             -destination 'generic/platform=iOS' -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/cinevault-phone-release" \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/iphone-release.log" | tail -n 160
+      - name: Verify privacy resources in the iPhone app
+        run: |
+          APP="$RUNNER_TEMP/cinevault-phone-release/Build/Products/Release-iphoneos/CineVault.app"
+          plutil -lint "$APP/PrivacyInfo.xcprivacy"
+          cmp docs/PRIVACY.md "$APP/PRIVACY.md"
       - name: Report release compiler errors
         if: failure()
         run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/iphone-release.log" || true

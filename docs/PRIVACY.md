@@ -5,18 +5,19 @@ versions may behave differently.
 
 ## Your library and playback
 
-MediaVault connects directly to the SMB shares and HTTPS WebDAV sources you configure. Library entries,
+MediaVault reads your library from the file sources and media servers you connect. Library entries,
 watched status, resume positions, personal collections, and playback usage are stored locally on your device.
 The official commercial version also stores local playback allowance information.
 MediaVault does not operate a user-account service or send your viewing history or
 playback time to developer-operated servers. Profiles and history do not sync
 between devices.
 
-SMB and WebDAV passwords and the optional TMDB and SubDL API credentials use the Keychain on Apple devices.
-On Android, they are encrypted with a key held in the Android Keystore.
-The device reads media directly from your configured source for playback. MediaVault does not upload your media.
-A WebDAV connection sends your configured credentials and media paths to your WebDAV server over HTTPS.
-Your source provider and network administrator may maintain their own connection logs.
+SMB and WebDAV passwords, provider tokens, and optional TMDB and SubDL API credentials
+are saved in Keychain on Apple devices or encrypted with keys held in Android Keystore.
+MediaVault reads media from the selected source and does not upload those files.
+SMB sends authentication and read requests to the configured file server. WebDAV sends
+credentials and media paths to the configured server over HTTPS. Your source provider
+and network administrator may maintain their own connection logs.
 
 ## Linked Jellyfin libraries
 
@@ -26,6 +27,32 @@ Playback, subtitle requests, and Jellyfin session reports go directly to that se
 A report includes the item, playback position, and player state, so the Jellyfin
 server may retain viewing data under its connected account. MediaVault keeps its
 own resume positions and Watchlist separate for each household profile.
+
+## Linked Plex libraries
+
+Plex account linking sends a device identifier and link-code requests to Plex.
+After you approve the code through Plex, MediaVault uses the account token during
+setup to discover which servers you can access. MediaVault stores the selected
+server credential in protected storage. Library, artwork, subtitle, and playback
+requests go to the selected Plex server over HTTPS. If you choose a Relay connection
+on Android, these requests can pass through Plex Relay.
+
+## Connected cloud folders
+
+OneDrive links a personal Microsoft account using Microsoft sign-in. MediaVault
+uses the Microsoft Graph read permission to identify the account’s drive and browse
+folders and files. Microsoft Graph and its download endpoints handle requests for
+selected items, including media, artwork, and subtitles. MediaVault saves an
+authorization token to renew access without asking you to sign in again.
+
+Where Dropbox is available, it uses Dropbox sign-in and asks for permission to read
+file metadata and contents. Dropbox receives the authorization requests, then file
+and folder identifiers for browsing and reading the items you select. MediaVault
+saves an authorization token to renew access. Both cloud providers can see your
+network address and handle account and file requests under their own privacy policies.
+
+You can remove a cloud source in MediaVault to clear its saved authorization. You
+can also manage the app’s access to your cloud files in the provider’s account settings.
 
 ## Optional household profiles
 
@@ -72,14 +99,15 @@ loses access. The playback library does not require a VideoLAN account.
 
 ## Optional subtitles
 
-Local SRT and WebVTT subtitles are read from the video's NAS folder. MediaVault
-does not upload those files or change them on your NAS.
+Matching SRT and WebVTT subtitle files are read from the video’s source folder.
+MediaVault leaves those files on the source unmodified.
 
 If you connect SubDL, MediaVault sends your API key to SubDL to verify the
-connection, search for subtitles, and authorize subtitle downloads. Searches include the TMDB title identifier,
-media type, requested language, and season/episode for television. Automatic
-searches run only after you enable them; choosing an online search in the player
-also sends a request. These requests reveal your network address to SubDL.
+connection and search for subtitles. The download request sends the key with the
+selected subtitle identifier to SubDL’s download service. Searches include the TMDB
+title identifier, media type, requested language, and season and episode for television.
+Automatic searches run only after you enable them. Choosing an online search in the
+player also sends a request. These requests reveal your network address to SubDL.
 NAS passwords, NAS folder paths, and video files are not sent to SubDL.
 
 Saved subtitle links and cache identifiers exclude API credentials. Downloaded

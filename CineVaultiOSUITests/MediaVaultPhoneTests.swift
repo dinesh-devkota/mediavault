@@ -116,87 +116,103 @@ final class MediaVaultPhoneTests: XCTestCase {
         XCTAssertTrue(sources.waitForExistence(timeout: 10))
         let editorClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: save)
         XCTAssertEqual(XCTWaiter.wait(for: [editorClosed], timeout: 10), .completed)
-        selectLibraryAfterFixtureImport(app)
-        capture("Library after authenticated WebDAV import", app)
-        let poster = app.buttons["Film"]
-        XCTAssertTrue(poster.waitForExistence(timeout: 10), app.debugDescription)
-        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: poster)
-        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, app.debugDescription)
-        poster.tap()
-        XCTAssertTrue(app.staticTexts["Film"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.buttons["Play"].exists, app.debugDescription)
-        capture("Imported WebDAV movie opens its playback details", app)
+        openImportedWebDAVMovie(in: app)
     }
 
     @MainActor
-    private func selectLibraryAfterFixtureImport(_ app: XCUIApplication) {
+    private func openImportedWebDAVMovie(in app: XCUIApplication) {
         let library = app.tabBars.buttons["Library"]
-        let prompt = app.sheets["Save Password?"]
-        // Use one navigation budget even if iOS begins presenting its password
-        // window before its sheet becomes accessible or after the first tap.
-        let deadline = Date().addingTimeInterval(10)
-        var needsTap = true
-        var handledPasswordInterruption = false
-        // The password offer can appear and disappear entirely inside tap(),
-        // consuming that touch before our between-action queries can see it.
-        // Let XCTest provide the actual interrupting element, including a
-        // system-owned window, and only decline the known synthetic-login offer.
-        let monitor = addUIInterruptionMonitor(withDescription: "Decline fixture password saving") { element in
-            guard element.label == "Save Password?" || element.staticTexts["Save Password?"].exists,
-                  element.buttons["Not Now"].exists,
-                  element.buttons["Save"].exists else { return false }
-            element.buttons["Not Now"].tap()
-            handledPasswordInterruption = true
-            return true
-        }
-        defer { removeUIInterruptionMonitor(monitor) }
-        func waitFor(_ predicate: NSPredicate, object: Any? = nil) -> Bool {
-            // XCUI queries and taps wait for app quiescence themselves. The
-            // preceding action may have completed while consuming the remaining
-            // budget, so observe its result before deciding whether to wait more.
-            if predicate.evaluate(with: object) { return true }
+        let poster = app.buttons["Film"]
+        let title = app.staticTexts["Film"]
+        let play = app.buttons["Play"]
+        let promptTitle = "Save Password?"
+        let prompt = app.sheets[promptTitle]
+        let deadline = Date().addingTimeInterval(25)
+        var declinedPasswordOffer = false
+
+        func waitFor(_ condition: @escaping () -> Bool) -> Bool {
+            // A preceding XCTest action may reach the target while using the last of the budget.
+            if condition() { return true }
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return false }
-            let expectation = XCTNSPredicateExpectation(predicate: predicate, object: object)
+            let predicate = NSPredicate { _, _ in condition() }
+            let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
             let result = XCTWaiter.wait(for: [expectation], timeout: remaining)
-            if result == .completed { return true }
-            return result == .timedOut && predicate.evaluate(with: object)
+            return result == .completed || (result == .timedOut && condition())
         }
-        while true {
-            let ready = NSPredicate { _, _ in
-                prompt.exists || library.isSelected || (needsTap && library.isHittable)
-            }
-            guard waitFor(ready) else {
-                capture("Library navigation did not become actionable", app)
-                XCTFail("Library did not become actionable or selected within the navigation budget.")
-                return
-            }
-            if prompt.exists {
-                // Decline only the observed system offer for synthetic credentials.
-                let notNow = prompt.buttons["Not Now"]
-                guard waitFor(NSPredicate(format: "hittable == true"), object: notNow) else {
-                    capture("Password prompt did not become actionable", app)
-                    XCTFail("The observed password prompt did not expose its Not Now action.")
-                    return
-                }
-                notNow.tap()
-                guard waitFor(NSPredicate(format: "exists == false"), object: prompt) else {
-                    capture("Password prompt did not close", app)
-                    XCTFail("The observed password prompt did not close.")
-                    return
-                }
-                // A second tab tap is allowed only after this actual interruption.
-                needsTap = !library.isSelected
-            } else if library.isSelected {
-                return
-            } else if needsTap && library.isHittable {
-                handledPasswordInterruption = false
-                library.tap()
-                // Only an explicitly handled interruption permits another tap;
-                // a genuine navigation failure still uses the original budget.
-                needsTap = handledPasswordInterruption && !library.isSelected
-            }
+
+        func decline(_ sheet: XCUIElement) -> Bool {
+            guard !declinedPasswordOffer, deadline.timeIntervalSinceNow > 0, sheet.exists,
+                  sheet.label == promptTitle || sheet.staticTexts[promptTitle].exists else { return false }
+            let notNow = sheet.buttons["Not Now"]
+            let savePassword = sheet.buttons["Save"]
+            guard waitFor({ notNow.exists && notNow.isHittable && savePassword.exists }),
+                  deadline.timeIntervalSinceNow > 0 else { return false }
+            notNow.tap()
+            guard waitFor({ !sheet.exists }) else { return false }
+            declinedPasswordOffer = true
+            return true
         }
+
+        // Keep the monitor through the poster touch and the resulting playback controls.
+        // A late system password sheet can appear after Library is already selected.
+        let monitor = addUIInterruptionMonitor(withDescription: "Decline fixture password saving") { element in
+            let sheet = element.elementType == .sheet ? element : element.sheets[promptTitle]
+            return decline(sheet)
+        }
+        defer { removeUIInterruptionMonitor(monitor) }
+
+        func advance(target: @escaping () -> Bool, actionable: @escaping () -> Bool, tap: () -> Bool) -> Bool {
+            var mayTap = true
+            while waitFor({ prompt.exists || target() || (mayTap && actionable()) }) {
+                if prompt.exists {
+                    guard decline(prompt) else { return false }
+                    mayTap = true
+                } else if target() {
+                    return true
+                } else {
+                    guard mayTap, deadline.timeIntervalSinceNow > 0 else { return false }
+                    let previouslyDeclined = declinedPasswordOffer
+                    guard tap() else { return false }
+                    // Another touch is permitted only when the known password offer consumed this one.
+                    mayTap = !previouslyDeclined && declinedPasswordOffer
+                }
+            }
+            return false
+        }
+
+        guard advance(target: { library.isSelected }, actionable: { library.isHittable }, tap: {
+            library.tap()
+            return true
+        }) else {
+            capture("Library navigation did not become actionable", app)
+            XCTFail("Library did not become selected after handling any fixture password offer.")
+            return
+        }
+        capture("Library after authenticated WebDAV import", app)
+
+        var touchedPoster = false
+        guard advance(target: { touchedPoster && title.exists && play.exists && play.isEnabled && play.isHittable },
+                      actionable: { poster.exists && poster.isEnabled }, tap: {
+            if poster.isHittable {
+                touchedPoster = true
+                poster.tap()
+                return true
+            }
+            // A visible SwiftUI tile may lack an XCTest hit point. Touch only within its verified frame.
+            let frame = poster.frame
+            let window = app.windows.firstMatch
+            guard window.exists, frame.width >= 44, frame.height >= 44,
+                  window.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) else { return false }
+            touchedPoster = true
+            poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            return true
+        }) else {
+            capture("WebDAV poster touch did not open actionable Film details", app)
+            XCTFail("The imported Film must open from a visible poster touch and show an actionable Play button.")
+            return
+        }
+        capture("Imported WebDAV movie opens its playback details", app)
     }
 
     @MainActor private func capture(_ name: String, _ app: XCUIApplication) {
@@ -204,6 +220,27 @@ final class MediaVaultPhoneTests: XCTestCase {
         screenshot.name = name; screenshot.lifetime = .keepAlways; add(screenshot)
         let hierarchy = XCTAttachment(string: app.debugDescription)
         hierarchy.name = name + " accessibility"; hierarchy.lifetime = .keepAlways; add(hierarchy)
+    }
+
+    @MainActor
+    func testPrivacyPolicyIsReadableFromTheLockedProfilePicker() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview-household"]
+        app.launch()
+
+        let policy = app.buttons.matching(NSPredicate(format: "label == %@", "Privacy policy")).firstMatch
+        XCTAssertTrue(policy.waitForExistence(timeout: 15), app.debugDescription)
+        policy.tap()
+        let intro = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@",
+            "This policy applies to the official MediaVault app.")).firstMatch
+        XCTAssertTrue(intro.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.staticTexts["Restricted Feature"].exists)
+        XCTAssertFalse(app.tabBars.buttons["Profile"].exists)
+
+        let navigation = app.navigationBars["Privacy policy"]
+        XCTAssertTrue(navigation.waitForExistence(timeout: 10), app.debugDescription)
+        navigation.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["household-profile-Admin"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor

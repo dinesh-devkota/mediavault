@@ -43,12 +43,26 @@ jobs:
           xcodegen generate
       - name: Build
         run: |
-          set -o pipefail
+          set -euo pipefail
+          xcodebuild -version
+          sdk=$(xcrun --sdk appletvos --show-sdk-version)
+          echo "Apple TV device SDK $sdk"
+          sdk_major=$(printf '%s' "$sdk" | cut -d. -f1)
+          if (( sdk_major < 26 )); then
+            echo "::error::This release validation requires tvOS SDK 26 or later."
+            exit 1
+          fi
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
             -destination 'generic/platform=tvOS' \
             -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/cinevault-tv-release" \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/tvos-release.log" | tail -n 200
+      - name: Verify privacy resources in the Apple TV app
+        run: |
+          APP="$RUNNER_TEMP/cinevault-tv-release/Build/Products/Release-appletvos/CineVault.app"
+          plutil -lint "$APP/PrivacyInfo.xcprivacy"
+          cmp docs/PRIVACY.md "$APP/PRIVACY.md"
       - name: Report release compiler errors
         if: failure()
         run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/tvos-release.log" || true

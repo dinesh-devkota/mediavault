@@ -1,9 +1,9 @@
 # Additional media sources
 
-The current development candidate includes SMB, HTTPS WebDAV, Jellyfin, Plex and
-personal OneDrive source adapters. Apple TV, iPhone, Android TV and Android phones
-share the corresponding platform implementations. Test coverage and remaining
-limits are recorded in [TESTING.md](TESTING.md) and the
+The current development candidate includes SMB, HTTPS WebDAV, Jellyfin, Plex,
+personal OneDrive, and Dropbox source adapters. Dropbox setup is available on
+Apple TV and Android. Its iPhone setup is tracked in a separate draft. Test coverage
+and remaining limits are recorded in [TESTING.md](TESTING.md) and the
 [handoff](../dist/AGENT-HANDOFF.md); a merged connector does not establish live-account
 or physical-device compatibility. See the [user guide](MEDIA-GUIDE.md) for setup.
 
