@@ -342,7 +342,7 @@ final class OneDrivePhoneFixtureProtocol: URLProtocol {
         config.timeoutIntervalForRequest = 10
         return URLSession(configuration: config, delegate: OneDriveRedirectDelegate(), delegateQueue: nil)
     }()
-    private var task: URLSessionDataTask?
+    private var loopbackTask: URLSessionDataTask?
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -360,7 +360,7 @@ final class OneDrivePhoneFixtureProtocol: URLProtocol {
         url.percentEncodedPath = "/" + prefix + url.percentEncodedPath
         var local = request
         local.url = url.url
-        task = Self.loopback.dataTask(with: local) { [weak self] data, response, error in
+        loopbackTask = Self.loopback.dataTask(with: local) { [weak self] data, response, error in
             guard let self else { return }
             if let error {
                 if (error as? URLError)?.code != .cancelled {
@@ -374,9 +374,9 @@ final class OneDrivePhoneFixtureProtocol: URLProtocol {
                 client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             }
         }
-        task?.resume()
+        loopbackTask?.resume()
     }
 
-    override func stopLoading() { task?.cancel() }
+    override func stopLoading() { loopbackTask?.cancel() }
 }
 #endif
