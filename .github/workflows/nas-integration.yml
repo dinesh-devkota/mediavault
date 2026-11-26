@@ -154,6 +154,7 @@ jobs:
               tests = set(passed(json.load(source)["testNodes"]))
           required = {"testCreateEditCollectionAndChooseAlternateVersion",
                       "testMKVRemotePlaybackSeekingSubtitlesAndAudioKeepSession",
+                      "testPrivacyPolicyIsReadableFromTheLockedProfilePicker",
                       "testRemoteOpensEmbySetupAndRequiresAServerBeforeSignIn"}
           if os.environ["UI_ONLY"] != "true":
               required |= {"testCommonContainersDecodeAndSeekOverGuardedSMB",

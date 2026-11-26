@@ -70,6 +70,12 @@ actor SMBService {
          cloudHousehold: HouseholdStore = .shared,
          cloudTransport: @escaping (CloudFileProvider, SourceConfig) throws -> CloudFileTransport = { provider, config in
              switch provider {
+             case .appleFiles:
+             #if os(iOS)
+             return try AppleFilesSource.transport(config)
+             #else
+             throw CloudFileError.invalidPath
+             #endif
              case .oneDrive: return try OneDriveFileSource.transport(config)
              case .dropbox: return try DropboxFileSource.transport(config)
              }

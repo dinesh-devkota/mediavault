@@ -69,19 +69,37 @@ struct SourcesView: View {
         .sheet(isPresented: $addingEmby) { NavigationStack { EmbySourceEditor(source: nil) } }
         .sheet(item: $editing) { source in
             NavigationStack {
-                if source.isPlex { PlexSourceEditor(source: source) }
-                else if source.cloudFileProvider == .oneDrive { OneDriveSourceEditor(source: source) }
-                else if source.cloudFileProvider == .dropbox { DropboxSourceEditor(source: source) }
-                else if source.isEmby { EmbySourceEditor(source: source) }
-                else if source.isJellyfin { JellyfinSourceEditor(source: source) }
-                else { SourceEditorView(source: source) }
+                editor(for: source)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func editor(for source: MediaSource) -> some View {
+        if source.isPlex {
+            PlexSourceEditor(source: source)
+        } else if source.cloudFileProvider == .oneDrive {
+            OneDriveSourceEditor(source: source)
+        } else if source.cloudFileProvider == .dropbox {
+            DropboxSourceEditor(source: source)
+        } else if source.cloudFileProvider == .appleFiles {
+            #if os(iOS)
+            AppleFilesSourceEditor(source: source)
+            #else
+            Text("Manage this Files source on iPhone.")
+            #endif
+        } else if source.isEmby {
+            EmbySourceEditor(source: source)
+        } else if source.isJellyfin {
+            JellyfinSourceEditor(source: source)
+        } else {
+            SourceEditorView(source: source)
         }
     }
 
     private func location(of source: MediaSource) -> String {
         if source.isPlex { return "Plex · " + (URL(string: source.host)?.host ?? "Server") }
-        if let provider = source.cloudFileProvider { return provider.title }
+        if let provider = source.cloudFileProvider { return provider == .appleFiles ? "Files on this iPhone" : provider.title }
         if source.isJellyfin || source.isEmby { return source.host }
         if source.isWebDAV { return [source.host, source.rootPath].filter { !$0.isEmpty }.joined(separator: " / ") }
         let address = (try? NASAddress.parse(source.host, port: source.port))?.authority ?? "NAS"
@@ -473,9 +491,7 @@ struct SettingsView: View {
                 Text("Play movies, shows, music and photos from your connected sources. Format support varies by device.")
                     .font(.caption)
                 NavigationLink("Playback library & license") { PlaybackAcknowledgementsView() }
-                #if os(iOS)
-                PhonePrivacyPolicyLink()
-                #endif
+                NavigationLink("Privacy policy") { MediaPrivacyPolicyView() }
                 Text("This product uses the TMDB API but is not endorsed or certified by TMDB.").font(.caption)
             }
         }
