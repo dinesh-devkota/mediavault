@@ -2,6 +2,9 @@ import CoreImage
 import SwiftData
 import SwiftUI
 import UIKit
+#if os(iOS)
+import SafariServices
+#endif
 
 @MainActor
 struct DropboxSourceEditor: View {
@@ -35,6 +38,9 @@ struct DropboxSourceEditor: View {
     @State private var confirmRemoval = false
     @State private var removedSourceID: UUID?
     @State private var removedCredentials = false
+    #if os(iOS)
+    @State private var showBrowser = false
+    #endif
 
     private let household = HouseholdStore.shared
     private var sourceID: UUID { source?.id ?? draftID }
@@ -61,7 +67,11 @@ struct DropboxSourceEditor: View {
                 connectedSections(source)
             } else {
                 Section("Dropbox app registration") {
-                    TextField("Public Dropbox app key", text: $appKey).accessibilityIdentifier("dropbox-app-key")
+                    TextField("Public Dropbox app key", text: $appKey)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        #endif
+                        .accessibilityIdentifier("dropbox-app-key")
                     Text("Use the app key from a Dropbox API app with metadata and content read permissions.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button("Get Dropbox approval", action: begin)
@@ -70,6 +80,12 @@ struct DropboxSourceEditor: View {
                 }
             }
         }
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        .sheet(isPresented: $showBrowser) {
+            if let approval { DropboxApprovalBrowser(url: approval.url).ignoresSafeArea() }
+        }
+        #endif
         .navigationTitle(source == nil ? "Connect Dropbox" : "Dropbox Source")
         .onAppear {
             if let source {
@@ -97,18 +113,33 @@ struct DropboxSourceEditor: View {
 
     @ViewBuilder private func approvalSection(_ approval: DropboxClient.Authorization) -> some View {
         Section("Approve Dropbox on another device") {
+            #if os(iOS)
+            Text("Sign in to Dropbox, copy the one-time code, then enter it below.")
+            Button("Open Dropbox in Safari") { showBrowser = true }.accessibilityIdentifier("dropbox-open-browser")
+            DisclosureGroup("Use another device") { approvalImage }
+            #else
             Text("Scan the QR code with your phone. In Dropbox, sign in and copy the one-time code.")
-            if let qrCode {
-                Image(uiImage: qrCode).interpolation(.none).resizable().scaledToFit()
-                    .frame(width: 250, height: 250).padding(12).background(.white)
-                    .accessibilityLabel("Open Dropbox approval on a phone")
-                    .accessibilityIdentifier("dropbox-approval-qr")
-            }
-            SecureField("Dropbox one-time code", text: $code).accessibilityIdentifier("dropbox-approval-code")
+            approvalImage
+            #endif
+            SecureField("Dropbox one-time code", text: $code)
+                #if os(iOS)
+                .textContentType(.oneTimeCode).textInputAutocapitalization(.never).autocorrectionDisabled()
+                #endif
+                .accessibilityIdentifier("dropbox-approval-code")
             Button(source == nil ? "Verify code and choose a folder" : "Verify code and reconnect") {
                 finishApproval(approval)
             }.disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("dropbox-verify")
             Button("Start a new approval") { clearApproval() }
+        }
+    }
+
+    @ViewBuilder private var approvalImage: some View {
+        if let qrCode {
+            Image(uiImage: qrCode).interpolation(.none).resizable().scaledToFit()
+                .frame(width: 250, height: 250).padding(12).background(.white)
+                .accessibilityLabel("Open Dropbox approval on a phone")
+                .accessibilityIdentifier("dropbox-approval-qr")
         }
     }
 
@@ -119,6 +150,7 @@ struct DropboxSourceEditor: View {
             TextField("Source name (optional)", text: $name)
             if let folder = folders.last {
                 Button("Use this folder and scan") { save(draft, folder: folder) }.disabled(scanner.isScanning)
+                    .accessibilityIdentifier("dropbox-use-folder")
                 Button("Up one folder") { browse(draft, stack: Array(folders.dropLast())) }
             }
         }
@@ -337,3 +369,13 @@ struct DropboxSourceEditor: View {
         if let onSaved { onSaved() } else { dismiss() }
     }
 }
+
+#if os(iOS)
+private struct DropboxApprovalBrowser: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
+    }
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+}
+#endif

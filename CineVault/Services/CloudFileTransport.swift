@@ -2,11 +2,13 @@ import CineVaultCore
 import Foundation
 
 enum CloudFileProvider: String, Hashable, Sendable {
+    case appleFiles = "apple-files"
     case oneDrive = "onedrive"
     case dropbox
 
     var title: String {
         switch self {
+        case .appleFiles: "Files"
         case .oneDrive: "OneDrive"
         case .dropbox: "Dropbox"
         }

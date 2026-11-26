@@ -51,6 +51,11 @@ and folder identifiers for browsing and reading the items you select. MediaVault
 saves an authorization token to renew access. Both cloud providers can see your
 network address and handle account and file requests under their own privacy policies.
 
+On iPhone, MediaVault uses Apple Files for read-only access to the folders or files
+you select. It stores security-scoped bookmarks in Keychain until you disconnect the
+source. Your Files provider, such as Google Drive, manages its own account, storage,
+and downloads.
+
 You can remove a cloud source in MediaVault to clear its saved authorization. You
 can also manage the app’s access to your cloud files in the provider’s account settings.
 

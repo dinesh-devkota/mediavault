@@ -91,6 +91,9 @@ struct DropboxClient: Sendable {
     private let appKey: String
     private let callback: URL?
     private let session: URLSession
+    #if DEBUG && os(iOS) && targetEnvironment(simulator)
+    private let usePhoneFixture: Bool
+    #endif
 
     init(appKey: String, callback: URL? = nil, session: URLSession? = nil) throws {
         guard Self.isAppKey(appKey) else { throw DropboxClientError.invalidConfiguration }
@@ -103,6 +106,9 @@ struct DropboxClient: Sendable {
         self.appKey = appKey
         self.callback = callback
         self.session = session ?? Self.defaultSession
+        #if DEBUG && os(iOS) && targetEnvironment(simulator)
+        usePhoneFixture = session == nil && ProcessInfo.processInfo.arguments.contains("--ui-test-dropbox")
+        #endif
     }
 
     func beginAuthorization() throws -> Authorization {
@@ -208,7 +214,7 @@ struct DropboxClient: Sendable {
         request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         try authorize()
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: requestForTransport(request))
         defer { bytes.task.cancel() }
         try authorize()
         guard let http = response as? HTTPURLResponse else { throw DropboxClientError.invalidResponse }
@@ -300,7 +306,7 @@ struct DropboxClient: Sendable {
     }
 
     private func send(_ request: URLRequest) async throws -> Data {
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: requestForTransport(request))
         defer { bytes.task.cancel() }
         let limit = 8 * 1024 * 1024
         guard let http = response as? HTTPURLResponse, response.expectedContentLength <= Int64(limit) else {
@@ -321,6 +327,26 @@ struct DropboxClient: Sendable {
             throw DropboxClientError.invalidAuthorization
         }
         return base64URL(Data(bytes))
+    }
+
+    private func requestForTransport(_ request: URLRequest) throws -> URLRequest {
+        #if DEBUG && os(iOS) && targetEnvironment(simulator)
+        if usePhoneFixture {
+            guard let original = request.url,
+                  var address = URLComponents(url: original, resolvingAgainstBaseURL: false),
+                  address.scheme == "https", let host = address.host,
+                  ["api.dropboxapi.com", "content.dropboxapi.com"].contains(host) else {
+                throw DropboxClientError.invalidConfiguration
+            }
+            address.host = "127.0.0.1"
+            address.port = 18444
+            guard let local = address.url else { throw DropboxClientError.invalidConfiguration }
+            var redirected = request
+            redirected.url = local
+            return redirected
+        }
+        #endif
+        return request
     }
 
     private static func base64URL(_ data: Data) -> String {
