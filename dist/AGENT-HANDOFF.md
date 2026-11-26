@@ -9,6 +9,26 @@ below retain their original names. Development work remains on
 
 ## Active library/playback work — November 25, 2026
 
+Current integration checkpoint: public `96df268` passed Apple TV 242/242,
+Android TV 110/110 and Android phone 12/12. The iPhone run `45740845578` and
+core/unsigned-TV run `45740845630` are still in progress or queued. Apple TV
+screenshots show captions clear of playback details. The new Plex filename-reset
+regression passed. The earlier merged iPhone `86bcb09` passed 230/230 and unsigned
+Release, before the final reset safeguard.
+
+Development subsequently advanced to `c6d83d2` with personal OneDrive. The current
+merge retains local-library/Plex playback and adds that source. Android phone
+retains its library and metadata checks alongside incoming OneDrive journeys;
+Apple phone and TV require both OneDriveClientTests and CloudFileTransportTests.
+Local validation passed 101 core and 151 app Android tests (two existing Jellyfin
+cases need their loopback fixture), instrumentation compilation and debug lint.
+OneDrive now participates in Android local NFO/artwork imports using its guarded
+provider. Apple sidecar and collection matching use exact cloud paths. New
+regressions cover local artwork, authoritative file identity and household access.
+The phone runner requires 16 Android cases and a new real iPhone setup-form journey.
+Seven XCTest-report checks and workflow lint pass. Hosted runtime verification is
+still required; do not transfer results from `96df268` to this merge.
+
 Follow-up review found that Plex's synthetic identifiers could be treated as
 filenames by the metadata editor. Apple `7363654` and Android `79c5754` hide and
 reject that reset, preserve imported server ratings during manual metadata edits,
@@ -170,9 +190,15 @@ compilation and debug lint passed. The Fire matrix now requires 19 cases per API
 metadata-rating/reset regressions. At `3d78667`, hosted run `45742006243` passed
 19/19 on each of API 22, 25 and 28, with no failures or skips. Fire phone
 `45742006199` passed 12/12. Shared base `96df268` passed Android TV 110/110 and
-phone 12/12. Modern Fire TV runtime is still running; its separate build job hit
-Maven Central HTTP 429 while resolving a test dependency after Kotlin compilation.
-Retry only that failed build job when the containing workflow allows it.
+phone 12/12. Modern Fire TV runtime passed 117/117 (run `45742006292`). Its
+separate build job hit Maven Central HTTP 429; the single-job retry `139654868437`
+passed core/app tests, Debug and Release lint, APK and unsigned bundle builds.
+The successful runtime tests were not repeated. Current Fire work additionally
+incorporates OneDrive merge `7bfc5b5`. Local Fire checks passed 101 core and 154
+app cases, with two existing Jellyfin fixture-dependent skips, instrumentation
+compilation and lint. The API 22/25/28 runner now requires 22 cases, adding
+OneDrive credential persistence, setup and guarded local artwork/playback.
+Those expanded runtime checks still need new hosted validation.
 
 Vega run `45738633627` at `1dad04d` passed every package and native check, but
 notification suppression did not fix focus. Everyone, the scroll container, and
@@ -189,10 +215,20 @@ An independent audit found that the app's long-lived, whole-screen focus guide
 uses `autoFocus` while its route children change; the SDK template does not.
 The current diagnostic candidate removes only that property, retaining the guide,
 session key and all strict focus assertions. SDK 2.0.15159 typecheck, lint (zero
-errors) and all 42 app tests pass. It is not yet a proven runtime fix. If the
-real journeys pass, separately verify cold-start D-pad focus and return navigation
-before adopting a permanent initial-focus policy. If it fails, use a minimal
-official-template reproduction rather than more speculative focus/time-out changes.
+errors) and all 42 app tests pass. Hosted `f89640d` run `45744255024` passed all
+packages/native checks and production startup. The strict runtime journey now
+passes Home to Sources, Add source, NAS/SMB, Source name entry and its first
+keyboard dismissal. It then fails focusing the second IME session Done key
+while the NAS address field is active. The earlier Sources blocker is absent
+in this run, but no complete library journey has passed. Audit the system
+keyboard boundary separately; do not loosen app-button native-focus assertions.
+The follow-up harness uses one documented Back key only for an observed system
+keyboard, then requires it closed, the same field present, and non-secret text
+unchanged. Secret fields are never read back. Node syntax and all seven startup
+contracts pass; the full journey must establish actual runtime behavior.
+Cold-start D-pad focus and return navigation remain to be verified. An ignored
+minimal official-template probe is prepared under `.artifacts/vega-focus-probe`;
+it was not built or dispatched because the original failure did not recur.
 
 Latest verified checkpoint: Fire `5c88fe8` passed Android TV 110/110 (run
 `45735053621`). Android phone 7/7 and Fire compatibility 13/13 on each API

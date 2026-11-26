@@ -133,7 +133,7 @@ final class LibraryCollectionsStore: ObservableObject {
     static func available(_ movie: Movie, household: HouseholdStore = .shared) -> Bool {
         guard !movie.isDeleted, !movie.isMissing, !movie.isHidden, !MediaFile.isPhoto(path: movie.filePath), household.allows(movie) else { return false }
         guard let source = movie.source else { return true }
-        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath, caseSensitive: source.isWebDAV) && !source.isIgnored(filePath: movie.filePath)
+        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath, caseSensitive: source.caseSensitivePaths) && !source.isIgnored(filePath: movie.filePath)
     }
 }
 

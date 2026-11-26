@@ -34,10 +34,25 @@ use the server's thumbnails. Android playback
 depends on the device's decoders. Real-server and physical-device validation remain
 separate from the automated fixture checks.
 
+## Connect a personal OneDrive folder
+
+Open **Sources → OneDrive**, enter the public Microsoft application ID, and start
+sign-in. Complete Microsoft's displayed code on a second device, then return to
+MediaVault and choose the folder to scan. Keep MediaVault open during sign-in.
+Passwords are entered only on Microsoft's page. Once linked, the app securely
+stores the refresh credentials for this source.
+
+The current connector needs a registered public application for personal Microsoft
+accounts; see [OneDrive setup](TESTING.md#onedrive-source-fixtures). Choose the
+smallest folder containing the media you want. Admin must explicitly grant
+household viewers access. Reconnecting preserves the selected drive and folder;
+choose a new source to use a different root. Disconnect removes that source's
+local library and history. Live-account and physical-device checks remain pending.
+
 ## Use local artwork and details
 
 Put artwork and an NFO/XML details file beside a movie, then rescan its source.
-This works with SMB and WebDAV without a TMDB key. Jellyfin and Plex items use the
+This works with SMB, WebDAV, and OneDrive without a TMDB key. Jellyfin and Plex items use the
 metadata and artwork supplied by their server.
 
 For example:

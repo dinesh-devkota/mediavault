@@ -149,11 +149,23 @@ async function enter(id, value, previous = '') {
       return await call('GET', `/element/${editor}/text`) === value;
     }, `The text field did not acknowledge the complete input: ${id}`);
   }
-  // Complete the observed editing session before navigating to another field
-  // or pressing a form action. send_keys itself normally only sets the text.
+  // Vega documents Back as keyboard dismissal; controlled onChangeText has
+  // already stored the edit. Do not require the IME's Done key to take focus.
+  // https://developer.amazon.com/docs/vega/2.0/vega-release-notes#textinput-done-and-back-behavior-will-match-stock-react-native
+  const keyboardWindow = "//app[@appName='com.amazon.silverstone']//window";
   if (await exists(byID('key_Done'))) {
-    await click('key_Done');
-    await waitFor(async () => !await exists(byID('key_Done')), 'The system keyboard did not finish editing.');
+    assert(await exists(keyboardWindow), 'Back may dismiss only an observed system keyboard.');
+    await key(158);
+  }
+  // Done disappears when this IME closes. Its window may persist while hidden;
+  // window removal is not a verified closed-state signal on the pinned SDK.
+  await waitFor(async () => !await exists(byID('key_Done')),
+    'The system keyboard did not close after editing.');
+  assert(await exists(byID(id)), `Dismissing the keyboard must keep the same form field: ${id}`);
+  if (!/password|pin/.test(id)) {
+    const editor = await element(editorPath);
+    assert.equal(await call('GET', `/element/${editor}/text`), value,
+      `Dismissing the keyboard must preserve the input: ${id}`);
   }
 }
 async function text(id) { return call('GET', `/element/${await element(byID(id))}/text`); }

@@ -41,10 +41,18 @@ journeys, with a 2 MiB result cap and 15-second query deadline per app. LoggingC
 must start after installation to obtain access to the newly installed packages.
 
 Form entry targets the actual editable child of React Native's focus wrapper.
-The harness completes the observed system keyboard session with Done and uses
-bounded D-pad navigation to reveal off-screen controls, then verifies focus
-before selecting them. Text acknowledgement uses the actual editor, not the
-wrapper's empty `getText` result.
+After text acknowledgement, the harness dismisses an observed system keyboard
+with exactly one Back key (158). It checks closure using the observed Done
+control's disappearance, requires the same form field to remain, and verifies
+that non-secret text stays unchanged. Window removal is not asserted because a
+hidden keyboard window may persist. Password and PIN values are never read back. [Amazon's Vega 2.0 release notes](https://developer.amazon.com/docs/vega/2.0/vega-release-notes#textinput-done-and-back-behavior-will-match-stock-react-native)
+document Back as keyboard dismissal; these controlled fields store edits through
+`onChangeText`, so dismissal does not depend on a submit callback. This does not
+claim that the system Done key passed its focus check.
+
+The harness still uses bounded D-pad navigation to reveal off-screen controls
+and requires actual native focus before selecting application buttons. Text
+acknowledgement uses the actual editor, not the wrapper's empty `getText` result.
 
 The Debug fixture can show the SDK's focus-stealing development LogBox. The
 harness dismisses only its exact observed "Open debugger to view warnings."

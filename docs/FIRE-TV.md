@@ -17,11 +17,14 @@ Fire OS devices also get compatible PIN hashing, photo decoding and player
 lifecycle handling. The remote's transport keys continue working while a header
 button has focus.
 
-Local app/test APK builds and lint pass. The dedicated hosted workflow passed
-13 tests each on API 22, 25 and 28 for credential persistence/tampering, household PINs, photos,
-local metadata, MKV playback, seeking, remote controls and background/resume.
-The modern Android TV run passed 110 tests and the phone run passed seven UI
-journeys. These are Android API compatibility tests, not physical Fire TV certification.
+At `3d78667`, app/test APK builds, unsigned bundle and lint pass. The dedicated
+hosted workflow passed 19 tests each on API 22, 25 and 28 for credential
+persistence/tampering, household PINs, photos, local metadata, MKV playback,
+seeking, remote controls, background/resume and Plex metadata/access safeguards.
+Modern Android TV passed 117 tests and the phone passed 12 required journeys,
+with no runtime failures or skips. A build-only dependency download was rate-limited
+by Maven Central; retrying that job passed without repeating the runtime tests.
+These are Android API compatibility tests, not physical Fire TV certification.
 Real-device codec, memory and Wi-Fi performance must also be checked before
 Appstore submission. Older hardware may not decode newer codecs.
 
@@ -47,7 +50,7 @@ credentials, cancellation, certificate verification and Jellyfin access boundari
 All three production release architectures (armv7, aarch64 and x86_64) pass
 Amazon's manifest and binary-interface validation, with their Hermes interface
 bundle and both native libraries present. The latest package checks passed at
-`96073fa` in run `45730914333`. Runtime validation is still in progress; do not
+`f89640d` in run `45744255024`. Runtime validation is still in progress; do not
 describe Vega as released or device-verified yet. Host tests do not exercise the
 device keystore.
 
@@ -87,7 +90,8 @@ Collection posters open normally even when home bulk selection remains active.
 
 The initial Vega app still lacks the existing Android/Apple apps' TMDB settings,
 SubDL downloads, automatic NAS discovery and editing an existing household profile.
-The original Android APK, including those features, is used on Fire OS.
+The original Android APK, including those features, Plex and personal OneDrive,
+is used on Fire OS. Vega does not yet include Plex or OneDrive connectors.
 
 The visible title is MediaVault. Its internal package ID deliberately matches the
 existing Android ID (`com.dineshdevkota.cinevault`) so Amazon can associate the Fire

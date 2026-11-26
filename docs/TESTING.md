@@ -119,6 +119,36 @@ identity, malformed responses, request limits, bounded raw downloads, redirects,
 and cancellation. They do not use a real API key or consume a user's download quota.
 A live account connection still needs a key entered by its owner in the app.
 
+## OneDrive source fixtures
+
+Android JVM fixtures cover device authorization, refresh rotation, Graph pagination,
+and scoped download ranges. Both hosted Android variants exercise source form
+validation and Android Keystore storage with a synthetic account record. The
+integrated fixture drives staged Microsoft sign-in, folder selection, a Room import,
+household restrictions, photo decoding, matching subtitle sidecars, rendered
+Media3 playback, and seeking. It verifies that Graph bearer tokens never reach
+the download host. Test media and OAuth responses stay within the test fixtures.
+
+For a live test, register a public Microsoft Entra application that accepts
+personal Microsoft accounts. Enable public client flows, add the Microsoft Graph
+delegated `Files.Read` permission, and test with a dedicated OneDrive account.
+Admin enters the public Application (client) ID in Sources. An Android build
+can prefill it through `-Pmediavault.oneDriveClientId=<application-uuid>`.
+The app requests `offline_access` for token refresh. Microsoft handles passwords
+and user approval on its device-code verification page. With Household Profiles
+enabled, leave MediaVault open and complete sign-in on a second device.
+[Microsoft device authorization](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code)
+[OneDrive item addressing](https://learn.microsoft.com/en-us/graph/onedrive-addressing-driveitems)
+[Drive item downloads](https://learn.microsoft.com/en-us/graph/api/driveitem-get-content)
+
+Verify an Android source can rename, rescan, ignore and restore relative folders
+and files, reconnect the original account, and disconnect. Selecting a different
+root requires a new source and fresh viewer grants. Disconnect removes local
+credentials and indexed history. Microsoft permissions can be withdrawn separately
+from the Microsoft account. Work or school accounts and Shared Shortcuts are
+outside the personal OneDrive connector. Real account and device verification
+requires owner-provided registration and account access.
+
 ## Household profile acceptance
 
 Family controls affect authorization, not just layout. Validate both platforms

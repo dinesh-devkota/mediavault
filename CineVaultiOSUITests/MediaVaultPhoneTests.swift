@@ -7,6 +7,49 @@ final class MediaVaultPhoneTests: XCTestCase {
     }
 
     @MainActor
+    func testOneDriveSetupEntryValidatesClientIDAndReturnsWithoutConnecting() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test-empty-library"]
+        app.launch()
+
+        let manage = app.tabBars.buttons["Manage"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 15))
+        manage.tap()
+        app.buttons["manage-media-sources"].tap()
+        app.buttons["Add NAS"].tap()
+        let connect = app.buttons["add-onedrive-source"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10))
+        connect.tap()
+
+        let client = app.textFields["onedrive-client"]
+        let signIn = app.buttons["onedrive-sign-in"]
+        XCTAssertTrue(client.waitForExistence(timeout: 10))
+        XCTAssertTrue(signIn.exists)
+        XCTAssertFalse(signIn.isEnabled, "An empty registration must not start an account connection.")
+        client.tap()
+        client.typeText("invalid")
+        let invalidAccepted = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "invalid"), object: client)
+        XCTAssertEqual(XCTWaiter.wait(for: [invalidAccepted], timeout: 5), .completed)
+        XCTAssertFalse(signIn.isEnabled)
+
+        // A synthetic identifier validates the real phone form without beginning
+        // OAuth or contacting a live Microsoft account.
+        let fixtureID = "00000000-0000-4000-8000-000000000001"
+        client.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 7) + fixtureID)
+        let validAccepted = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", fixtureID), object: client)
+        XCTAssertEqual(XCTWaiter.wait(for: [validAccepted], timeout: 5), .completed)
+        XCTAssertTrue(signIn.isEnabled)
+        capture("OneDrive phone setup accepts a valid public client identifier", app)
+
+        let navigation = app.navigationBars["Connect OneDrive"]
+        XCTAssertTrue(navigation.exists)
+        navigation.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["Connect WebDAV"].waitForExistence(timeout: 10))
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.navigationBars["Sources"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
     func testConnectAndImportWebDAVFromSources() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test-empty-library"]

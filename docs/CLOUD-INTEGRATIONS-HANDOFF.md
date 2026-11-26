@@ -256,3 +256,29 @@ An owner can link using the code shown in Sources, choose an advertised Plex Med
 The implementation supports protected Plex artwork, photo thumbnails, native MP4/M4V/MOV direct play with byte-range seeking, and matching external SRT or WebVTT tracks. A disposable HTTPS fixture covers Plex linking, discovery, catalog groups, paging, media ranges, restricted artwork, and caption playback. The branch also adds a remote navigation test for the owner's setup entry. Local cloud checks use Python transport tests and Swift source parsing. The Apple TV hosted jobs are the compile and runtime gate.
 
 Before shipping, validate a real Plex server and account against Apple TV hardware. Plex transcoding, Relay-only connections, and full-size original Plex photos are pending. Apple simulator and unsigned release checks require no distribution credentials. App Store submission and approval require the owner's separate Apple process.
+
+### Android OneDrive application checkpoint
+
+[Android OneDrive PR #4](https://github.com/dinesh-devkota/mediavault/pull/4)
+and [Apple OneDrive PR #22](https://github.com/dinesh-devkota/mediavault/pull/22)
+track their platform runtime checks independently.
+
+The Android OneDrive feature branch integrates a personal account through Microsoft's
+device authorization, a public client ID, and a read-only Graph connection.
+Admin selects the drive root or an explicit folder before saving. The app stages
+credentials in memory until approval and folder selection complete. Android
+Keystore seals the device refresh record under the local source UUID. Reconnect
+checks that the Microsoft drive still matches. Disconnect clears local credentials,
+invalidates open handles, and removes the source and its indexed history.
+
+Android TV and phone share the existing scanner, photo viewer, playback,
+subtitle and household paths. OneDrive uses exact relative names inside the
+selected folder. Each media range resolves the current path to the expected
+Graph item ID before following a fresh download grant without the Graph bearer.
+The household UI can grant selected subfolders. New sources require explicit
+viewer grants. The scanner keeps the existing Android file-path history behavior.
+
+Hosted fixtures are synthetic. Live testing still requires an Entra public
+application configured for personal Microsoft accounts and public client device
+flow with delegated Files.Read, plus a dedicated OneDrive test account. See
+`docs/TESTING.md` for the app setting and build property.
