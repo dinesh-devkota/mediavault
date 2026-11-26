@@ -146,6 +146,10 @@ jobs:
             -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES test-without-building | tee "$RUNNER_TEMP/tvos-test-output.log" | tail -n 200
           grep -F "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek]' passed" "$RUNNER_TEMP/tvos-test-output.log"
           grep -F "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot]' passed" "$RUNNER_TEMP/tvos-test-output.log"
+          grep -F "testRemoteOpensEmbySetupAndRequiresAServerBeforeSignIn]' passed" "$RUNNER_TEMP/tvos-test-output.log"
+          grep -F "testPlayerRangeReturnsBytesAndSuppressesAResponseAfterAccessChanges]' passed" "$RUNNER_TEMP/tvos-test-output.log"
+          grep -F "testRelayHidesUpstreamReferencesAndStopsDeliveringAfterRevocation]' passed" "$RUNNER_TEMP/tvos-test-output.log"
+          grep -F "testEmbyImportsRendersAndSeeksDirectAndHLSOverHTTPS]' passed" "$RUNNER_TEMP/tvos-test-output.log"
       - name: Report simulator test results
         if: always()
         run: |

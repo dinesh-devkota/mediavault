@@ -17,6 +17,9 @@ import com.dineshdevkota.cinevault.core.MediaKind
 import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.core.TitleMatcher
 import com.dineshdevkota.cinevault.core.WatchRules
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.embyItemId
+import com.dineshdevkota.cinevault.emby.embyPhotoId
 import com.dineshdevkota.cinevault.nfs.NFS
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import kotlinx.serialization.builtins.ListSerializer
@@ -45,6 +48,7 @@ data class SourceEntity(
 ) {
     fun includesFile(filePath: String): Boolean {
         if (sourceType == GOOGLE_DRIVE_DOCUMENTS) return DriveDocumentPath.fileID(filePath) != null
+        if (sourceType == EMBY) return embyItemId(filePath) != null || embyPhotoId(filePath) != null
         if (sourceType == "webdav" || sourceType == ONEDRIVE || sourceType == NFS) {
             return com.dineshdevkota.cinevault.webdav.DavAddress.contains(filePath, rootPath) &&
                 !ScanExclusions.isFileExcluded(filePath, rootPath, ignoredFolders, ignoredFiles, caseSensitive = true)

@@ -85,6 +85,10 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
+            android:name=".ui.EmbySetupActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".ui.SourceEditorActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />

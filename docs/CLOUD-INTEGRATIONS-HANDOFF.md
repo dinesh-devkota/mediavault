@@ -158,10 +158,21 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   · [Android TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662973340)
   · [Apple TV direct playback run](https://github.com/dinesh-devkota/mediavault/actions/runs/45660978470)
   · [Apple TV HLS](https://github.com/dinesh-devkota/mediavault/pull/10)
-- Emby has client fixtures for both platforms and Android app wiring for source
-  setup, library import and protected direct playback. Apple app integration,
-  HLS, and other provider media types still need work.
-  [Emby](https://github.com/dinesh-devkota/mediavault/pull/3)
+- Emby has Admin setup, reconnect and removal, one selected library per source,
+  movies and episodes, artwork, photos, external text captions, and protected
+  direct and HLS playback on Android TV and Apple TV. The isolated reconciliation
+  starts from library-playback candidate `5ab0ecaed9f1c056f346e025581f619b4a7787b4` and
+  includes the Apple HLS checkpoint. Android TV previously failed before reaching
+  the fixture because its test APK lacked `playback.mp4`. This base already adds
+  the shared media fixture to the Android test assets. The Apple HLS branch
+  passed 217 simulator tests, including loopback delivery and access revocation.
+  The combined branch requires fresh Android TV and Apple TV runtime checks,
+  plus an unsigned Apple TV release build. Emby HLS rendering and seeking on
+  Apple TV hardware and Apple review remain separate validation steps.
+  [Emby app](https://github.com/dinesh-devkota/mediavault/pull/17)
+  · [Apple HLS](https://github.com/dinesh-devkota/mediavault/pull/18)
+  · [Android TV fixture failure](https://github.com/dinesh-devkota/mediavault/actions/runs/45684360969/job/139452899321)
+  · [Apple TV simulator](https://github.com/dinesh-devkota/mediavault/actions/runs/45685996091/job/139458624758)
 - The Android Plex draft connects an owner’s Plex account by PIN, then stores
   only the selected HTTPS server credential encrypted for each local library.
   Android TV and phone share the setup, catalog, and player. Imports support

@@ -12,6 +12,7 @@ struct SourcesView: View {
     @State private var editing: MediaSource?
     @State private var adding = false
     @State private var addingPlex = false
+    @State private var addingEmby = false
     @ObservedObject private var household = HouseholdStore.shared
 
     var body: some View {
@@ -21,6 +22,8 @@ struct SourcesView: View {
                 if household.isAdmin {
                     Button { addingPlex = true } label: { Label("Connect Plex", systemImage: "play.rectangle") }
                         .accessibilityIdentifier("source-add-plex")
+                    Button { addingEmby = true } label: { Label("Add Emby Library", systemImage: "play.rectangle") }
+                        .accessibilityIdentifier("add-emby-source")
                 }
                 if sources.isEmpty {
                     Text("Connect a NAS, choose your media folder, and MediaVault will add its movies, shows, music and photos.")
@@ -63,6 +66,7 @@ struct SourcesView: View {
         .navigationTitle("Sources")
         .sheet(isPresented: $adding) { NASSetupView() }
         .sheet(isPresented: $addingPlex) { NavigationStack { PlexSourceEditor(source: nil) } }
+        .sheet(isPresented: $addingEmby) { NavigationStack { EmbySourceEditor(source: nil) } }
         .sheet(item: $editing) { source in
             NavigationStack {
                 editor(for: source)
@@ -84,6 +88,8 @@ struct SourcesView: View {
             #else
             Text("Manage this Files source on iPhone.")
             #endif
+        } else if source.isEmby {
+            EmbySourceEditor(source: source)
         } else if source.isJellyfin {
             JellyfinSourceEditor(source: source)
         } else {
@@ -94,7 +100,7 @@ struct SourcesView: View {
     private func location(of source: MediaSource) -> String {
         if source.isPlex { return "Plex · " + (URL(string: source.host)?.host ?? "Server") }
         if let provider = source.cloudFileProvider { return provider == .appleFiles ? "Files on this iPhone" : provider.title }
-        if source.isJellyfin { return source.host }
+        if source.isJellyfin || source.isEmby { return source.host }
         if source.isWebDAV { return [source.host, source.rootPath].filter { !$0.isEmpty }.joined(separator: " / ") }
         let address = (try? NASAddress.parse(source.host, port: source.port))?.authority ?? "NAS"
         return ([address, source.share, source.rootPath].filter { !$0.isEmpty }).joined(separator: " / ")

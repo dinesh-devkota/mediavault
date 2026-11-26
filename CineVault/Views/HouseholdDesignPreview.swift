@@ -6,6 +6,7 @@ import SwiftUI
 /// The fixture never authenticates an existing installation or exposes a path to its credentials.
 enum HouseholdPreview {
     static var isEnabled: Bool { ProcessInfo.processInfo.arguments.contains("--ui-preview-household") }
+    static var isEmbyEntry: Bool { ProcessInfo.processInfo.arguments.contains("--ui-preview-emby-entry") }
     private final class MemoryRecord { var value: String? }
     static let store: HouseholdStore = {
         let record = MemoryRecord()

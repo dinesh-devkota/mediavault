@@ -155,6 +155,8 @@ struct MovieBackdrop: View {
                 Group {
                     if let path = movie.localBackdropPath ?? (usePosterFallback ? movie.localPosterPath : nil) {
                         LocalArtworkView(movie: movie, path: path, wide: true)
+                    } else if movie.source?.isEmby == true {
+                        EmbyArtwork(movie: movie, width: 780)
                     } else {
                         AsyncImage(url: TMDB.imageURL(artworkPath, size: "w1280")) { image in
                             image.resizable().aspectRatio(contentMode: .fill)

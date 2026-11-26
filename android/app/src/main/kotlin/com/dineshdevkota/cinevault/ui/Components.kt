@@ -65,6 +65,8 @@ import coil3.compose.AsyncImage
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.emby.EMBY
+import com.dineshdevkota.cinevault.emby.embyItemId
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.plex.PLEX
 import com.dineshdevkota.cinevault.plex.plexItemId
@@ -122,7 +124,7 @@ internal fun MediaArtwork(
     seasonArtwork: Boolean = false,
 ) {
     val localPath = if (kind == JellyfinImage.Backdrop) movie.localBackdropPath ?: movie.localPosterPath else if (seasonArtwork) movie.localSeasonPosterPath ?: movie.localPosterPath else movie.localPosterPath
-    if ((jellyfinItemID(movie.filePath) == null && plexItemId(movie.filePath) == null && localPath == null) || movie.isHidden || movie.isMissing) {
+    if ((jellyfinItemID(movie.filePath) == null && plexItemId(movie.filePath) == null && embyItemId(movie.filePath) == null && localPath == null) || movie.isHidden || movie.isMissing) {
         Artwork(url, title, modifier)
         return
     }
@@ -131,13 +133,13 @@ internal fun MediaArtwork(
         .collectAsStateWithLifecycle(null)
     val session by container.family.session.collectAsStateWithLifecycle()
     val activeSource = source
-    if (activeSource == null || (activeSource.sourceType !in setOf(JELLYFIN, PLEX) && localPath == null)) {
+    if (activeSource == null || (activeSource.sourceType !in setOf(JELLYFIN, PLEX, EMBY) && localPath == null)) {
         Artwork(url, title, modifier)
         return
     }
     val bitmap by key(session, activeSource, movie.id, movie.filePath, movie.ageCertification, localPath, kind, width) {
         produceState<Bitmap?>(null) {
-            if (!container.family.isCurrent(session) || !container.family.permits(movie)) return@produceState
+            if (!container.family.isCurrent(session) || !container.family.permits(movie, requiresWholeSource = activeSource.sourceType == EMBY)) return@produceState
             try {
                 value = container.photos.loadArtwork(movie.id, width, kind, seasonArtwork)
             } catch (cancelled: CancellationException) {

@@ -2,6 +2,7 @@ package com.dineshdevkota.cinevault.photos
 
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.jellyfinPhotoID
 import com.dineshdevkota.cinevault.plex.PLEX
@@ -35,7 +36,7 @@ fun photoAlbums(items: List<MovieEntity>, sources: List<SourceEntity>? = null): 
         val folder = first.filePath.replace('\\', '/').substringBeforeLast('/', "")
         val source = sourceById?.get(first.sourceId)
         val providerTitle = when (source?.sourceType) {
-            JELLYFIN, PLEX -> source.name
+            JELLYFIN, PLEX, EMBY -> source.name
             com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS ->
                 com.dineshdevkota.cinevault.cloud.DriveDocumentPath.displayPath(folder)?.substringAfterLast('/') ?: source.name
             else -> null

@@ -79,7 +79,7 @@ enum HouseholdPolicy {
         if profile.isAdmin { return true }
         if entireSourceOnly {
             guard let sourceID, WebDAVAddress.contains(path, within: "") else { return false }
-            return profile.allowedFolders.contains { $0.sourceID == sourceID && $0.path.isEmpty && $0.caseSensitive == true }
+            return profile.allowedFolders.contains { $0.sourceID == sourceID && $0.path.isEmpty && (!caseSensitive || $0.caseSensitive == true) }
         }
         if caseSensitive {
             return profile.allowedFolders.contains {
@@ -107,7 +107,7 @@ enum HouseholdPolicy {
 final class HouseholdStore: ObservableObject {
     static let shared: HouseholdStore = {
         #if DEBUG
-        if HouseholdPreview.isEnabled { return HouseholdPreview.store }
+        if HouseholdPreview.isEnabled || HouseholdPreview.isEmbyEntry { return HouseholdPreview.store }
         if LibraryFeaturesPreview.isEnabled { return LibraryFeaturesPreview.household }
         #endif
         return HouseholdStore()
@@ -394,8 +394,9 @@ final class HouseholdStore: ObservableObject {
     }
     func allows(_ movie: Movie) -> Bool {
         synced {
-            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath, caseSensitive: movie.source.map { $0.caseSensitivePaths } == true,
-                             entireSourceOnly: movie.source?.isPlex == true) else { return false }
+            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath,
+                             caseSensitive: movie.source.map { $0.caseSensitivePaths || $0.isPlex } == true,
+                             entireSourceOnly: movie.source.map { $0.isPlex || $0.isEmby } == true) else { return false }
             guard let current, !current.isAdmin else { return !isLocked }
             guard !movie.isHidden else { return false }
             if MediaFile.isAudio(path: movie.filePath) || MediaFile.isPhoto(path: movie.filePath) { return true }
