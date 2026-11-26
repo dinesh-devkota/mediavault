@@ -12,12 +12,20 @@ if [[ -z "$SERIAL" || "$SERIAL" == *$'\n'* || "$(adb -s "$SERIAL" shell getprop 
   exit 1
 fi
 export ANDROID_SERIAL="$SERIAL"
+DROPBOX_FIXTURE="${RUNNER_TEMP:?}/android-phone-dropbox"
+bash scripts/start_dropbox_fixture.sh "$DROPBOX_FIXTURE"
+DROPBOX_PID=$(cat "$DROPBOX_FIXTURE/server.pid")
+trap 'kill "$DROPBOX_PID" 2>/dev/null || true' EXIT
+DROPBOX_CERTIFICATE=$(openssl base64 -A -in "$DROPBOX_FIXTURE/fixture.cer")
+APP_ID="com.dineshdevkota.cinevault"
+PHONE_TEST="$APP_ID.AndroidPhoneNavigationTest"
+PLEX_CASES="$APP_ID.plex.PlexTlsIntegrationTest"
+DROPBOX_MEDIA="$APP_ID.playback.SmbPlaybackTest#dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate"
 PLEX_CERTIFICATE=$(base64 -w0 "$RUNNER_TEMP/phone-plex/fixture.cer")
-PHONE_CASES=com.dineshdevkota.cinevault.AndroidPhoneNavigationTest
-PLEX_CASES=com.dineshdevkota.cinevault.plex.PlexTlsIntegrationTest
 cd android
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class="$PHONE_CASES,$PLEX_CASES" \
+  "-Pandroid.testInstrumentationRunnerArguments.class=$PHONE_TEST,$PLEX_CASES,$DROPBOX_MEDIA" \
+  "-Pandroid.testInstrumentationRunnerArguments.dropboxCertificate=$DROPBOX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   -Pandroid.testInstrumentationRunnerArguments.plexCertificate="$PLEX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.phoneUiFixture=true
@@ -32,10 +40,11 @@ expected = {
     "touchSetupImportsMovieAndPlaysAndSeeksWithNativeControls",
     "touchNavigationOpensPlexLinking",
     "ownerConnectsOverTlsAndReadsCatalogAndMediaRange",
+    "dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate",
 }
 if len(cases) != len(expected) or {case.get("name") for case in cases} != expected:
-    raise SystemExit("All phone checks must execute on exactly one emulator.")
+    raise SystemExit("All required phone runtime journeys must execute on exactly one emulator.")
 if any(case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")):
     raise SystemExit("Phone runtime journeys failed or skipped.")
-print(f"Android phone: {len(cases)} touch and Plex playback checks passed.")
+print(f"Android phone: {len(cases)} touch, Plex, and Dropbox runtime journeys passed.")
 PY

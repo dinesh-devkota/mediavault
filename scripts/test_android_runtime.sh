@@ -76,6 +76,7 @@ PY
 
 status=0
 WEBDAV_CERTIFICATE=$(openssl base64 -A -in "$RUNNER_TEMP/android-webdav-fixture/fixture.cer")
+DROPBOX_CERTIFICATE=$(openssl base64 -A -in "$RUNNER_TEMP/android-dropbox-fixture/fixture.cer")
 # AGP normally uninstalls the app after instrumentation. Keep this disposable
 # installation for the explicit reset between phases and screenshot export.
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
@@ -83,6 +84,7 @@ WEBDAV_CERTIFICATE=$(openssl base64 -A -in "$RUNNER_TEMP/android-webdav-fixture/
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   "-Pandroid.testInstrumentationRunnerArguments.jellyfinCertificate=$JELLYFIN_CERTIFICATE" \
   "-Pandroid.testInstrumentationRunnerArguments.webDavCertificate=$WEBDAV_CERTIFICATE" \
+  "-Pandroid.testInstrumentationRunnerArguments.dropboxCertificate=$DROPBOX_CERTIFICATE" \
   "-Pandroid.testInstrumentationRunnerArguments.plexCertificate=$PLEX_CERTIFICATE" \
   "-Pandroid.testInstrumentationRunnerArguments.notClass=$FAMILY_TEST,$PHONE_TEST" || status=$?
 archive_results baseline

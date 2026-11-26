@@ -1,5 +1,8 @@
 package com.dineshdevkota.cinevault.smb
 
+import com.dineshdevkota.cinevault.cloud.CloudClientException
+import com.dineshdevkota.cinevault.cloud.DROPBOX
+import com.dineshdevkota.cinevault.cloud.DropboxMedia
 import com.dineshdevkota.cinevault.core.SubtitleSidecars
 import com.dineshdevkota.cinevault.core.RemoteFile
 import com.dineshdevkota.cinevault.core.VideoFile
@@ -45,8 +48,9 @@ data class SourceConfig(
     val sourceType: String = "smb",
     val allowInsecureHttp: Boolean = false,
 ) {
-    init { require(sourceType in setOf("smb", "webdav")) { "Unsupported source type." } }
+    init { require(sourceType in setOf("smb", "webdav", DROPBOX)) { "Unsupported source type." } }
     val isWebDav: Boolean get() = sourceType == "webdav"
+    internal val isDropbox: Boolean get() = sourceType == DROPBOX
     override fun toString(): String = "SourceConfig(id=$id, host=${runCatching { NasAddress.parse(host, port).host }.getOrDefault("invalid")}, share=$share)"
 }
 
@@ -88,6 +92,7 @@ class SmbService(
     ),
 ) {
     private val webdav = com.dineshdevkota.cinevault.webdav.WebDavMedia()
+    private val dropbox = DropboxMedia()
 
     private class Connected(val connection: Connection, val session: Session, val share: DiskShare) {
         fun close() {
@@ -182,16 +187,23 @@ class SmbService(
     }
 
     /** Invalidates pending results/retries immediately; active file readers keep a cleanup lease. */
-    suspend fun reset(sourceId: String) = withContext(Dispatchers.IO) { sessions.reset(sourceId); webdav.service.reset(sourceId) }
+    suspend fun reset(sourceId: String) = withContext(Dispatchers.IO) {
+        sessions.reset(sourceId)
+        webdav.service.reset(sourceId)
+        dropbox.reset(sourceId)
+    }
 
     suspend fun testConnection(config: SourceConfig) {
         reset(config.id)
+        if (config.isDropbox) { dropbox.browse(config, config.rootPath); return }
         if (config.isWebDav) { webdav.service.list(config); return }
         withShare(config) { share -> share.list(rootOf(config)) }
     }
 
     /** Recursively lists indexable video files below the source's root folder. */
-    suspend fun scanVideos(config: SourceConfig): List<RemoteFile> = if (config.isWebDav) webdav.scan(config) {}.filter { VideoFile.shouldIndex(it.path, it.size) } else withShare(config) { share ->
+    suspend fun scanVideos(config: SourceConfig): List<RemoteFile> = if (config.isDropbox) {
+        dropbox.scan(config) {}.filter { VideoFile.shouldIndex(it.path, it.size) }
+    } else if (config.isWebDav) webdav.scan(config) {}.filter { VideoFile.shouldIndex(it.path, it.size) } else withShare(config) { share ->
         val results = mutableListOf<RemoteFile>()
         val pending = mutableListOf(rootOf(config))
         while (pending.isNotEmpty()) {
@@ -216,7 +228,9 @@ class SmbService(
     }
 
     /** Reports discovered files in batches while walking every nested media directory. */
-    suspend fun scanMedia(config: SourceConfig, onProgress: suspend (ScanProgress) -> Unit): List<RemoteFile> = if (config.isWebDav) webdav.scan(config, onProgress) else withShare(config) { share ->
+    suspend fun scanMedia(config: SourceConfig, onProgress: suspend (ScanProgress) -> Unit): List<RemoteFile> = if (config.isDropbox) {
+        dropbox.scan(config, onProgress)
+    } else if (config.isWebDav) webdav.scan(config, onProgress) else withShare(config) { share ->
         val results = mutableListOf<RemoteFile>()
         val pending = mutableListOf(rootOf(config))
         var folders = 0
@@ -251,7 +265,11 @@ class SmbService(
     }
 
     /** Read-only, bounded lookup beside the video; never enumerates another folder or share. */
-    suspend fun readSubtitleSidecars(config: SourceConfig, videoPath: String, preferredLanguage: String? = null): SubtitleDiscovery = if (config.isWebDav) webdav.subtitles(config, videoPath, preferredLanguage) else withShare(config) { share ->
+    suspend fun readSubtitleSidecars(
+        config: SourceConfig, videoPath: String, preferredLanguage: String? = null, authorize: () -> Unit = {},
+    ): SubtitleDiscovery = if (config.isDropbox) {
+        dropbox.subtitles(config, videoPath, preferredLanguage, authorize)
+    } else if (config.isWebDav) webdav.subtitles(config, videoPath, preferredLanguage) else withShare(config) { share ->
         if (!SubtitleSidecars.includesPath(videoPath, config.rootPath, config.ignoredFolders, config.ignoredFiles))
             return@withShare SubtitleDiscovery(emptyList())
         var truncated = false
@@ -305,6 +323,7 @@ class SmbService(
     suspend fun hasPlayableContent(config: SourceConfig, path: String): Boolean {
         if (!MediaFile.isPlayable(path)) return false
         if (!MediaFile.requiresContentCheck(path)) return true
+        if (config.isDropbox) return dropbox.accepts(config, path) {}
         if (config.isWebDav) return webdav.accepts(config, path, playback = true)
         return withShare(config) { acceptsContent(it, path, playback = true) }
     }
@@ -329,7 +348,7 @@ class SmbService(
     }
 
     /** Opens a file for streaming. Blocking; call from a background thread. */
-    fun open(config: SourceConfig, path: String): RemoteHandle = if (config.isWebDav) webdav.service.open(config, path) else withSessionBlocking(
+    fun open(config: SourceConfig, path: String): RemoteHandle = if (config.isDropbox) openDropbox(config, path) {} else if (config.isWebDav) webdav.service.open(config, path) else withSessionBlocking(
         config, closeInvalidResult = { handle: RemoteHandle -> runCatching { handle.close() } },
     ) { lease ->
         val file = lease.value.share.openFile(
@@ -350,6 +369,15 @@ class SmbService(
         }
         SmbRemoteHandle(file, length, lease.retain())
     }
+
+    internal fun openDropbox(config: SourceConfig, path: String, authorize: () -> Unit): RemoteHandle =
+        dropbox.open(config, path, authorize)
+
+    internal suspend fun probeDropbox(config: SourceConfig, path: String, authorize: () -> Unit): Boolean =
+        dropbox.accepts(config, path, authorize)
+
+    internal suspend fun browseDropbox(config: SourceConfig, path: String, authorize: () -> Unit): List<NasEntry> =
+        dropbox.browse(config, path, authorize)
 
     companion object {
         /** Session-level failures where reconnecting can help; other NT statuses (not found, denied) are final. */
@@ -384,6 +412,9 @@ class SmbService(
         /** User-facing message for SMB and network failures. */
         fun describe(error: Throwable): String {
             val chain = generateSequence(error) { it.cause }.take(8).toList()
+            chain.filterIsInstance<CloudClientException>().firstOrNull()?.let {
+                return it.message ?: "Could not reach Dropbox."
+            }
             chain.filterIsInstance<com.dineshdevkota.cinevault.webdav.WebDavException>().firstOrNull()?.let { return it.message ?: "Could not open WebDAV." }
             chain.firstNotNullOfOrNull { it as? SMBApiException }?.let { api ->
                 when (api.statusCode) {

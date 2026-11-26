@@ -335,8 +335,10 @@ private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> U
         loading = true; ready = false; error = null; folders = emptyList()
         try {
             container.family.requireAdmin()
-            val config = withContext(Dispatchers.IO) { source.config(container.secrets).copy(rootPath = path) }
-            folders = NasBrowser().listFolders(config)
+            val config = withContext(Dispatchers.IO) { source.config(container.secrets) }
+            folders = if (config.isDropbox) container.smb.browseDropbox(config, path, container.family::requireAdmin)
+                .filter { it.isDirectory }.map { it.name }
+            else NasBrowser().listFolders(config.copy(rootPath = path))
             container.family.requireAdmin(); ready = true
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { error = SmbService.describe(failure) }

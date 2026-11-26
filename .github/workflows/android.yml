@@ -11,6 +11,8 @@ on:
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
       - "scripts/test_jellyfin_fixture.py"
+      - "scripts/dropbox_fixture.py"
+      - "scripts/start_dropbox_fixture.sh"
       - "scripts/start_plex_fixture.sh"
       - "scripts/plex_fixture.py"
       - "scripts/tests/test_plex_fixture.py"
@@ -25,6 +27,8 @@ on:
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
       - "scripts/test_jellyfin_fixture.py"
+      - "scripts/dropbox_fixture.py"
+      - "scripts/start_dropbox_fixture.sh"
       - "scripts/start_plex_fixture.sh"
       - "scripts/plex_fixture.py"
       - "scripts/tests/test_plex_fixture.py"
@@ -101,13 +105,14 @@ jobs:
             echo '::error title=Android emulator acceleration::The runner cannot read and write /dev/kvm after udev settled.'
             exit 1
           fi
-      - name: Start the synthetic SMB and WebDAV fixtures
+      - name: Start the synthetic SMB, WebDAV, Plex, and Dropbox fixtures
         run: |
           set -euo pipefail
           python -m pip install -r scripts/nas-test-requirements.txt
           python scripts/nas_fixture.py "$RUNNER_TEMP/android-nas-fixture" >"$RUNNER_TEMP/android-nas-fixture.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/android-nas-fixture.pid"
           bash scripts/start_webdav_fixture.sh "$RUNNER_TEMP/android-webdav-fixture"
+          bash scripts/start_dropbox_fixture.sh "$RUNNER_TEMP/android-dropbox-fixture"
           python - <<'PY'
           import socket, time
           for attempt in range(30):
@@ -155,11 +160,14 @@ jobs:
                   detail = (problem.get("message", "") + "\n" + (problem.text or ""))[:4000]
                   detail = detail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
                   print(f"::error title=Android runtime test::{case.get('classname')}.{case.get('name')}: {detail}")
-              elif case.find("skipped") is None and case.get("classname", "").endswith(".JellyfinAndroidIntegrationTest"):
+              elif case.find("skipped") is None and (case.get("classname", "").endswith(".JellyfinAndroidIntegrationTest")
+                   or case.get("classname", "").endswith(".PlexTlsIntegrationTest")
+                   or case.get("name", "").startswith("dropbox")):
                   print(f"{case.get('classname')}.{case.get('name')} passed")
           required = {"TVNavigationTest", "SecretBoxInstrumentedTest", "LibraryDatabaseTest", "MetadataMutationTest",
                       "LibraryScannerTest", "SmbDataSourceContractTest", "SmbIntegrationTest", "SmbPlaybackTest",
                       "JellyfinAndroidIntegrationTest", "JellyfinSetupNavigationTest",
+                      "DropboxSetupNavigationTest",
                       "WatchlistMigrationTest", "WatchlistNavigationTest", "NasBrowserIntegrationTest",
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",
@@ -175,10 +183,13 @@ jobs:
           webdav = ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "webDavAuthenticationScanPlaybackAndSeek")
           if webdav not in identities:
               raise SystemExit("WebDAV playback did not execute in the Android TV emulator")
+          dropbox = ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate")
+          if dropbox not in identities:
+              raise SystemExit("Dropbox playback and household access did not execute in the Android TV emulator")
           if not required <= executed or failures or skipped or duplicate:
               raise SystemExit("Required runtime tests did not all execute successfully: " + str(sorted(required - executed)))
           PY
-      - name: Stop the SMB and WebDAV fixtures
+      - name: Stop the SMB, WebDAV, Plex, and Dropbox fixtures
         if: always()
         run: |
           if [[ -f "$RUNNER_TEMP/android-nas-fixture.pid" ]]; then
@@ -186,6 +197,9 @@ jobs:
           fi
           if [[ -f "$RUNNER_TEMP/android-webdav-fixture/server.pid" ]]; then
             kill "$(cat "$RUNNER_TEMP/android-webdav-fixture/server.pid")" 2>/dev/null || true
+          fi
+          if [[ -f "$RUNNER_TEMP/android-dropbox-fixture/server.pid" ]]; then
+            kill "$(cat "$RUNNER_TEMP/android-dropbox-fixture/server.pid")" 2>/dev/null || true
           fi
       - name: Upload runtime test reports
         if: always()
@@ -199,6 +213,7 @@ jobs:
             ${{ runner.temp }}/android-nas-fixture.log
             ${{ runner.temp }}/jellyfin-android.log
             ${{ runner.temp }}/android-webdav-fixture/server.log
+            ${{ runner.temp }}/android-dropbox-fixture/server.log
             ${{ runner.temp }}/android-plex-fixture/server.log
           if-no-files-found: error
           retention-days: 7

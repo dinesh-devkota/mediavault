@@ -348,7 +348,11 @@ class PlayerActivity : ComponentActivity() {
             PlexPlaying(client, part, authorized.rating)
         } else null
         val config = if (connection == null && plex == null) withContext(Dispatchers.IO) { source.config(container.secrets) } else null
-        if (config != null) PlaybackValidator.validate(movie, config, container.smb::hasPlayableContent)
+        if (config != null) PlaybackValidator.validate(movie, config) { fileConfig, path ->
+            if (fileConfig.isDropbox) container.smb.probeDropbox(fileConfig, path) {
+                check(container.family.isCurrent(householdSession) && container.family.permits(movie))
+            } else container.smb.hasPlayableContent(fileConfig, path)
+        }
         if (connection != null && jellyfinItemID(movie.filePath) == null) {
             throw JellyfinException("This Jellyfin item is invalid. Scan the source again.")
         }
@@ -426,29 +430,34 @@ class PlayerActivity : ComponentActivity() {
         if (player != null || isFinishing) return
         val smb = container.smb
         if (!container.family.isCurrent(householdSession) || !container.family.permits(target.movie)) { finish(); return }
-        val authorizeProvider = {
+        val authorizeProviderRead = {
             val active = this.target?.movie
-            if (active == null || active.id != target.movie.id || active.isHidden || active.isMissing ||
+            if (active == null || active.id != target.movie.id || active.sourceId != target.movie.sourceId ||
+                active.filePath != target.movie.filePath || active.isHidden || active.isMissing ||
                 !container.family.isCurrent(householdSession) || !container.family.permits(active) ||
                 target.plex?.let { !container.family.permits(active.copy(ageCertification = it.rating)) } == true) {
                 throw IOException("This item is no longer available for playback.")
             }
         }
-        val files = if (jellyfin != null) jellyfinDataSources(jellyfin.connection, jellyfin.playback, authorize = authorizeProvider)
+        val files = if (jellyfin != null) jellyfinDataSources(jellyfin.connection, jellyfin.playback, authorize = authorizeProviderRead)
         else DataSource.Factory { SmbDataSource(authorize = {
             val active = this.target?.movie
             check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
         }) {
             check(container.family.isCurrent(householdSession) && container.family.permits(target.movie)) { "Your household session has locked." }
-            target.plex?.let { PlexRemoteHandle(it.client, it.part, authorizeProvider) }
-                ?: smb.open(checkNotNull(target.config), target.movie.filePath)
+            target.plex?.let { PlexRemoteHandle(it.client, it.part, authorizeProviderRead) } ?: run {
+                val config = checkNotNull(target.config)
+                if (config.isDropbox) smb.openDropbox(config, target.movie.filePath, authorizeProviderRead)
+                else smb.open(config, target.movie.filePath)
+            }
         } }
         // Only the scoped HTTP transport can resolve paths from a Jellyfin manifest.
         val dataSources = if (jellyfin != null) files else DefaultDataSource.Factory(this, files)
         val primarySources = DefaultMediaSourceFactory(dataSources,
             DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
             .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
-        val localCaptions = if (jellyfin == null) dataSources else jellyfinLocalSubtitleDataSources(authorizeProvider)
+        val localCaptions = if (jellyfin == null && target.plex == null && target.config?.isDropbox != true) dataSources
+            else jellyfinLocalSubtitleDataSources(authorizeProviderRead)
         val mediaSources = SubtitleMediaSourceFactory(primarySources, localCaptions) { preparedSubtitles }
         val exo = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setEnableDecoderFallback(true))
             .setMediaSourceFactory(mediaSources)
@@ -546,7 +555,12 @@ class PlayerActivity : ComponentActivity() {
         val language = container.settings.subtitleLanguage
         val discovery = container.scope.async(Dispatchers.IO) {
             try {
-                val found = smb.readSubtitleSidecars(checkNotNull(loaded.config), loaded.movie.filePath, language)
+                val found = smb.readSubtitleSidecars(checkNotNull(loaded.config), loaded.movie.filePath, language) {
+                    val active = target?.movie
+                    check(active != null && active.id == loaded.movie.id && active.filePath == loaded.movie.filePath &&
+                        !active.isHidden && !active.isMissing && container.family.isCurrent(householdSession) &&
+                        container.family.permits(active)) { "Your household session has locked." }
+                }
                 found.files.mapNotNull(SubtitleTracks::configuration) to found.truncated
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { emptyList<PreparedSubtitle>() to false }
@@ -985,6 +999,10 @@ class PlayerActivity : ComponentActivity() {
         fun filePlaybackUri(config: SourceConfig, path: String): Uri {
             if (config.isWebDav) {
                 return Uri.parse(DavAddress(config.host, config.allowInsecureHttp).url(path).toString())
+            }
+            if (config.isDropbox) {
+                return Uri.Builder().scheme("dropbox").authority("media")
+                    .apply { path.split('/').forEach(::appendPath) }.build()
             }
             return Uri.Builder()
                 .scheme("smb")

@@ -32,6 +32,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.BuildConfig
+import com.dineshdevkota.cinevault.cloud.DROPBOX
 import com.dineshdevkota.cinevault.core.NasAddress
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
@@ -56,12 +57,13 @@ fun SourcesTab(movies: List<MovieEntity>) {
         contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { ScreenHeader("Sources", kicker = "YOUR NAS") }
+        item { ScreenHeader("Sources") }
         item {
             AdaptiveActions() {
                 Button(onClick = { NasSetupActivity.start(context) }) { Text("Add NAS Source") }
                 OutlinedButton(onClick = { JellyfinSetupActivity.start(context) }) { Text("Connect Jellyfin") }
                 OutlinedButton(onClick = { PlexSetupActivity.start(context) }) { Text("Connect Plex") }
+                OutlinedButton(onClick = { DropboxSetupActivity.start(context) }) { Text("Connect Dropbox") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
                     enabled = !scanning && sources.isNotEmpty(),
@@ -80,7 +82,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
             }
         }
         if (sources.isEmpty()) {
-            item { EmptyState("No NAS sources yet", "Find your NAS, sign in if needed, then choose your movie folder.") }
+            item { EmptyState("No sources yet", "Connect a source and choose a media folder or library.") }
         }
         items(sources, key = { it.id }) { source ->
             SourceRow(
@@ -92,6 +94,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
                     when (source.sourceType) {
                         JELLYFIN -> JellyfinSetupActivity.start(context, source.id)
                         PLEX -> PlexSetupActivity.start(context, source.id)
+                        DROPBOX -> DropboxSetupActivity.start(context, source.id)
                         else -> SourceEditorActivity.start(context, source.id)
                     }
                 },
@@ -130,6 +133,7 @@ private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onSca
 }
 
 fun sourceUrl(source: SourceEntity): String {
+    if (source.sourceType == DROPBOX) return "Dropbox / ${source.rootPath}"
     if (source.sourceType == JELLYFIN || source.sourceType == PLEX) return source.host
     if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
