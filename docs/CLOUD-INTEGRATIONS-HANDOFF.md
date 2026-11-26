@@ -310,16 +310,18 @@ subsequent photo navigation fix completed the signed preview as recorded below.
   exact WebDAV prompt handling from merged #7 and compiles locally. At `51af57c`,
   Fire OS passed 66 cases, Android TV 124, Android phone 20, and WebDAV passed
   on iPhone. Its only iPhone test failure was an MKV drag intended near 21s
-  that left the VLC clock at 28.39s. The current Vega harness verifies the
-  correct PIN restores admin access and actively searches to open the exact
-  fixture title. Native seek request evidence is prepared in a local Debug-only
-  review branch.
+  that left the VLC clock at 28.39s. Exact `36b8a08` passed production startup
+  and all ten Vega runtime cases, including the corrected PIN evidence, all
+  three Fire OS compatibility legs, and both Android emulator suites. The
+  current Apple gates remain under the PR checks. A local Debug-only review
+  branch captures the MKV request and actual VLC clock separately.
+  [Vega evidence](https://github.com/dinesh-devkota/mediavault/actions/runs/45890596491)
   [Fire TV and Vega #20](https://github.com/dinesh-devkota/mediavault/pull/20)
-- Apple simulator reliability #31 `b06f13c` is refreshed against merged Drive.
-  Its signed `b7920f5` preview passed all eight screens and 46 OCR checks,
-  including the photo controls and Search. The exact current `b06f13c` preview
-  passed the same 46 checks, all eight screens, and Swift Core 84/84. Its current
-  full Apple simulator suites are still listed under the PR checks.
+- Apple simulator reliability #31 merged at `99616cd` with the exact tested
+  `b06f13c` tree. The branch passed 258 iPhone, 260 Apple TV, and 84 Swift Core
+  tests, plus both unsigned Apple builds and their privacy resources. The signed
+  Apple TV preview passed all eight screens and all 46 OCR assertions, including
+  the photo controls and Search.
   [Apple simulator reliability #31](https://github.com/dinesh-devkota/mediavault/pull/31)
 - Android NFS #8 `0eac115` is refreshed against merged Drive. The existing
   opt-in owner setup, scoped catalog and byte reads, native playback and source
