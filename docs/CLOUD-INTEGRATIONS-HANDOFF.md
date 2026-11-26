@@ -162,9 +162,13 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   setup, library import and protected direct playback. Apple app integration,
   HLS, and other provider media types still need work.
   [Emby](https://github.com/dinesh-devkota/mediavault/pull/3)
-- Plex has protected account PIN, server discovery, catalog, and byte reads
-  in provider clients. Full TV setup, protected player wiring and a signed-in
-  QA account are still needed.
+- The Android Plex draft connects an owner’s Plex account by PIN, then stores
+  only the selected HTTPS server credential encrypted for each local library.
+  Android TV and phone share the setup, catalog, and player. Imports support
+  movies, episode grouping and photos. Reading video, artwork and text subtitles
+  rechecks the household session. Playback supports single-file direct streams.
+  Hosted emulator checks use a disposable HTTPS fixture. Signed-in QA on a real
+  Plex server and provider transcoding remain open.
   [Plex](https://github.com/dinesh-devkota/mediavault/pull/5)
 - NFS has loopback tests and an opt-in Android debug bridge for four ABIs.
   The app source, both TV playback journeys, tvOS packaging and distribution
@@ -225,6 +229,15 @@ checks.
 
 The separate Android phone workflow runs a clean API 36 phone emulator against the synthetic SMB fixture. It verifies launcher discovery, touch source-form validation, credential entry, folder selection and scan, opening the imported movie and seeking through native playback controls. Phone WebDAV reuses the shared implementation and source editor. This phone smoke covers SMB; WebDAV transport has its existing Android TV fixture. Physical phone testing and app distribution remain separate.
 
+
+### Plex on Apple TV
+
+The isolated `codex/mediavault-plex-tvos` branch starts at development commit `942b1f2`.
+An owner can link using the code shown in Sources, choose an advertised Plex Media Server and choose one movie, TV, or photo library. Reconnect preserves the server and library identity. The source stores its server token in Keychain. Removing the source clears its local catalog and credential. Household profiles need an explicit whole-library grant and keep their local watched, resume and Watchlist records separate from the Plex account.
+
+The implementation supports protected Plex artwork, photo thumbnails, native MP4/M4V/MOV direct play with byte-range seeking, and matching external SRT or WebVTT tracks. A disposable HTTPS fixture covers Plex linking, discovery, catalog groups, paging, media ranges, restricted artwork, and caption playback. The branch also adds a remote navigation test for the owner's setup entry. Local cloud checks use Python transport tests and Swift source parsing. The Apple TV hosted jobs are the compile and runtime gate.
+
+Before shipping, validate a real Plex server and account against Apple TV hardware. Plex transcoding, Relay-only connections, and full-size original Plex photos are pending. Apple simulator and unsigned release checks require no distribution credentials. App Store submission and approval require the owner's separate Apple process.
 
 ## Google Drive on Android
 

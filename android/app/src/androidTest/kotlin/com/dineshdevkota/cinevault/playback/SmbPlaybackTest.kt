@@ -46,6 +46,8 @@ import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
@@ -63,8 +65,6 @@ import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicLong
 
 /** Decodes and seeks the fixture movie through the app's file-backed Media3 data source. */
 @RunWith(AndroidJUnit4::class)
@@ -77,7 +77,7 @@ class SmbPlaybackTest {
         val smb = SmbService()
         try {
             val movie = smb.scanVideos(config).single()
-            verifyPlayback(config, movie.path) { smb.open(config, movie.path) }
+            Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, movie.path)) { smb.open(config, movie.path) }
         } finally {
             smb.reset(config.id)
         }
@@ -115,7 +115,7 @@ class SmbPlaybackTest {
         assertEquals("https://10.0.2.2:15443/dav/Movies/Film.mp4", PlayerActivity.filePlaybackUri(config, movie.path).toString())
         val captions = provider.subtitles(config, movie.path, "en")
         assertEquals(1, captions.files.size)
-        verifyPlayback(config, movie.path) { provider.service.open(config, movie.path) }
+        Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, movie.path)) { provider.service.open(config, movie.path) }
     }
 
     @Test
@@ -176,7 +176,7 @@ class SmbPlaybackTest {
             assertEquals(1, captions.size)
             assertTrue(captions.single().bytes.decodeToString().contains("Synthetic Drive caption"))
             assertEquals(96, photos.load(photo.id).width)
-            verifyPlayback(config, renamed.filePath, authorize) { service.open(config, renamed.filePath) }
+            Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, renamed.filePath), authorize) { service.open(config, renamed.filePath) }
             family.lock()
             assertTrue(runCatching { photos.load(photo.id) }.isFailure)
             photos.clearMemory()
@@ -199,81 +199,6 @@ class SmbPlaybackTest {
         val other = DriveDocumentPath.child(DriveDocumentPath.ROOT, fixture.photo.id, fixture.photo.name)
         assertTrue(runCatching { drive.open(config, other).close() }.exceptionOrNull() is GoogleDriveDocumentsException)
         assertEquals(0, fixture.reads)
-    }
-
-    private suspend fun verifyPlayback(
-        config: SourceConfig, path: String, authorize: () -> Unit = {}, openFile: () -> RemoteHandle,
-    ) {
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            var player: ExoPlayer? = null
-            var view: PlayerView? = null
-            val observation = PlaybackObservation()
-            try {
-                scenario.onActivity { activity ->
-                    val files = DataSource.Factory { SmbDataSource(authorize = authorize, openFile = openFile) }
-                    val sources = ProgressiveMediaSource.Factory(
-                        files, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
-                    ).setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
-                    val exo = ExoPlayer.Builder(activity, DefaultRenderersFactory(activity).setEnableDecoderFallback(true))
-                        .setMediaSourceFactory(sources)
-                        .build()
-                    player = exo
-                    exo.addListener(observation)
-                    // This callback is on the playback thread; all other observations are on Main.
-                    exo.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
-                        observation.frameTimeUs.set(presentationTimeUs)
-                    }
-                    view = PlayerView(activity).apply {
-                        useController = false
-                        keepScreenOn = true
-                        this.player = exo
-                    }
-                    // An actual attached SurfaceView exercises decoding/rendering on the emulator.
-                    activity.setContentView(view)
-                    exo.setMediaItem(MediaItem.fromUri(PlayerActivity.filePlaybackUri(config, path)))
-                    exo.prepare()
-                    exo.play()
-                }
-                val exo = checkNotNull(player)
-                awaitPlayback(exo, observation, positionMs = 500)
-                withContext(Dispatchers.Main) {
-                    assertTrue("The scanned movie must expose a seekable timeline", exo.isCurrentMediaItemSeekable)
-                    exo.seekTo(8_000)
-                    exo.play()
-                }
-                awaitPlayback(exo, observation, positionMs = 8_500)
-                withContext(Dispatchers.Main) {
-                    assertTrue("Media3 must acknowledge the requested seek", observation.seekObserved)
-                    observation.throwIfFailed()
-                }
-            } finally {
-                withContext(NonCancellable + Dispatchers.Main) {
-                    view?.player = null
-                    player?.release()
-                }
-            }
-        }
-    }
-
-    private suspend fun awaitPlayback(player: ExoPlayer, observation: PlaybackObservation, positionMs: Long) {
-        var snapshot = "Player not observed"
-        val advanced = withTimeoutOrNull(40_000) {
-            while (true) {
-                val reached = withContext(Dispatchers.Main) {
-                    observation.throwIfFailed()
-                    val frameUs = observation.frameTimeUs.get()
-                    snapshot = "state=${player.playbackState}, playing=${player.isPlaying}, " +
-                        "position=${player.currentPosition}, videoFrameUs=$frameUs, firstFrame=${observation.firstFrame}"
-                    observation.firstFrame && player.isPlaying && player.currentPosition >= positionMs &&
-                        frameUs >= positionMs * 1_000
-                }
-                if (reached) return@withTimeoutOrNull true
-                delay(100)
-            }
-            @Suppress("UNREACHABLE_CODE")
-            false
-        } ?: false
-        assertTrue("Fixture playback did not advance past $positionMs ms: $snapshot", advanced)
     }
 
     private class DriveFixture : DriveDocumentAccess {
@@ -317,6 +242,81 @@ class SmbPlaybackTest {
         }
 
         companion object { const val AUTHORITY = "fixture.drive.documents" }
+    }
+}
+
+internal object Media3FixturePlayback {
+    suspend fun verify(uri: Uri, authorize: () -> Unit = {}, openFile: () -> RemoteHandle) {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var player: ExoPlayer? = null
+            var view: PlayerView? = null
+            val observation = PlaybackObservation()
+            try {
+                scenario.onActivity { activity ->
+                    val files = DataSource.Factory { SmbDataSource(authorize = authorize, openFile = openFile) }
+                    val sources = ProgressiveMediaSource.Factory(
+                        files, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
+                    ).setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
+                    val exo = ExoPlayer.Builder(activity, DefaultRenderersFactory(activity).setEnableDecoderFallback(true))
+                        .setMediaSourceFactory(sources)
+                        .build()
+                    player = exo
+                    exo.addListener(observation)
+                    // This callback is on the playback thread; all other observations are on Main.
+                    exo.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
+                        observation.frameTimeUs.set(presentationTimeUs)
+                    }
+                    view = PlayerView(activity).apply {
+                        useController = false
+                        keepScreenOn = true
+                        this.player = exo
+                    }
+                    // An actual attached SurfaceView exercises decoding/rendering on the emulator.
+                    activity.setContentView(view)
+                    exo.setMediaItem(MediaItem.fromUri(uri))
+                    exo.prepare()
+                    exo.play()
+                }
+                val exo = checkNotNull(player)
+                awaitPlayback(exo, observation, positionMs = 500)
+                withContext(Dispatchers.Main) {
+                    assertTrue("The scanned movie must expose a seekable timeline", exo.isCurrentMediaItemSeekable)
+                    exo.seekTo(8_000)
+                    exo.play()
+                }
+                awaitPlayback(exo, observation, positionMs = 8_500)
+                withContext(Dispatchers.Main) {
+                    assertTrue("Media3 must acknowledge the requested seek", observation.seekObserved)
+                    observation.throwIfFailed()
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    view?.player = null
+                    player?.release()
+                }
+            }
+        }
+    }
+
+    private suspend fun awaitPlayback(player: ExoPlayer, observation: PlaybackObservation, positionMs: Long) {
+        var snapshot = "Player not observed"
+        val advanced = withTimeoutOrNull(40_000) {
+            while (true) {
+                val reached = withContext(Dispatchers.Main) {
+                    observation.throwIfFailed()
+                    val frameUs = observation.frameTimeUs.get()
+                    snapshot = "state=${player.playbackState}, playing=${player.isPlaying}, " +
+                        "position=${player.currentPosition}, videoFrameUs=$frameUs, firstFrame=${observation.firstFrame}"
+                    observation.firstFrame && player.isPlaying && player.currentPosition >= positionMs &&
+                        frameUs >= positionMs * 1_000
+                }
+                if (reached) return@withTimeoutOrNull true
+                delay(100)
+            }
+            @Suppress("UNREACHABLE_CODE")
+            false
+        } ?: false
+        assertTrue("Fixture playback did not advance past $positionMs ms: $snapshot", advanced)
     }
 
     private class PlaybackObservation : Player.Listener {

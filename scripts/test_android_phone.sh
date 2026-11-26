@@ -12,28 +12,33 @@ if [[ -z "$SERIAL" || "$SERIAL" == *$'\n'* || "$(adb -s "$SERIAL" shell getprop 
   exit 1
 fi
 export ANDROID_SERIAL="$SERIAL"
+PLEX_CERTIFICATE=$(base64 -w0 "$RUNNER_TEMP/phone-plex/fixture.cer")
 app_id=com.dineshdevkota.cinevault
 phone_class="$app_id.AndroidPhoneNavigationTest"
+plex_class="$app_id.plex.PlexTlsIntegrationTest"
 drive_class="$app_id.playback.SmbPlaybackTest"
 drive_tree="googleDriveFolderImportPhotosCaptionsAndSeekRequireAnExplicitHouseholdGrant"
 drive_files="googleDriveExplicitDocumentsCannotReadAnUnselectedFile"
 cd android
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
-  "-Pandroid.testInstrumentationRunnerArguments.class=$phone_class,$drive_class#$drive_tree,$drive_class#$drive_files" \
+  "-Pandroid.testInstrumentationRunnerArguments.class=$phone_class,$plex_class,$drive_class#$drive_tree,$drive_class#$drive_files" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
+  -Pandroid.testInstrumentationRunnerArguments.plexCertificate="$PLEX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.phoneUiFixture=true
-python3 - "$phone_class" "$drive_class" "$drive_tree" "$drive_files" <<'PY'
+python3 - "$phone_class" "$plex_class" "$drive_class" "$drive_tree" "$drive_files" <<'PY'
 from pathlib import Path
 from sys import argv
 from xml.etree import ElementTree
 
 reports = Path("app/build/outputs/androidTest-results").rglob("TEST-*.xml")
 cases = [case for report in reports for case in ElementTree.parse(report).getroot().iter("testcase")]
-phone, drive, tree, files = argv[1:]
+phone, plex, drive, tree, files = argv[1:]
 expected = {
     (phone, "handheldLauncherOpensSourceFormAndShowsAddressValidation"),
     (phone, "touchSetupImportsMovieAndPlaysAndSeeksWithNativeControls"),
     (phone, "touchEditsAndRemovesAnExistingGoogleDriveSelection"),
+    (phone, "touchNavigationOpensPlexLinking"),
+    (plex, "ownerConnectsOverTlsAndReadsCatalogAndMediaRange"),
     (drive, tree),
     (drive, files),
 }
