@@ -14,6 +14,7 @@ new features are considered validated. A successful compile is insufficient.
 | Real additional-player transport, subtitle/audio sheets, Back | `AlternativePlaybackRemoteTests`, `AlternativePlaybackPhoneTests` | Existing native playback controls journeys |
 | Profile isolation and safe metadata | `LibraryCollectionsTests`, `LocalMetadataImportTests`, core parser tests | Local library integration and core/app unit tests |
 | Stream ranges, revocation and cancellation | `MediaByteRelayTests` | Existing data-source contract tests |
+| Plex linking, imported catalog, restricted reads and direct playback | `PlexFixtureTests`, account/media client tests | Plex provider, TLS and setup tests |
 
 The NAS fixture now exposes separate read-only `MEDIALIBRARY` and
 `FORMATPLAYBACK` shares. They contain synthetic NFO/images and real short videos,
@@ -25,8 +26,11 @@ tracks and a local SRT file for the Apple phone/remote controls journeys. The
 shorter format samples still test natural completion.
 
 Both Android runners are restricted to disposable hosted emulators. The phone
-runner requires seven executed cases, including the new library journey and MKV
-playback. Apple workflows check the expected cases explicitly and reject skipped
+runner requires twelve executed cases, including the library journey, MKV playback,
+Plex setup, authenticated Plex range reads, and preservation of server ratings and
+episode identity during metadata edits. Apple workflows also start and trust
+the isolated Plex HTTPS fixture and require its shared test suite. They check the
+expected cases explicitly and reject skipped
 or missing results. Screenshots from the collection/version journeys are retained
 on successful runs as well as failures. Review them for clipping, remote focus,
 phone touch controls and readable source/version labels.

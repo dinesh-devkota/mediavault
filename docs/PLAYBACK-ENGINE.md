@@ -1,10 +1,15 @@
 # Apple playback engine
 
 The library/playback feature branch preserves AVPlayer for compatible native
-media and server-negotiated Jellyfin playback. Additional direct-file formats
+media, native-compatible Plex streams, and server-negotiated Jellyfin playback. Additional direct-file formats
 use VideoLAN's VLCKit on both iOS and tvOS. The Android app continues using
 Media3/ExoPlayer with device decoders; this does not make every codec available
 on every Android device.
+
+Plex currently uses AVPlayer for compatible MP4/M4V/MOV parts on Apple devices.
+The VideoLAN fallback does not yet apply to Plex parts, and Plex transcoding or
+Relay-only connections are not implemented. Its protected byte-range reader and
+server subtitles retain the current household and source authorization checks.
 
 ## Reproducible dependency
 
