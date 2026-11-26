@@ -5,7 +5,7 @@ enum PlexAccountError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidIdentity: return "MediaVault could not identify this Apple TV to Plex."
+        case .invalidIdentity: return "MediaVault could not identify this device to Plex."
         case .invalidResponse: return "Plex returned an invalid linking or server response."
         case .status(404): return "The Plex link code expired. Request a new code."
         case .status(let status): return "Plex returned HTTP \(status)."
@@ -21,6 +21,14 @@ private final class PlexRedirectDelegate: NSObject, URLSessionTaskDelegate {
 }
 
 struct PlexAccountClient: Sendable {
+    #if os(iOS)
+    static let platform = "iOS"
+    static let device = "iPhone"
+    #else
+    static let platform = "tvOS"
+    static let device = "Apple TV"
+    #endif
+
     struct LinkCode: Decodable, Sendable {
         let id: Int
         let code: String
@@ -115,8 +123,8 @@ struct PlexAccountClient: Sendable {
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("MediaVault", forHTTPHeaderField: "X-Plex-Product")
-        request.setValue("tvOS", forHTTPHeaderField: "X-Plex-Platform")
-        request.setValue("Apple TV", forHTTPHeaderField: "X-Plex-Device")
+        request.setValue(Self.platform, forHTTPHeaderField: "X-Plex-Platform")
+        request.setValue(Self.device, forHTTPHeaderField: "X-Plex-Device")
         request.setValue(deviceID, forHTTPHeaderField: "X-Plex-Client-Identifier")
         if let token {
             guard Self.isValidToken(token) else {

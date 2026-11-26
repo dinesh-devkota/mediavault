@@ -1,0 +1,385 @@
+import AVFoundation
+import CineVaultCore
+import Foundation
+import SwiftUI
+import VLCKit
+#if CINEVAULT_COMMERCIAL
+import CineVaultCommercial
+#endif
+
+/// VideoLAN demux/decoding is used only when the native Apple route cannot play the file.
+/// All network access goes through MediaByteRelay's live source and household checks.
+@MainActor
+final class AlternativePlayback: ObservableObject {
+    struct Track: Identifiable, Equatable {
+        let id: String
+        let label: String
+        let language: String?
+    }
+    let engine = VLCMediaPlayer()
+    @Published private(set) var position: Double = 0
+    @Published private(set) var duration: Double = 0
+    @Published private(set) var playing = false
+    @Published private(set) var ready = false
+    @Published private(set) var ended = false
+    @Published private(set) var failure: String?
+    @Published private(set) var audioTracks: [Track] = []
+    private let relay: MediaByteRelay
+    private var timer: Task<Void, Never>?
+    private var parser: VLCMediaParser?
+    private var stopped = false
+    private var requestedPlayback = false
+    private var observedPlaying = false
+    private var pendingSeek: Double?
+    private var resumeTask: Task<Void, Never>?
+    private var pauseAwaitingAcknowledgement = false
+    private(set) var preparationStage = "not started"
+    var tick: (() -> Void)?
+    var didEnd: (() -> Void)?
+    var failed: ((String) -> Void)?
+
+    static func supports(path: String) -> Bool {
+        guard MediaFile.shouldIndex(path: path, size: 1), !MediaFile.isPhoto(path: path) else { return false }
+        // Disc images/menus are intentionally excluded from the single-file route.
+        return ["mp4", "m4v", "mov", "mkv", "avi", "webm", "wmv", "ts", "m2ts", "flv", "mpg", "mpeg",
+                "mp3", "m4a", "aac", "flac", "wav", "aiff", "aif", "ogg", "opus", "wma"].contains((path as NSString).pathExtension.lowercased())
+    }
+
+    init(relay: MediaByteRelay) { self.relay = relay }
+
+    func prepare(url: URL) async throws {
+        preparationStage = "creating media"
+        guard let media = VLCMedia(url: url) else { throw PlaybackPreparationError.unsupportedFormat }
+        // Do not search sibling/network resources from inside the decoding engine.
+        media.addOption(":no-sub-autodetect-file")
+        media.addOption(":network-caching=750")
+        engine.media = media
+        engine.timeChangeUpdateInterval = 0.1
+        // This pinned VLC4 wrapper forwards the value unchanged to libvlc_parser_cfg,
+        // whose timeout is microseconds despite the Objective-C header saying milliseconds.
+        // Keep the independent 35-second Swift deadline below as the cancellation bound.
+        let parser = VLCMediaParser(library: engine.libraryInstance, timeout: 30_000_000)
+        self.parser = parser
+        preparationStage = "queueing metadata"
+        guard parser.queue(media, options: VLCMediaParsingOptions(rawValue: 1)) == 0 else { throw PlaybackPreparationError.unsupportedFormat }
+        defer { parser.cancelAllParsing(); self.parser = nil }
+        preparationStage = "reading metadata"
+        let deadline = ContinuousClock.now.advanced(by: .seconds(35))
+        while media.parsedStatus == .none || media.parsedStatus == .pending {
+            try Task.checkCancellation()
+            guard !stopped, ContinuousClock.now < deadline else { throw PlaybackPreparationError.unsupportedFormat }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try Task.checkCancellation()
+        preparationStage = "metadata status \(media.parsedStatus.rawValue)"
+        guard !stopped, media.parsedStatus == .done else { throw PlaybackPreparationError.unsupportedFormat }
+        preparationStage = "checking playable tracks"
+        guard media.tracksInformation.contains(where: { $0.type == .video || $0.type == .audio }) else {
+            throw PlaybackPreparationError.unsupportedFormat
+        }
+        preparationStage = "checking finite duration"
+        duration = Double(media.length.intValue) / 1000
+        guard duration.isFinite, duration > 0 else { throw PlaybackPreparationError.unsupportedFormat }
+        ready = true; preparationStage = "ready"
+        timer = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                guard let self, !self.stopped else { return }; self.update()
+            }
+        }
+    }
+
+    func play() {
+        guard ready, !stopped, failure == nil, !ended else { return }
+        requestedPlayback = true
+        resumeTask?.cancel()
+        guard pauseAwaitingAcknowledgement else { engine.play(); return }
+        // VLCKit queues pause, while libvlc applies it asynchronously. A play
+        // immediately after pause can otherwise see the old playing state and
+        // become a no-op before that pending pause takes effect.
+        resumeTask = Task { [weak self] in
+            guard let self else { return }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while self.engine.state != .paused, ContinuousClock.now < deadline {
+                do { try await Task.sleep(for: .milliseconds(20)) } catch { return }
+                guard !self.stopped, self.requestedPlayback else { return }
+            }
+            guard !Task.isCancelled, !self.stopped, self.requestedPlayback else { return }
+            self.pauseAwaitingAcknowledgement = false
+            self.engine.play()
+        }
+    }
+    func pause() {
+        requestedPlayback = false; resumeTask?.cancel(); resumeTask = nil
+        pauseAwaitingAcknowledgement = engine.state == .playing || engine.state == .opening
+        engine.pause(); playing = false
+    }
+    func seek(to seconds: Double) {
+        guard ready, !stopped, seconds.isFinite else { return }
+        let target = min(max(0, seconds), duration)
+        if !observedPlaying { engine.media?.addOption(":start-time=\(target)") }
+        pendingSeek = target
+        if engine.isSeekable { applySeek(target) }
+    }
+    private func applySeek(_ seconds: Double) {
+        engine.time = VLCTime(number: NSNumber(value: seconds * 1000))
+        position = seconds; pendingSeek = nil
+    }
+    func stop() {
+        guard !stopped else { return }
+        stopped = true; requestedPlayback = false; playing = false; ready = false
+        resumeTask?.cancel(); resumeTask = nil
+        timer?.cancel(); timer = nil; parser?.cancelAllParsing(); parser = nil
+        engine.stop(); engine.drawable = nil; relay.stop()
+        audioTracks = []; tick = nil; didEnd = nil; failed = nil
+    }
+    var selectedAudio: String? { engine.audioTracks.first(where: { $0.isSelected })?.trackId }
+    func selectAudio(_ id: String) { engine.audioTracks.first(where: { $0.trackId == id })?.isSelectedExclusively = true }
+    var textTracks: [Track] {
+        engine.textTracks.map { Track(id: $0.trackId, label: $0.trackName, language: $0.language) }
+    }
+    var selectedText: String? { engine.textTracks.first(where: { $0.isSelected })?.trackId }
+    func selectText(_ id: String?) {
+        if let id { engine.textTracks.first(where: { $0.trackId == id })?.isSelectedExclusively = true }
+        else { engine.deselectAllTextTracks() }
+    }
+
+    private func update() {
+        guard !stopped else { return }
+        let current = Double(engine.time.intValue) / 1000
+        if current.isFinite, current >= 0, engine.state != .stopped { position = current }
+        let nowPlaying = engine.isPlaying && engine.state == .playing
+        if nowPlaying { observedPlaying = true }
+        if playing != nowPlaying { playing = nowPlaying }
+        if let seek = pendingSeek, engine.isSeekable { applySeek(seek) }
+        let tracks = engine.audioTracks.map { Track(id: $0.trackId, label: $0.trackName, language: $0.language) }
+        if tracks != audioTracks { audioTracks = tracks }
+        if engine.state == .error, failure == nil {
+            failure = "This file could not be decoded or its source stopped responding. Check the connection and try another version."
+            playing = false; failed?(failure!)
+        } else if engine.state == .stopped, requestedPlayback, observedPlaying, !ended, failure == nil {
+            // VLC4 reports natural completion as stopped; a manual stop/pause never reaches this branch.
+            guard position >= max(0, duration - 1.5) else {
+                failure = "Playback stopped before the end of the file. Check the source and try again."
+                failed?(failure!); return
+            }
+            ended = true; playing = false; didEnd?()
+        }
+        tick?()
+    }
+}
+
+#if CINEVAULT_COMMERCIAL
+extension AlternativePlayback: CommercialPlaybackEngine {
+    var playbackReady: Bool { ready }
+    var playbackDuration: Double { duration }
+    var playbackPosition: Double { position }
+    var activelyPlaying: Bool { playing }
+    var playbackEnded: Bool { ended }
+    var playbackFailure: String? { failure }
+    func playAuthorized() { play() }
+    func pausePlayback() { pause() }
+    func seekPlayback(to seconds: Double) { seek(to: seconds) }
+}
+#endif
+
+struct AlternativePlayerView: View {
+    @ObservedObject var controller: PlaybackController
+    @ObservedObject var playback: AlternativePlayback
+    @ObservedObject private var subtitles: PlaybackSubtitles
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    let close: () -> Void
+    @State private var started = false
+    @State private var seekValue = 0.0
+    @State private var scrubbing = false
+    private enum Control: Hashable { case back, subtitles, audio, rewind, playPause, forward }
+    @FocusState private var focusedControl: Control?
+    @FocusState private var videoFocused: Bool
+    @State private var controlsVisible = true
+    @State private var controlsTask: Task<Void, Never>?
+    @State private var transportHeight: CGFloat = 0
+
+    init(controller: PlaybackController, playback: AlternativePlayback, close: @escaping () -> Void) {
+        self.controller = controller; self.playback = playback; self.close = close; self.subtitles = controller.subtitles
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea().contentShape(Rectangle())
+                .focusable(!controlsVisible).focused($videoFocused)
+                .accessibilityLabel("Show playback controls").onTapGesture { revealControls() }
+            AlternativeVideoSurface(playback: playback).ignoresSafeArea().allowsHitTesting(false)
+            VStack(spacing: 16) {
+                HStack {
+                    Button(action: close) { Label("Back", systemImage: "chevron.left") }
+                        .focused($focusedControl, equals: .back).accessibilityIdentifier("playback-close")
+                    Spacer()
+                    Button { revealControls(); controller.subtitles.presented = true } label: { Label("Subtitles", systemImage: "captions.bubble") }
+                        .focused($focusedControl, equals: .subtitles).accessibilityIdentifier("playback-subtitles")
+                    if playback.audioTracks.count > 1 {
+                        Button { revealControls(); controller.audioSelectionPresented = true } label: { Label("Audio", systemImage: "waveform") }
+                            .focused($focusedControl, equals: .audio).accessibilityIdentifier("playback-audio")
+                    }
+                }
+                Spacer()
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(controller.movie.title).font(.headline).lineLimit(2).foregroundStyle(.white)
+                    if let episode = controller.movie.episodeInfo {
+                        Text("\(episode.seriesTitle) · Season \(episode.season) · Episode \(episode.episode)")
+                            .font(.caption).foregroundStyle(.white.opacity(0.75))
+                    }
+                    HStack {
+                        Text(Self.time(playback.position)).monospacedDigit().accessibilityIdentifier("alternative-position")
+                        ProgressView(value: min(playback.position, playback.duration), total: max(1, playback.duration))
+                        Text(Self.time(playback.duration)).monospacedDigit()
+                    }.foregroundStyle(.white)
+                    #if os(iOS)
+                    Slider(value: $seekValue, in: 0...max(1, playback.duration), onEditingChanged: { editing in
+                        scrubbing = editing; revealControls()
+                        if !editing { controller.seek(to: seekValue) }
+                    }).accessibilityLabel("Playback position").accessibilityIdentifier("alternative-seek")
+                    #endif
+                    HStack(spacing: 28) {
+                        Button { revealControls(); controller.seek(to: max(0, playback.position - 10)) } label: { Label("Back 10s", systemImage: "gobackward.10") }
+                            .focused($focusedControl, equals: .rewind).accessibilityIdentifier("alternative-rewind")
+                        Button { togglePlayback() } label: {
+                            Label(playback.playing ? "Pause" : "Play", systemImage: playback.playing ? "pause.fill" : "play.fill")
+                        }.focused($focusedControl, equals: .playPause).accessibilityIdentifier("alternative-play-pause")
+                        Button { revealControls(); controller.seek(to: min(playback.duration, playback.position + 10)) } label: { Label("Forward 10s", systemImage: "goforward.10") }
+                            .focused($focusedControl, equals: .forward).accessibilityIdentifier("alternative-forward")
+                    }.frame(maxWidth: .infinity)
+                }.padding().background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 16))
+                    .background(GeometryReader { geometry in
+                        Color.clear.preference(key: AlternativeTransportHeightKey.self, value: geometry.size.height)
+                    })
+            }
+            #if os(tvOS)
+            .padding(48)
+            #else
+            .padding().labelStyle(.iconOnly).controlSize(.large)
+            #endif
+            .buttonStyle(.bordered)
+            .opacity(controlsVisible ? 1 : 0).allowsHitTesting(controlsVisible).disabled(!controlsVisible)
+            .accessibilityHidden(!controlsVisible)
+            LocalCaptionOverlay(subtitles: subtitles, bottomInset: captionBottomInset)
+            #if CINEVAULT_COMMERCIAL
+            if let session = controller.externalCommercialSession {
+                ExternalPlaybackAccessView(session: session, close: close)
+            }
+            #endif
+        }
+        .task {
+            guard !started else { return }; started = true; focusedControl = .playPause
+            #if CINEVAULT_COMMERCIAL
+            controller.externalCommercialSession?.start()
+            #else
+            controller.play()
+            #endif
+        }
+        .onChange(of: playback.position) { _, value in if !scrubbing { seekValue = value } }
+        .onChange(of: playback.playing) { _, _ in revealControls() }
+        .onChange(of: subtitles.presented) { _, _ in revealControls() }
+        .onChange(of: controller.audioSelectionPresented) { _, _ in revealControls() }
+        .onChange(of: voiceOverEnabled) { _, _ in revealControls() }
+        .onDisappear { controlsTask?.cancel() }
+        .onPreferenceChange(AlternativeTransportHeightKey.self) { transportHeight = $0 }
+        .sheet(isPresented: $controller.audioSelectionPresented) {
+            NavigationStack {
+                List {
+                    Button("Done") { controller.audioSelectionPresented = false }.accessibilityIdentifier("playback-audio-done")
+                    ForEach(playback.audioTracks) { track in
+                        Button { playback.selectAudio(track.id); controller.audioSelectionPresented = false } label: {
+                            HStack { Text(track.label); Spacer(); if playback.selectedAudio == track.id { Image(systemName: "checkmark") } }
+                        }.accessibilityIdentifier("playback-audio-track-" + track.id)
+                            .accessibilityValue(playback.selectedAudio == track.id ? "Selected" : "Not selected")
+                    }
+                }.navigationTitle("Audio")
+            }
+        }
+        #if os(tvOS)
+        .onPlayPauseCommand { togglePlayback() }
+        .onMoveCommand { direction in
+            revealControls()
+            // The two rows intentionally leave the picture unobstructed. Bridge
+            // that large focus gap when the TV focus engine finds no next item.
+            switch direction {
+            case .up where focusedControl == .rewind: focusedControl = .back
+            case .up where focusedControl == .playPause || focusedControl == .forward: focusedControl = .subtitles
+            case .down where focusedControl == .back || focusedControl == .subtitles || focusedControl == .audio: focusedControl = .playPause
+            default: break
+            }
+        }
+        #endif
+    }
+    private func togglePlayback() {
+        if playback.playing { controller.pause() } else { controller.play() }
+        revealControls()
+    }
+    private var captionBottomInset: CGFloat? {
+        guard controlsVisible else { return nil }
+        #if os(tvOS)
+        let controlsBottomMargin: CGFloat = 48
+        #else
+        let controlsBottomMargin: CGFloat = 16
+        #endif
+        // Measure the actual panel so long titles, Dynamic Type and rotation
+        // cannot put captions over its title, scrubber or transport buttons.
+        return max(LocalCaptionOverlay.defaultBottomInset, transportHeight + controlsBottomMargin + 16)
+    }
+    private func revealControls() {
+        controlsTask?.cancel()
+        let wasHidden = !controlsVisible
+        controlsVisible = true; videoFocused = false
+        if wasHidden { focusedControl = .playPause }
+        guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing, !voiceOverEnabled else { return }
+        controlsTask = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            guard playback.playing, !controller.isPresentingPlaybackOptions, !scrubbing, !voiceOverEnabled else { return }
+            withAnimation(.easeOut(duration: 0.2)) { controlsVisible = false }; focusedControl = nil; videoFocused = true
+        }
+    }
+    private static func time(_ seconds: Double) -> String {
+        let value = max(0, seconds.isFinite ? Int(seconds) : 0)
+        return value >= 3600 ? String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60)
+            : String(format: "%d:%02d", value / 60, value % 60)
+    }
+}
+
+private struct AlternativeTransportHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+#if CINEVAULT_COMMERCIAL
+private struct ExternalPlaybackAccessView: View {
+    @ObservedObject var session: CommercialExternalPlaybackSession
+    let close: () -> Void
+    var body: some View {
+        if session.errorMessage != nil || session.requiresPurchase || !session.prepared {
+            ZStack {
+                Color.black.opacity(0.94).ignoresSafeArea()
+                VStack(spacing: 24) {
+                    if let message = session.errorMessage { Text("Playback unavailable").font(.title); Text(message) }
+                    else if session.requiresPurchase {
+                        Text("License required").font(.title)
+                        Text("Purchase or restore a license in Settings, then continue this video.")
+                        Button("Continue after purchase") { session.continueAfterPurchase() }.disabled(!session.services.isUnlocked)
+                    } else { ProgressView("Checking playback access…") }
+                    Button("Back", action: close).accessibilityIdentifier("playback-access-back")
+                }.padding(48)
+            }.allowsHitTesting(true)
+        }
+    }
+}
+#endif
+
+struct AlternativeVideoSurface: UIViewRepresentable {
+    let playback: AlternativePlayback
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(); view.backgroundColor = .black; playback.engine.drawable = view; return view
+    }
+    func updateUIView(_ uiView: UIView, context: Context) { if playback.engine.drawable == nil { playback.engine.drawable = uiView } }
+    static func dismantleUIView(_ uiView: UIView, coordinator: ()) { }
+}

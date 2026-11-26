@@ -270,7 +270,8 @@ struct PlexMediaClient: Sendable {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("MediaVault", forHTTPHeaderField: "X-Plex-Product")
-        request.setValue("tvOS", forHTTPHeaderField: "X-Plex-Platform")
+        request.setValue(PlexAccountClient.platform, forHTTPHeaderField: "X-Plex-Platform")
+        request.setValue(PlexAccountClient.device, forHTTPHeaderField: "X-Plex-Device")
         request.setValue(deviceID, forHTTPHeaderField: "X-Plex-Client-Identifier")
         request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         return request

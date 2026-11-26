@@ -1,0 +1,29 @@
+# Authenticated official iPhone builds. The private package is checked out at commercial/.
+# Simulator validation uses prepare_official.py --platform ios --include-tests instead.
+include: project.ios.yml
+
+packages:
+  CineVaultCommercial:
+    path: commercial
+
+targets:
+  CineVault:
+    dependencies:
+      - package: CineVaultCommercial
+        product: CineVaultCommercial
+    settings:
+      base:
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CINEVAULT_COMMERCIAL"
+        CINEVAULT_MONTHLY_PRODUCT_ID: "$(PRODUCT_BUNDLE_IDENTIFIER).monthly"
+        CINEVAULT_LIFETIME_PRODUCT_ID: "$(PRODUCT_BUNDLE_IDENTIFIER).lifetime"
+    info:
+      properties:
+        CineVaultMonthlyProductID: $(CINEVAULT_MONTHLY_PRODUCT_ID)
+        CineVaultLifetimeProductID: $(CINEVAULT_LIFETIME_PRODUCT_ID)
+  CineVaultTests:
+    dependencies:
+      - package: CineVaultCommercial
+        product: CineVaultCommercial
+    settings:
+      base:
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CINEVAULT_COMMERCIAL"

@@ -77,6 +77,18 @@ class SmbPlaybackTest {
     }
 
     @Test
+    fun mkvPlaybackAndSeekFromNas() = runBlocking {
+        val host = requireNotNull(InstrumentationRegistry.getArguments().getString("nasHost"))
+        val config = SourceConfig(UUID.randomUUID().toString(), host, 1445, "FORMATPLAYBACK", "", "cinevault", "fixture-only")
+        val smb = SmbService()
+        try {
+            assertTrue("The production media scan must discover the MKV fixture",
+                smb.scanMedia(config) {}.any { it.path == "Feature.mkv" })
+            Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, "Feature.mkv")) { smb.open(config, "Feature.mkv") }
+        } finally { smb.reset(config.id) }
+    }
+
+    @Test
     fun webDavAuthenticationScanPlaybackAndSeek() = runBlocking {
         val fixtureCertificate = InstrumentationRegistry.getArguments().getString("webDavCertificate")
         assumeTrue("Pass webDavCertificate to run the disposable WebDAV fixture.", !fixtureCertificate.isNullOrBlank())

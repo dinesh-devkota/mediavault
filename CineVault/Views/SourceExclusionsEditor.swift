@@ -130,7 +130,7 @@ struct NASPathPicker: View {
             Section { Button("Back") { dismiss() } }
         }
         .navigationTitle(mode == .household ? "Allow folder" : mode == .scanRoot ? "Choose scan folder" : "Choose item to ignore")
-        .onExitCommand {
+        .onTVExit {
             if canGoUp { browse(path.split(separator: "/").dropLast().joined(separator: "/")) }
             else { dismiss() }
         }

@@ -2,11 +2,13 @@ name: Android phone
 
 on:
   push:
+    branches: [main, dinesh-devkota-sonepar-build-cinevault-tvos-app]
     paths:
       - "android/**"
       - ".github/workflows/android-phone.yml"
       - "scripts/test_android_phone.sh"
       - "scripts/nas_fixture.py"
+      - "scripts/media_library_fixture.py"
       - "scripts/dropbox_fixture.py"
       - "scripts/start_dropbox_fixture.sh"
       - "scripts/webdav_fixture.py"
@@ -20,6 +22,7 @@ on:
       - ".github/workflows/android-phone.yml"
       - "scripts/test_android_phone.sh"
       - "scripts/nas_fixture.py"
+      - "scripts/media_library_fixture.py"
       - "scripts/dropbox_fixture.py"
       - "scripts/start_dropbox_fixture.sh"
       - "scripts/webdav_fixture.py"
@@ -32,8 +35,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-phone-${{ github.ref }}
-  cancel-in-progress: true
+  group: android-phone-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   phone-runtime:
@@ -59,11 +62,13 @@ jobs:
           test -r /dev/kvm && test -w /dev/kvm
       - name: Start synthetic SMB fixture
         run: |
+          command -v ffmpeg >/dev/null || (sudo apt-get update && sudo apt-get install -y ffmpeg)
           python -m pip install -r scripts/nas-test-requirements.txt
           python scripts/nas_fixture.py "$RUNNER_TEMP/phone-nas" >"$RUNNER_TEMP/phone-nas.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/phone-nas.pid"
           python - <<'PY'
-          import socket, time
+          import os, socket, time
+          from pathlib import Path
           for attempt in range(30):
               try:
                   with socket.create_connection(("127.0.0.1", 1445), timeout=1):
@@ -71,6 +76,7 @@ jobs:
               except OSError:
                   time.sleep(1)
           else:
+              print((Path(os.environ["RUNNER_TEMP"]) / "phone-nas.log").read_text())
               raise SystemExit("SMB fixture did not start")
           PY
       - name: Start synthetic Plex fixture
@@ -93,6 +99,8 @@ jobs:
           path: |
             android/app/build/outputs/androidTest-results/
             android/app/build/reports/androidTests/
+            android/app/build/phone-screenshots/
+            ${{ runner.temp }}/phone-nas.log
             ${{ runner.temp }}/phone-plex/server.log
             ${{ runner.temp }}/android-phone-dropbox/server.log
           if-no-files-found: warn

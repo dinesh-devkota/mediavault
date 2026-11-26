@@ -958,7 +958,7 @@ class PlayerActivity : ComponentActivity() {
         )
         if (unsupported.isEmpty()) return
         warnedAboutTracks = true
-        val message = "This TV can't decode the ${unsupported.joinToString(" or ")} format of this file."
+        val message = "This device can't decode the ${unsupported.joinToString(" or ")} format of this file."
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
@@ -968,7 +968,7 @@ class PlayerActivity : ComponentActivity() {
             else if (target?.connection != null) "Could not read this Jellyfin stream."
             else error.cause?.let { SmbService.describe(it) } ?: "Could not read the file from the NAS."
         3 -> "This file's format isn't supported, or the file is damaged."
-        4, 5 -> "This TV can't play this file's video or audio format."
+        4, 5 -> "This device can't play this file's video or audio format."
         else -> error.message ?: "Playback failed."
     }
 

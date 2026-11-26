@@ -31,8 +31,8 @@ android {
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "ONEDRIVE_CLIENT_ID", "\"$oneDriveClientId\"")
-        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 6
-        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.4.0"
+        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 7
+        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.5.0"
     }
 
     sourceSets.named("androidTest") {

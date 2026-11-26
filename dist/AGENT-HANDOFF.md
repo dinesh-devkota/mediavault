@@ -7,6 +7,193 @@ below retain their original names. Development work remains on
 `dinesh-devkota-sonepar-build-cinevault-tvos-app`; the workspace and private
 `CineVaultCommercial` repository retain their existing names.
 
+## Active library/playback work — November 25, 2026
+
+Current integration checkpoint: public `96df268` passed Apple TV 242/242,
+Android TV 110/110 and Android phone 12/12. The iPhone run `45740845578` and
+core/unsigned-TV run `45740845630` are still in progress or queued. Apple TV
+screenshots show captions clear of playback details. The new Plex filename-reset
+regression passed. The earlier merged iPhone `86bcb09` passed 230/230 and unsigned
+Release, before the final reset safeguard.
+
+Development subsequently advanced to `c6d83d2` with personal OneDrive. The current
+merge retains local-library/Plex playback and adds that source. Android phone
+retains its library and metadata checks alongside incoming OneDrive journeys;
+Apple phone and TV require both OneDriveClientTests and CloudFileTransportTests.
+Local validation passed 101 core and 151 app Android tests (two existing Jellyfin
+cases need their loopback fixture), instrumentation compilation and debug lint.
+OneDrive now participates in Android local NFO/artwork imports using its guarded
+provider. Apple sidecar and collection matching use exact cloud paths. New
+regressions cover local artwork, authoritative file identity and household access.
+The phone runner requires 16 Android cases and a new real iPhone setup-form journey.
+Seven XCTest-report checks and workflow lint pass. Hosted runtime verification is
+still required; do not transfer results from `96df268` to this merge.
+
+Follow-up review found that Plex's synthetic identifiers could be treated as
+filenames by the metadata editor. Apple `7363654` and Android `79c5754` hide and
+reject that reset, preserve imported server ratings during manual metadata edits,
+and retain episode identity. Android also keeps provider rows out of the global
+metadata-refresh reset. Three new Android regressions are required by the phone
+runner, bringing its required cases to 12; TV executes them in its full suite.
+Updated Android app unit checks passed 143 cases (two existing Jellyfin tests need
+their loopback fixture), instrumentation compilation and debug lint passed. New
+device regressions still need hosted execution. The pre-merge iPhone baseline
+`6430a02` completed 223/223 plus unsigned Release in run `45738582653`; screenshots
+show the imported Film in Library and its playback details. That run used the
+already-visible password-sheet path, so it does not alone prove the narrower
+interruption monitor handled an offer arriving inside a tap.
+
+Development advanced to `290b4a6` with Plex support while this candidate was being
+validated. The library/playback branch incorporates that pinned revision, retaining
+both sets of artwork, playback and test-runner behavior. iPhone now starts and
+trusts the synthetic Plex fixture and requires its shared runtime suite; Android
+phone retains all seven earlier journeys, adds two Plex journeys, and now includes
+the three metadata regressions described above. The merged
+candidate needs new hosted validation. Local validation includes four real HTTPS
+Plex fixture tests, seven XCTest-report guards, and syntax checks of four workflows
+and 27 embedded shell blocks. Earlier platform results below apply to their stated
+revisions, not automatically to this merge.
+
+The owner-approved private Apple run `45734118734` at `7420284` completed
+successfully: package tests, unsigned tvOS build, simulator test build and full
+simulator test command all passed. TestFlight upload was explicitly skipped.
+Successful private test output is not published, so exact per-test execution
+counts are not independently available. This run uses old trusted-main wiring
+and does not validate the new licensed iPhone/VLC integration.
+
+The owner explicitly requires feature parity on **Apple TV, iPhone, Android TV,
+and Android phones**. Work is isolated on `codex/mediavault-library-playback`,
+PR [19](https://github.com/dinesh-devkota/mediavault/pull/19), based on the iPhone
+integration branch at `3becf4e` (which includes development's WebDAV, Jellyfin,
+and Android phone work). Do not reset the owner's original checkouts.
+
+Public worktree: `D:\CineVault\.worktrees\mediavault-library-playback`.
+Public implementation includes `f8282b4`. Version **1.5.0, build 7**. This adds
+local NFO/XML and companion artwork, profile-specific custom collections,
+NFO/TMDB franchise groups, conservative alternate-version grouping, and an
+official pinned VideoLAN fallback on both Apple platforms. Files retain their
+individual histories; metadata import is read-only. See `docs/PLAYBACK-ENGINE.md`
+and `docs/TESTING.md` for dependency and fixture details.
+
+The same Apple implementation passed on the Fire branch at `2d1ffac`: Apple TV
+233/233 (run `45709711906`) and iPhone 223/223 plus unsigned release build (run
+`45709712002`). These include real MKV/AVI/WebM decoding, seeking, pause/resume,
+local subtitles, audio selection, revoked streams and collection/version journeys.
+Screenshots were inspected. Original `ee00db6` iPhone also passed 223/223 and the
+release build. Its duplicate Apple TV run had one keyboard-injection failure:
+the test saved `Movie N` before all of `Movie Night` had arrived. `9bf7d62` waits
+for each field edit before keyboard dismissal; its Apple TV run passed 233/233
+(`45713647345`). Repeated iPhone runs exposed an intermittent fixture TLS failure
+and controls remaining in the accessibility tree after hiding. `f8282b4` hides
+inactive controls from accessibility and keeps controls visible for VoiceOver.
+Its full Apple TV run passed 233/233 (`45718498997`) and iPhone passed 223/223
+plus unsigned release (`45718499092`). Four fixture tests pass, with explicit
+TLS-stage diagnostics. A duplicate iPhone run exposed the system Save Password
+sheet arriving before Library became tappable. The latest test waits within one
+ten-second navigation budget and repeats a tap only after an observed interruption.
+Run `45724101732` at `8a15415` passed 222/223 and its unsigned release build:
+the only failure was this navigation helper rejecting an expired budget even
+though Library was already selected and the imported Film poster was visible.
+The log confirms the real password prompt was declined, then the selected-tab
+query consumed the final second. The follow-up evaluates current state before
+rejecting a deadline and after a waiter timeout; it adds no extra wait budget.
+That narrow test correction remains under hosted validation. Evidence is under
+`.artifacts/apple-phone-8a15415` in the original worktree.
+
+Fire duplicate run `45726677750` at `c538b89` also exposed an MKV UI-test race:
+after revealing controls, three accessibility preflight queries consumed the
+real five-second visibility window before the Pause tap. Its recording confirms
+the controls appeared and then hid normally. The test now reveals and immediately
+taps the desired playing control; paused-state, actual seeking, option persistence,
+and all touch-target checks remain. Production controls and their timeout are
+unchanged. Evidence is in `.artifacts/apple-phone-c538` and the full test log in
+`.artifacts/apple-phone-c538-full`. The follow-up needs hosted verification.
+
+The same recording exposed a real light-mode contrast issue: the fallback player's
+title and time labels inherited dark text on its black overlay. Both Apple
+platforms now explicitly use white metadata/time text, with lower emphasis for
+the episode caption. Button tint, disabled styling, Dynamic Type, and the hide
+timer retain their existing behavior. The phone journey checks the title while
+paused and its existing subtitle/control screenshot provides visual evidence.
+
+Run `45727532171` at `5019cc8` passed all 223 phone cases and unsigned release.
+Run `45729764030` at `d6e2600` passed 222/223 and release; its MKV journey and
+white metadata screenshot passed visual review. Its sole failure was WebDAV TLS:
+the fixture log records two handshake timeouts at 5.010 and 5.004 seconds, after
+earlier authenticated playback succeeded. The fixture now allows a separate,
+bounded 20-second TLS handshake while retaining its five-second HTTP idle limit.
+All five real-socket fixture tests pass, including delayed ClientHello, idle-client
+isolation, authentication, range reads, and certificate rejection. Production TLS
+and retry behavior are unchanged; an independent review found no issue.
+
+The successful phone recording also showed local captions covering the paused
+scrubber. The shared Apple fallback now measures its transport panel and places
+captions above it while visible, restoring their previous position when controls
+hide. Existing phone and TV journeys assert caption Text bounds above the title.
+The recorded accessibility frame excludes external padding, so this catches the
+actual overlap. This caption/fixture follow-up awaits hosted phone and TV checks.
+Full TLS evidence is in `.artifacts/apple-phone-d6e2600-full`; the inspected
+metadata screenshot is in `.artifacts/apple-phone-d6e2600/iphone-test-screenshots`.
+
+At `7983719`, Apple TV passed 233/233 (`45733330571`), and iPhone passed
+222/223 plus unsigned release (`45733330589`). Both MKV journeys and the new
+caption-clearance assertions passed: reviewed Text bounds are phone bottom
+617.3 before title 649.3, and TV bottom 810 before title 842. The phone WebDAV
+authentication and scan now succeed. Its remaining test failure is a transient
+system Save Password offer appearing inside the Library tap: the synthesized
+event targets the real tab at (132.25, 822), but the recording shows that touch
+dismisses the offer and leaves Manage selected. Between-action sheet queries
+miss the entire interruption. The helper now registers XCTest's documented
+interruption monitor for this exact offer and permits another tab tap only if
+that handler actually declined it. The ten-second budget and actual scan,
+selected-tab and imported-poster assertions are retained. This test-only fix
+requires hosted iPhone verification. Evidence is in `.artifacts/apple-phone-7983719`,
+`.artifacts/apple-phone-7983719-full`, and `.artifacts/apple-tv-7983719`.
+
+Earlier actual defects are corrected: TCP send completion, VLC parser timeout
+units, pending-pause acknowledgement, synchronous stream revocation, nested
+version navigation, phone collection sizing, focused button contrast and the
+bounded TLS fixture accept loop. Do not reintroduce those old approaches.
+
+Android core/app tests, debug lint and APK builds passed. The Fire branch has
+101 core and 137 app tests passing, with two existing Jellyfin tests skipped
+without their server. Hosted modern Android TV passed 110/110 (run `45709711876`)
+and phone passed 7/7 (run `45709711901`). Never run disposable test fixtures
+against the owner's installed emulator or real NAS.
+
+The expanded mixed-corrupt/unavailable-sidecar regression in `369c890` passed
+on base Android TV (103/103, run `45728286881`), Fire-branch Android TV
+(110/110, `45728952433`), and Fire API 22/25/28 (13/13 each, `45728952307`).
+It also passed in phone run `45728952327` (6/7 overall). That phone run failed
+before tapping Play: `AndroidPhoneNavigationTest.visible()` let the transient
+"No compose hierarchies" exception escape during the movie-detail activity
+transition. Logcat has no crash/ANR; subsequent collection and MKV tests passed.
+The phone helper now retries only that exact missing-root condition within its
+existing 30-second budget, rethrows other state errors, and saves timeout
+screenshots/tree diagnostics through the existing test-artifacts collection.
+Instrumentation compilation passed; hosted verification of this test correction
+is pending. Downloaded XML/log evidence is in the Fire worktree's
+`.artifacts/android-metadata-audit`.
+
+Repeated Android TV testing found a nested-focus handoff that could keep an
+ignored season visible. `643cb35` suspends child focus restoration while removing
+content and bounds the handoff. Its full Android TV workflow passed
+(`45722101734`), retaining the real ignored-folder/navigation regression.
+
+The private companion branch is `codex/mediavault-playback-engines` at
+`5cd626eba6ce3b534ec1f0b3e74cc7cbfe0bb6c0`, in
+`D:\CineVaultCommercial\.worktrees\mediavault-playback-engines`. It adds genuine
+engine-neutral usage accounting and iPhone build/test support. Its five project
+generator checks pass; Swift and licensed simulator validation remain pending.
+The commercial workflow keeps its trusted-main and required-review safeguards;
+use a fresh exact-revision, build-only approval. Do not enable store upload.
+
+The owner has Windows and an Apple TV, without a Mac or active Apple Developer
+membership. Do not ask for those details again or claim installation on physical
+Apple hardware. No production NAS files, app data, or credentials were reset.
+
+## Historical handoffs
+
 Current updates are appended chronologically below. The original November 1
 snapshot is retained for history and is superseded by later owner decisions.
 

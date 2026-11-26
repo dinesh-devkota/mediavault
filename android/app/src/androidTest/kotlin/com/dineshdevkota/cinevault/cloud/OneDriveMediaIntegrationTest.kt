@@ -26,6 +26,8 @@ import com.dineshdevkota.cinevault.family.FamilyStore
 import com.dineshdevkota.cinevault.family.FolderAccess
 import com.dineshdevkota.cinevault.family.HouseholdProfile
 import com.dineshdevkota.cinevault.library.LibraryScanner
+import com.dineshdevkota.cinevault.metadata.LocalMetadataImporter
+import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.photos.NasPhotoLoader
 import com.dineshdevkota.cinevault.playback.PlayerActivity
 import com.dineshdevkota.cinevault.playback.SmbDataSource
@@ -83,14 +85,28 @@ class OneDriveMediaIntegrationTest {
             account.commitLink(version)
             assertEquals("fixture-drive", store.load(sourceId)?.driveId)
             database.sources().upsert(source)
-            val scanner = LibraryScanner(database, secrets, smb::scanVideos, scanWithProgress = smb::scanMedia)
+            val localMetadata = LocalMetadataImporter(database, secrets, list = smb::listEntries, open = smb::open)
+            val scanner = LibraryScanner(database, secrets, smb::scanVideos, scanWithProgress = smb::scanMedia,
+                importLocalMetadata = localMetadata::importSource)
             fixture.rejectFirstAccess = true
             scanner.scan(source.id)
             assertEquals("Refresh should rotate when Graph expires a cached token", "renewed", store.load(sourceId)?.refreshToken)
-            val imported = database.movies().forSource(source.id)
+            val all = database.movies().forSource(source.id)
+            val imported = all.filterNot { it.isMissing }
             assertEquals(setOf("Media/Film.mp4", "Media/Cover.jpg", "Hidden/Private.mp4"), imported.map { it.filePath }.toSet())
+            assertEquals(setOf("Media/Film-poster.jpg", "Media/Film-fanart.jpg"), all.filter { it.isMissing }.map { it.filePath }.toSet())
             val movie = imported.single { it.filePath == "Media/Film.mp4" }
             val photo = imported.single { it.isPhoto }
+            assertEquals("Cloud Library Film", movie.title)
+            assertEquals("Local details from the selected OneDrive folder.", movie.overview)
+            assertEquals("Cloud Saga", movie.franchiseName)
+            assertEquals("Theatrical", movie.edition)
+            assertEquals("PG", movie.ageCertification)
+            assertTrue(movie.hasLocalMetadata)
+            assertEquals("Media/Film-poster.jpg", movie.localPosterPath)
+            assertEquals("Media/Film-fanart.jpg", movie.localBackdropPath)
+            assertTrue(photos.loadArtwork(movie.id, 800, JellyfinImage.Primary).width > 0)
+            assertTrue(photos.loadArtwork(movie.id, 800, JellyfinImage.Backdrop).width > 0)
             val config = source.config(secrets)
             assertEquals(listOf("Hidden", "Media"), media.childFolders(config, ""))
             assertTrue(runCatching { smb.open(config, "media/Film.mp4") }.isFailure)
@@ -107,13 +123,23 @@ class OneDriveMediaIntegrationTest {
             val unread = fixture.downloads.get()
             assertNull(library.get(movie.id))
             assertTrue(runCatching { photos.load(photo.id) }.isFailure)
+            assertTrue(runCatching { photos.loadArtwork(movie.id, 800, JellyfinImage.Primary) }.isFailure)
             assertEquals(unread, fixture.downloads.get())
 
             assertNull(family.unlock(HouseholdProfile.ADMIN, "123456"))
-            family.saveProfile(viewer.copy(folders = listOf(FolderAccess(source.id, "Media", caseSensitive = true))), null)
+            val granted = viewer.copy(folders = listOf(FolderAccess(source.id, "Media", caseSensitive = true)), movieLimit = "G")
+            family.saveProfile(granted, null)
             assertNull(family.unlock(viewer.id, ""))
+            assertNull("The NFO age rating must hide this movie from the restricted viewer", library.get(movie.id))
+            assertTrue(runCatching { photos.loadArtwork(movie.id, 800, JellyfinImage.Primary) }.isFailure)
+            assertEquals(unread, fixture.downloads.get())
+            assertNull(family.unlock(HouseholdProfile.ADMIN, "123456"))
+            family.saveProfile(granted.copy(movieLimit = "PG"), null)
+            assertNull(family.unlock(viewer.id, ""))
+            assertEquals(movie.id, library.get(movie.id)?.id)
             assertNull(library.get(imported.single { it.filePath.startsWith("Hidden") }.id))
             assertTrue(photos.load(photo.id).width > 0)
+            assertTrue(photos.loadArtwork(movie.id, 800, JellyfinImage.Primary).width > 0)
             val session = family.current
             val factory = DataSource.Factory {
                 SmbDataSource(
@@ -205,6 +231,7 @@ class OneDriveMediaIntegrationTest {
         val video = assets.open("playback.mp4").use { it.readBytes() }
         private val photo = assets.open("Photos/01.jpg").use { it.readBytes() }
         val captions = "1\n00:00:00,500 --> 00:00:05,000\nOneDrive fixture caption.\n".toByteArray()
+        private val nfo = """<movie><title>Cloud Library Film</title><year>2020</year><plot>Local details from the selected OneDrive folder.</plot><mpaa>PG</mpaa><set><name>Cloud Saga</name></set><edition>Theatrical</edition></movie>""".toByteArray()
         private val script = "const fixture = true;".toByteArray()
         val downloads = AtomicInteger()
         val lastRangeOffset = AtomicLong()
@@ -253,11 +280,15 @@ class OneDriveMediaIntegrationTest {
                     """{"id":"remote","name":"Shared shortcut","folder":{},"remoteItem":{"id":"elsewhere"}}""")
                 "/v1.0/me/drive/items/public-folder/children" -> page(request,
                     file("video", "Film.mp4", video.size), file("photo", "Cover.jpg", photo.size),
+                    file("nfo", "Film.nfo", nfo.size), file("poster", "Film-poster.jpg", photo.size), file("fanart", "Film-fanart.jpg", photo.size),
                     file("subtitle", "Film.en.srt", captions.size), file("script", "code.ts", script.size))
                 "/v1.0/me/drive/items/private-folder/children" -> page(request, file("private", "Private.mp4", video.size))
                 "/v1.0/me/drive/items/fixture-root:/Media/Film.mp4" -> signed(request, "video", "Film.mp4")
                 "/v1.0/me/drive/items/fixture-root:/Media/Cover.jpg" -> signed(request, "photo", "Cover.jpg")
                 "/v1.0/me/drive/items/fixture-root:/Media/Film.en.srt" -> signed(request, "subtitle", "Film.en.srt")
+                "/v1.0/me/drive/items/fixture-root:/Media/Film.nfo" -> signed(request, "nfo", "Film.nfo")
+                "/v1.0/me/drive/items/fixture-root:/Media/Film-poster.jpg" -> signed(request, "poster", "Film-poster.jpg")
+                "/v1.0/me/drive/items/fixture-root:/Media/Film-fanart.jpg" -> signed(request, "fanart", "Film-fanart.jpg")
                 "/v1.0/me/drive/items/fixture-root:/Media/code.ts" -> signed(request, "script", "code.ts")
                 else -> error("Read escaped its fixture folder or skipped Graph scope validation.")
             }
@@ -269,7 +300,8 @@ class OneDriveMediaIntegrationTest {
             val range = checkNotNull(request.header("Range")).removePrefix("bytes=").split('-').map(String::toInt)
             val bytes = when (request.url.pathSegments.single()) {
                 "video" -> video
-                "photo" -> photo
+                "photo", "poster", "fanart" -> photo
+                "nfo" -> nfo
                 "subtitle" -> captions
                 "script" -> script
                 else -> error("Unexpected CDN path.")

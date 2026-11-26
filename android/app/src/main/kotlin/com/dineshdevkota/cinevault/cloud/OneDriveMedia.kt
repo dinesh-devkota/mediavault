@@ -67,6 +67,10 @@ internal class OneDriveMedia(
     suspend fun childFolders(config: SourceConfig, path: String): List<String> =
         listEntries(config, path).filter { it.isDirectory }.map { it.name }
 
+    /** The saved Graph folder ID stays the root; rootPath is only a relative browsing path. */
+    override suspend fun listEntries(config: SourceConfig): List<NasEntry> =
+        listEntries(config.copy(rootPath = ""), config.rootPath)
+
     suspend fun listEntries(config: SourceConfig, path: String): List<NasEntry> {
         val account = account(config)
         val version = account.connectionVersion()

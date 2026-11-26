@@ -1,9 +1,15 @@
 # Additional media sources
 
-MediaVault currently connects to SMB shares. This document assesses additional
-sources; it does not announce working connectors. Estimates cover Android TV and
-tvOS together and are engineering effort, not delivery dates. They include browsing,
-playback, seeking, reconnects, errors and tests, but exclude provider review delays.
+The current development candidate includes SMB, HTTPS WebDAV, Jellyfin, Plex and
+personal OneDrive source adapters. Apple TV, iPhone, Android TV and Android phones
+share the corresponding platform implementations. Test coverage and remaining
+limits are recorded in [TESTING.md](TESTING.md) and the
+[handoff](../dist/AGENT-HANDOFF.md); a merged connector does not establish live-account
+or physical-device compatibility. See the [user guide](MEDIA-GUIDE.md) for setup.
+
+The estimates below preserve the original planning assessment. They are engineering
+effort, not delivery dates or a current list of missing connectors. They include
+browsing, playback, seeking, reconnects, errors and tests, but exclude provider review delays.
 
 ## Foundation
 
@@ -75,7 +81,7 @@ is a multi-month project.
   [Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
 
 Assessment reviewed on **2026-11-24**. [Infuse connections](https://firecore.com/infuse)
-provide the comparison point; MediaVault has not implemented these additional sources.
+provided the original comparison point; use the current status above for implemented sources.
 
 ## Registration and Apple TV sign-in research
 

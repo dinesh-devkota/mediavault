@@ -131,7 +131,7 @@ struct SourceConfig: Sendable, Hashable {
 @Model
 final class Movie {
     var mediaKind: MediaKind {
-        MediaFile.kind(path: filePath, genres: genres, matched: metadataFetched && tmdbID != nil,
+        MediaFile.kind(path: filePath, genres: genres, matched: localMetadataImported == true || (metadataFetched && tmdbID != nil),
                        isEpisode: episodeInfo != nil)
     }
     var episodeInfo: EpisodeInfo? {
@@ -171,6 +171,17 @@ final class Movie {
     var seasonPosterPath: String?
     var posterPath: String?
     var backdropPath: String?
+    /// Safe source-relative paths, independent from online artwork identifiers.
+    var localPosterPath: String?
+    var localBackdropPath: String?
+    var localSeasonPosterPath: String?
+    var localMetadataImported: Bool?
+    var localMetadataFields: [String]?
+    var localMetadataSignature: Data?
+    var localEdition: String?
+    var collectionID: Int?
+    var collectionName: String?
+    var collectionLookupComplete: Bool?
     var genres: [String] = []
     var runtimeMinutes: Int?
     var rating: Double?
@@ -232,6 +243,16 @@ final class Movie {
         tagline = nil
         posterPath = nil
         backdropPath = nil
+        localPosterPath = nil
+        localBackdropPath = nil
+        localSeasonPosterPath = nil
+        localMetadataImported = nil
+        localMetadataFields = nil
+        localMetadataSignature = nil
+        localEdition = nil
+        collectionID = nil
+        collectionName = nil
+        collectionLookupComplete = nil
         genres = []
         runtimeMinutes = nil
         rating = nil

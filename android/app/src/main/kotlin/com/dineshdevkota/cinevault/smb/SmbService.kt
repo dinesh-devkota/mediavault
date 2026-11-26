@@ -203,6 +203,10 @@ class SmbService(
         dropbox.reset(sourceId)
     }
 
+    /** Sidecar browsing uses the same scoped provider and account as scanning and playback. */
+    suspend fun listEntries(config: SourceConfig): List<NasEntry> =
+        fileSource(config)?.listEntries(config) ?: NasBrowser().listEntries(config)
+
     suspend fun testConnection(config: SourceConfig) {
         reset(config.id)
         fileSource(config)?.let { it.testConnection(config); return }

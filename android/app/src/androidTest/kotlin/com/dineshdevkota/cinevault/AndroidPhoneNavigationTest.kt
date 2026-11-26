@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.SystemClock
 import android.view.View
 import androidx.annotation.OptIn
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
@@ -15,9 +16,11 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.printToString
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import androidx.test.core.app.ActivityScenario
@@ -39,6 +42,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 @OptIn(UnstableApi::class)
@@ -163,17 +167,30 @@ class AndroidPhoneNavigationTest {
 
     private fun visible(matcher: SemanticsMatcher, scroll: Boolean = false): SemanticsNodeInteraction {
         val node = compose.onNode(matcher)
-        compose.waitUntil(timeoutMillis = 30_000) {
-            try {
-                if (scroll) compose.onAllNodes(hasScrollToIndexAction()).onFirst().performScrollToNode(matcher)
-                node.assertIsDisplayed()
-                true
-            } catch (_: AssertionError) { false }
-            catch (failure: IllegalStateException) {
-                // Returning from the native player briefly leaves neither Compose window resumed.
-                if (failure.message?.startsWith("No compose hierarchies found") != true) throw failure
-                false
+        var lastFailure: Throwable? = null
+        try {
+            compose.waitUntil(timeoutMillis = 30_000) {
+                try {
+                    if (scroll) compose.onAllNodes(hasScrollToIndexAction()).onFirst().performScrollToNode(matcher)
+                    node.assertIsDisplayed()
+                    true
+                } catch (failure: AssertionError) {
+                    lastFailure = failure; false
+                } catch (failure: IllegalStateException) {
+                    // The outgoing activity can detach before the new screen registers its Compose root.
+                    if (failure.message?.startsWith("No compose hierarchies found in the app.") != true) throw failure
+                    lastFailure = failure; false
+                }
             }
+        } catch (timeout: ComposeTimeoutException) {
+            val tree = runCatching { compose.onRoot(useUnmergedTree = true).printToString(maxDepth = 12) }
+                .getOrDefault("No single active Compose root").take(20_000)
+            runCatching {
+                val directory = File(application.getExternalFilesDir(null), "test-artifacts").apply { mkdirs() }
+                device.takeScreenshot(File(directory, "phone-navigation-failure.png"))
+                File(directory, "phone-navigation-failure.txt").writeText(tree)
+            }
+            throw AssertionError("Could not display $matcher. Last assertion: ${lastFailure?.message}\n$tree", timeout)
         }
         return node
     }

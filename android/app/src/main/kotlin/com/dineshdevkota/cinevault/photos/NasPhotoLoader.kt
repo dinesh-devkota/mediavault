@@ -70,10 +70,10 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
     suspend fun load(photoId: String, thumbnail: Boolean = false): Bitmap =
         loadImage(photoId, if (thumbnail) PhotoDecodePolicy.THUMBNAIL_EDGE else PhotoDecodePolicy.VIEWER_EDGE)
 
-    internal suspend fun loadArtwork(mediaId: String, width: Int, image: JellyfinImage): Bitmap =
-        loadImage(mediaId, width, image)
+    internal suspend fun loadArtwork(mediaId: String, width: Int, image: JellyfinImage, season: Boolean = false): Bitmap =
+        loadImage(mediaId, width, image, season)
 
-    private suspend fun loadImage(photoId: String, edge: Int, artwork: JellyfinImage? = null): Bitmap = withContext(Dispatchers.IO) {
+    private suspend fun loadImage(photoId: String, edge: Int, artwork: JellyfinImage? = null, season: Boolean = false): Bitmap = withContext(Dispatchers.IO) {
         val session = family.current
         slots.withPermit {
             currentCoroutineContext().ensureActive()
@@ -85,9 +85,17 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                 PLEX -> plexItemId(photo.filePath).takeIf { artwork != null || photo.isPhoto }
                 else -> null
             }
-            val config = source.takeIf { it.sourceType != JELLYFIN && it.sourceType != PLEX && artwork == null }?.config(secrets)
+            val localArtwork = if (source.sourceType !in setOf(JELLYFIN, PLEX) && artwork != null) when (artwork) {
+                JellyfinImage.Backdrop -> photo.localBackdropPath ?: photo.localPosterPath
+                else -> if (season) photo.localSeasonPosterPath ?: photo.localPosterPath else photo.localPosterPath
+            } else null
+            val remotePath = localArtwork ?: photo.filePath
+            val config = source.takeIf { it.sourceType !in setOf(JELLYFIN, PLEX) && (artwork == null || localArtwork != null) }?.config(secrets)
             fun validateItem(item: MovieEntity) {
-                if (config != null) validate(item, config)
+                if (config != null && localArtwork != null) {
+                    if (item.isMissing || item.isHidden || !source.includesFile(item.filePath) || !source.includesFile(localArtwork) ||
+                        localArtwork !in listOf(item.localPosterPath, item.localBackdropPath, item.localSeasonPosterPath)) throw PhotoLoadException("This artwork is unavailable.")
+                } else if (config != null) validate(item, config)
                 else if (providerItem == null || item.isMissing || item.isHidden) {
                     throw PhotoLoadException("This image is unavailable.")
                 }
@@ -97,7 +105,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             }
             validateItem(photo)
             // Source changes and completed rescans invalidate decoded content.
-            val key = CacheKey(photo.id, photo.filePath, source, photo.fileSize, edge, artwork)
+            val key = CacheKey(photo.id, remotePath, source, photo.fileSize, edge, artwork)
             cache.get(key)?.let {
                 authorize(photo)
                 return@withPermit it
@@ -147,8 +155,11 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                         }
                     } else {
                         val fileConfig = checkNotNull(config)
-                        val handle = if (fileConfig.isDropbox) openDropbox(fileConfig, photo.filePath) { authorize(photo) }
-                        else openFile(fileConfig, photo.filePath)
+                        val handle = if (fileConfig.isDropbox) {
+                            openDropbox(fileConfig, remotePath) { authorize(photo) }
+                        } else {
+                            openFile(fileConfig, remotePath)
+                        }
                         handle.use { remote ->
                             authorize(photo)
                             remote.stream(0).use { copy(it, remote.length) }

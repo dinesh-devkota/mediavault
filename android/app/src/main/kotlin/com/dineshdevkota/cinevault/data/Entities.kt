@@ -99,6 +99,14 @@ data class MovieEntity(
     val seasonPosterPath: String? = null,
     val posterPath: String? = null,
     val backdropPath: String? = null,
+    val localPosterPath: String? = null,
+    val localMetadataJson: String? = null,
+    val edition: String? = null,
+    val localBackdropPath: String? = null,
+    val localSeasonPosterPath: String? = null,
+    @ColumnInfo(defaultValue = "0") val hasLocalMetadata: Boolean = false,
+    val franchiseId: Int? = null,
+    val franchiseName: String? = null,
     override val genres: List<String> = emptyList(),
     val runtimeMinutes: Int? = null,
     override val rating: Double? = null,
@@ -129,7 +137,7 @@ data class MovieEntity(
         }
 
     val mediaKind: MediaKind
-        get() = MediaFile.kind(filePath, genres, matched = metadataFetched && tmdbId != null, isEpisode = episodeInfo != null)
+        get() = MediaFile.kind(filePath, genres, matched = hasLocalMetadata || (metadataFetched && tmdbId != null), isEpisode = episodeInfo != null)
 
     val seriesKey: String?
         get() {

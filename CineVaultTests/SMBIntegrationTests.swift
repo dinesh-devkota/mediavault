@@ -175,6 +175,7 @@ final class SMBIntegrationTests: XCTestCase {
         try await verifyPlayerSeek(player)
     }
 
+    #if os(tvOS)
     @MainActor
     func testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek() async throws {
         let sessionConfig = URLSessionConfiguration.ephemeral
@@ -254,6 +255,8 @@ final class SMBIntegrationTests: XCTestCase {
         try await verifyPlayerSeek(player)
         await service.reset(config)
     }
+
+    #endif
 
     @MainActor
     private func verifyPlayback(config: SourceConfig, movie: RemoteFile) async throws {

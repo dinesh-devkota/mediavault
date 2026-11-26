@@ -229,15 +229,36 @@ checks.
 
 The separate Android phone workflow runs a clean API 36 phone emulator against the synthetic SMB fixture. It verifies launcher discovery, touch source-form validation, credential entry, folder selection and scan, opening the imported movie and seeking through native playback controls. Phone WebDAV reuses the shared implementation and source editor. This phone smoke covers SMB; WebDAV transport has its existing Android TV fixture. Physical phone testing and app distribution remain separate.
 
-## Dropbox Android draft
+## iPhone
 
-PR #6 adds Dropbox setup and playback to Android TV and phones. The owner enters
+The iPhone integration candidate is on `codex/mediavault-ios-integration`.
+It shares the public app’s SMB, HTTPS WebDAV, Jellyfin, and Plex setup, household
+rules, database, and native playback code. The iPhone target uses iOS 17 and
+later, with touch navigation for administrative settings and
+subtitle controls. The app treats each device’s household and library as local.
+It does not sync profiles or progress across devices.
+
+Generate the iPhone Xcode project with `xcodegen generate --spec project.ios.yml`.
+The `CineVaultPhone` scheme builds the app and runs shared tests and iPhone UI
+tests. The hosted `iPhone simulator` workflow builds an unsigned release with iOS SDK 26 or later and runs
+simulator setup and playback tests against temporary SMB, WebDAV, Jellyfin, and Plex fixtures.
+This app branch needs a green simulator run before merge. Physical iPhone testing,
+signing, export-compliance confirmation, App Store Connect setup, and App Review
+are separate release steps.
+
+[Original iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)
+
+## Dropbox on Android and Apple TV
+
+Development includes Dropbox setup and playback on Android TV, Android phones, and Apple TV through [PR #30](https://github.com/dinesh-devkota/mediavault/pull/30). The owner enters
 a public Dropbox app key and approves with a one-time code using Dropbox's
 documented PKCE flow. The phone can open the approval in its browser. A QR code
 lets TV owners approve from a second device. The app stores the refresh
 credential with Android Keystore encryption and keeps access credentials in
 memory. A reconnect keeps the original app key, Dropbox account, and folder.
 Sign-out removes local credentials and requests revocation at Dropbox.
+
+The iPhone setup flow is tracked separately in [PR #27](https://github.com/dinesh-devkota/mediavault/pull/27).
 
 The Android app scans the selected folder and its subfolders into the local
 library. The existing player, photo loader, and subtitle selector use bounded
@@ -260,7 +281,7 @@ Apple app review and Dropbox production access are separate steps.
 [Dropbox HTTP API](https://www.dropbox.com/developers/documentation/http/documentation) ·
 [ZXing license](https://github.com/zxing/zxing/blob/master/LICENSE)
 
-### Plex on Apple TV
+## Plex on Apple TV
 
 The isolated `codex/mediavault-plex-tvos` branch starts at development commit `942b1f2`.
 An owner can link using the code shown in Sources, choose an advertised Plex Media Server and choose one movie, TV, or photo library. Reconnect preserves the server and library identity. The source stores its server token in Keychain. Removing the source clears its local catalog and credential. Household profiles need an explicit whole-library grant and keep their local watched, resume and Watchlist records separate from the Plex account.

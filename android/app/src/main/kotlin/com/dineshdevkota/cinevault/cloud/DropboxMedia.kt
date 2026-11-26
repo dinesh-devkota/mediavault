@@ -159,6 +159,9 @@ internal class DropboxMedia(private val fixtureHttp: OkHttpClient? = null) : Fil
         return Connection(config, fixtureHttp).also { connections[config.id] = it }
     }
 
+    override suspend fun listEntries(config: SourceConfig): List<NasEntry> =
+        browse(config, config.rootPath)
+
     suspend fun browse(config: SourceConfig, path: String, authorize: () -> Unit = {}): List<NasEntry> {
         require(DropboxPath.contains(path, config.rootPath, includeRoot = true))
         val connection = connection(config)

@@ -66,7 +66,7 @@ struct NASSetupView: View {
                 }
             }
             .navigationTitle(step == .server ? "Add NAS" : step.rawValue)
-            .onExitCommand { goBack() }
+            .onTVExit { goBack() }
         }
         .tint(CinemaTheme.accent)
         .preferredColorScheme(.dark)
@@ -84,9 +84,11 @@ struct NASSetupView: View {
             NavigationLink("Connect OneDrive") {
                 OneDriveSourceEditor(source: nil, onSaved: { dismiss() })
             }.accessibilityIdentifier("add-onedrive-source")
+            #if os(tvOS)
             NavigationLink("Connect Dropbox") {
                 DropboxSourceEditor(source: nil, onSaved: { dismiss() })
             }.accessibilityIdentifier("add-dropbox-source")
+            #endif
             NavigationLink("Connect Jellyfin") {
                 JellyfinSourceEditor(source: nil, onSaved: { dismiss() })
             }

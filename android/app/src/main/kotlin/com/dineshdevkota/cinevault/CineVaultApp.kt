@@ -46,6 +46,7 @@ class AppContainer(context: Context) {
     val settings = Settings(context, secrets) { family.current.historyId }
     val database = CineVaultDatabase.create(context)
     val library = com.dineshdevkota.cinevault.family.FamilyLibrary(database, family)
+    val collections = com.dineshdevkota.cinevault.library.MediaCollections(context, family, library)
     internal val oneDrive = OneDriveMedia(AndroidOneDriveAccountStore(context, secrets))
     private val fileSources = mapOf(ONEDRIVE to oneDrive)
     val smb = SmbService(fileSources = fileSources)
@@ -56,8 +57,10 @@ class AppContainer(context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
     val metadata = MetadataService(database, TmdbClient(http) { settings.tmdbApiKey })
+    val localMetadata = com.dineshdevkota.cinevault.metadata.LocalMetadataImporter(database, secrets,
+        list = smb::listEntries, open = smb::open)
     val scanner = LibraryScanner(database, secrets, smb::scanVideos,
-        afterScan = { metadata.fetchMissing()?.failureMessage }, scanWithProgress = smb::scanMedia)
+        afterScan = { metadata.fetchMissing()?.failureMessage }, importLocalMetadata = localMetadata::importSource, scanWithProgress = smb::scanMedia)
     val editor = LibraryEditor(database, metadata, playbackProgress, library)
 }
 

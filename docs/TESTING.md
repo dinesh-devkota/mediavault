@@ -1,5 +1,46 @@
 # Validation and regression coverage
 
+## Library and playback parity
+
+The feature branch targets Apple TV, iPhone, Android TV, and Android phones.
+The four runtime workflows must pass for the same source revision before the
+new features are considered validated. A successful compile is insufficient.
+
+| Coverage | Apple TV and iPhone | Android TV and phones |
+| --- | --- | --- |
+| Local NFO/artwork, real source reads, versions and franchise | `LocalLibrarySMBIntegrationTests` | `LocalLibraryIntegrationTest` |
+| Create/rename collection, change membership, choose edition | `LibraryFeaturesNavigationTests` | `LibraryFeaturesNavigationTest` |
+| Actual additional-format decoding and seeking | `AlternativePlaybackIntegrationTests` (MKV, AVI, WebM) | `SmbPlaybackTest.mkvPlaybackAndSeekFromNas` |
+| Real additional-player transport, subtitle/audio sheets, Back | `AlternativePlaybackRemoteTests`, `AlternativePlaybackPhoneTests` | Existing native playback controls journeys |
+| Profile isolation and safe metadata | `LibraryCollectionsTests`, `LocalMetadataImportTests`, core parser tests | Local library integration and core/app unit tests |
+| Stream ranges, revocation and cancellation | `MediaByteRelayTests` | Existing data-source contract tests |
+| Plex linking, imported catalog, restricted reads and direct playback | `PlexFixtureTests`, account/media client tests | Plex provider, TLS and setup tests |
+
+The NAS fixture now exposes separate read-only `MEDIALIBRARY` and
+`FORMATPLAYBACK` shares. They contain synthetic NFO/images and real short videos,
+not private user media. `scripts/media_library_fixture.py` creates the fixtures;
+`ffmpeg` is required to remux/encode the format samples. Existing fixture shares
+remain separate so unrelated tests keep their original catalog.
+`Controls.mkv` is a separate 60-second synthetic clip with two selectable audio
+tracks and a local SRT file for the Apple phone/remote controls journeys. The
+shorter format samples still test natural completion.
+
+Both Android runners are restricted to disposable hosted emulators. The phone
+runner requires twelve executed cases, including the library journey, MKV playback,
+Plex setup, authenticated Plex range reads, and preservation of server ratings and
+episode identity during metadata edits. Apple workflows also start and trust
+the isolated Plex HTTPS fixture and require its shared test suite. They check the
+expected cases explicitly and reject skipped
+or missing results. Screenshots from the collection/version journeys are retained
+on successful runs as well as failures. Review them for clipping, remote focus,
+phone touch controls and readable source/version labels.
+
+Commercial engine metering has separate private tests and a protected build.
+Simulator checks cannot establish physical-device HDR, audio passthrough,
+maximum bitrate, or NAS reliability. See [playback limits](PLAYBACK-ENGINE.md).
+
+## Local checks
+
 Run the portable tests and Android build checks from the repository checkout:
 
 ```bash

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Generates the tvOS brand assets (layered app icons + top shelf images).
+"""Generates the Apple TV or iPhone brand assets.
 
 Pure standard library so it runs anywhere (CI, Windows, macOS):
     python3 scripts/generate_app_icons.py
 """
+import argparse
 import json
 import os
 import struct
@@ -103,7 +104,24 @@ def imagestack(path, sizes):
         imageset(os.path.join(lp, "Content.imageset"), sizes, kind)
 
 
+def phone_icon():
+    catalog = os.path.join(os.path.dirname(__file__), "..", "CineVaultiOS", "Assets.xcassets")
+    icon = os.path.join(catalog, "AppIcon.appiconset")
+    write_json(os.path.join(catalog, "Contents.json"), {"info": INFO})
+    write_json(os.path.join(icon, "Contents.json"), {"images": [
+        {"filename": "AppIcon.png", "idiom": "universal", "platform": "ios", "size": "1024x1024"},
+    ], "info": INFO})
+    size = 1024
+    write_png(os.path.join(icon, "AppIcon.png"), size, size, overlay_row(size, size, background_row(size, size)), False)
+    print("iPhone icon written to", os.path.normpath(icon))
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ios-only", action="store_true")
+    if parser.parse_args().ios_only:
+        phone_icon()
+        return
     write_json(os.path.join(ROOT, "Contents.json"), {"info": INFO})
     brand = os.path.join(ROOT, "App Icon & Top Shelf Image.brandassets")
     write_json(os.path.join(brand, "Contents.json"), {"info": INFO, "assets": [

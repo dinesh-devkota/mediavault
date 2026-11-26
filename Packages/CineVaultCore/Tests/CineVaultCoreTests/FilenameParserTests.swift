@@ -2,6 +2,14 @@ import XCTest
 @testable import CineVaultCore
 
 final class FilenameParserTests: XCTestCase {
+    func testBroadLibraryFoldersDoNotReplaceGenericFileTitles() {
+        XCTAssertEqual(FilenameParser.parse(path: "Movies/Film.mp4").title, "Film")
+        XCTAssertEqual(FilenameParser.parse(path: "Media/Feature.mp4").title, "Feature")
+        XCTAssertEqual(FilenameParser.parse(path: "Videos/Movie.mp4").title, "Movie")
+        XCTAssertEqual(FilenameParser.parse(path: "Movies/Heat (1995)/movie.mkv"), ParsedMovieName(title: "Heat", year: 1995))
+        XCTAssertEqual(FilenameParser.parse(path: "Movies/Movies (2020)/film.mp4"), ParsedMovieName(title: "Movies", year: 2020))
+    }
+
     func testReleaseName() {
         XCTAssertEqual(FilenameParser.parse(path: "Movies/The.Matrix.1999.1080p.BluRay.x264-GRP.mkv"),
                        ParsedMovieName(title: "The Matrix", year: 1999))

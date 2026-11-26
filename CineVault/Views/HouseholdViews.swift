@@ -27,17 +27,27 @@ struct HouseholdPickerView: View {
                     Text(HouseholdError.storage.localizedDescription).multilineTextAlignment(.center).frame(maxWidth: 850)
                     Button("Retry secure storage") { household.reload() }
                 } else {
+                    #if os(iOS)
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            ForEach(household.profiles) { profile in
+                                Button { select(profile) } label: {
+                                    Label(profile.name, systemImage: profile.isAdmin ? "lock.shield" : "person.crop.circle")
+                                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                }
+                                .buttonStyle(.bordered)
+                                .accessibilityIdentifier("household-profile-\(profile.name)")
+                                .accessibilityHint(profile.pin == nil ? "" : "PIN required")
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 260)
+                    #else
                     GeometryReader { geometry in
                     ScrollView(.horizontal) {
                         HStack(spacing: 28) {
                             ForEach(household.profiles) { profile in
-                                Button {
-                                    if profile.pin != nil { selected = profile }
-                                    else {
-                                        let intent = household.authenticationToken
-                                        Task { try? await household.unlockAsync(profile.id, pin: "", intent: intent) }
-                                    }
-                                } label: {
+                                Button { select(profile) } label: {
                                     VStack(spacing: 18) {
                                         Image(systemName: profile.isAdmin ? "lock.shield" : "person.crop.circle")
                                             .font(.system(size: 56))
@@ -50,14 +60,32 @@ struct HouseholdPickerView: View {
                         }.padding(40).frame(minWidth: geometry.size.width)
                     }
                     }.frame(height: 320)
-                    Text("Profiles and permissions stay on this TV. Admin manages access in Settings.")
+                    #endif
+                    Text("Profiles and permissions stay on this device. Admin manages access in Settings.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-            }.padding(50).frame(maxWidth: .infinity, maxHeight: .infinity)
+                #if os(iOS)
+                PhonePrivacyPolicyLink().font(.caption)
+                #endif
+            }
+            #if os(iOS)
+            .padding()
+            #else
+            .padding(50)
+            #endif
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CinemaTheme.background).preferredColorScheme(.dark)
                 .accessibilityIdentifier("household-picker")
                 .sheet(item: $selected) { HouseholdUnlockView(household: household, profile: $0) }
                 .onReceive(NotificationCenter.default.publisher(for: HouseholdStore.willLock)) { _ in selected = nil }
+        }
+    }
+
+    private func select(_ profile: HouseholdProfile) {
+        if profile.pin != nil { selected = profile }
+        else {
+            let intent = household.authenticationToken
+            Task { try? await household.unlockAsync(profile.id, pin: "", intent: intent) }
         }
     }
 }
@@ -90,7 +118,7 @@ private struct HouseholdUnlockView: View {
                     if let error { Text(error).foregroundStyle(.red) }
                 }
                 Section { Button("Back") { pin = ""; dismiss() } }
-            }.disabled(busy).overlay { if busy { ProgressView("Checking PIN…") } }.onDisappear { operation?.cancel() }.navigationTitle(profile.name).onExitCommand { pin = ""; dismiss() }
+            }.disabled(busy).overlay { if busy { ProgressView("Checking PIN…") } }.onDisappear { operation?.cancel() }.navigationTitle(profile.name).onTVExit { pin = ""; dismiss() }
         }
     }
 }
@@ -108,7 +136,7 @@ struct HouseholdSettingsView: View {
             if !household.configured {
                 Section {
                     Text("Give everyone their own library, Watchlist and viewing progress. Choose exactly which folders and US ratings each viewer can see.")
-                    Text("Admin keeps your current library and history. New viewers see nothing until you allow folders. Profiles stay on this TV.")
+                    Text("Admin keeps your current library and history. New viewers see nothing until you allow folders. Profiles stay on this device.")
                         .font(.caption).foregroundStyle(.secondary)
                     SecureField(household.hasSavedProfiles ? "Existing Admin PIN" : "Create six-digit Admin PIN", text: $pin).keyboardType(.numberPad)
                         .accessibilityIdentifier("household-setup-pin")
@@ -346,6 +374,9 @@ struct HouseholdViewerSettings: View {
                 Text("Admin manages NAS sources, subtitles, metadata and household permissions.").foregroundStyle(.secondary)
                 Button("Enter Admin") { household.lock() }
                 NavigationLink("Media Guide & Help") { MediaGuideView() }
+                #if os(iOS)
+                PhonePrivacyPolicyLink()
+                #endif
             }
         }.navigationTitle("Your profile")
     }
