@@ -65,7 +65,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             let path = self.path
             sizeTask = Task {
                 guard household.sessionIsCurrent(session),
-                      household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else {
+                      household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths) else {
                     throw PlaybackPreparationError.fileUnavailable
                 }
                 return try await reader.size()
@@ -88,7 +88,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             let size = try await sizeTask.value
             try Task.checkCancellation()
             guard household.sessionIsCurrent(householdSession),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else {
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths) else {
                 throw PlaybackPreparationError.fileUnavailable
             }
             if let info = request.contentInformationRequest {
@@ -124,7 +124,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
 
     func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
         guard household.sessionIsCurrent(householdSession),
-              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else { throw PlaybackPreparationError.fileUnavailable }
+              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths) else { throw PlaybackPreparationError.fileUnavailable }
         guard start >= 0, end >= start else { throw SMBError.invalidByteRange }
         var offset = start
         while offset < end {
@@ -133,7 +133,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             let data = try await reader.read(offset, length)
             try Task.checkCancellation()
             guard household.sessionIsCurrent(householdSession),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else { throw PlaybackPreparationError.fileUnavailable }
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths) else { throw PlaybackPreparationError.fileUnavailable }
             guard !data.isEmpty else { throw SMBError.unexpectedEndOfFile }
             respond(data)
             offset += Int64(data.count)
@@ -190,7 +190,7 @@ final class PlaybackController: ObservableObject {
         guard isNativeCandidate(movie) else { throw PlaybackPreparationError.unsupportedFormat }
         guard let source = movie.source else { return nil }
         guard household.allows(movie), LibrarySearch.isAvailable(movie), !source.isIgnored(filePath: movie.filePath),
-              (source.isWebDAV
+              (source.caseSensitivePaths
                 ? WebDAVAddress.contains(movie.filePath, within: source.rootPath)
                 : SubtitleFile.safePath(movie.filePath, within: source.rootPath) != nil) else { throw PlaybackPreparationError.fileUnavailable }
         return source

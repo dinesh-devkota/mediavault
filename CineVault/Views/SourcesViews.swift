@@ -54,13 +54,15 @@ struct SourcesView: View {
         .sheet(isPresented: $adding) { NASSetupView() }
         .sheet(item: $editing) { source in
             NavigationStack {
-                if source.isJellyfin { JellyfinSourceEditor(source: source) }
+                if source.cloudFileProvider == .oneDrive { OneDriveSourceEditor(source: source) }
+                else if source.isJellyfin { JellyfinSourceEditor(source: source) }
                 else { SourceEditorView(source: source) }
             }
         }
     }
 
     private func location(of source: MediaSource) -> String {
+        if let provider = source.cloudFileProvider { return provider.title }
         if source.isJellyfin { return source.host }
         if source.isWebDAV { return [source.host, source.rootPath].filter { !$0.isEmpty }.joined(separator: " / ") }
         let address = (try? NASAddress.parse(source.host, port: source.port))?.authority ?? "NAS"
