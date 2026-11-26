@@ -1,0 +1,22 @@
+name: Apple NFS compile probe
+
+on:
+  push:
+    branches: [codex/mediavault-apple-nfs-probe]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apple-nfs-probe:
+    name: Apple host fixture and tvOS ABI checks
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the read-only probe and run the host fixture
+        run: bash scripts/build_apple_nfs_probe.sh
