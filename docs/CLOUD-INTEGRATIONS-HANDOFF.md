@@ -307,6 +307,39 @@ are separate release steps.
 
 [Original iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)
 
+## Dropbox on Android and Apple TV
+
+Development includes Dropbox setup and playback on Android TV, Android phones, and Apple TV through [PR #30](https://github.com/dinesh-devkota/mediavault/pull/30). The owner enters
+a public Dropbox app key and approves with a one-time code using Dropbox's
+documented PKCE flow. The phone can open the approval in its browser. A QR code
+lets TV owners approve from a second device. The app stores the refresh
+credential with Android Keystore encryption and keeps access credentials in
+memory. A reconnect keeps the original app key, Dropbox account, and folder.
+Sign-out removes local credentials and requests revocation at Dropbox.
+
+The iPhone setup flow is tracked separately in [PR #27](https://github.com/dinesh-devkota/mediavault/pull/27).
+
+The Android app scans the selected folder and its subfolders into the local
+library. The existing player, photo loader, and subtitle selector use bounded
+HTTPS reads. File metadata and the response range must match before data is
+returned. Household viewers need an explicit grant and cannot use a buffered
+read after a session locks. Each source keeps the existing local history and
+Watchlist behavior. Dropbox filenames match case-insensitively on Android.
+
+The Android TV and phone workflows require the Dropbox fixture to exercise
+one-time code exchange, refreshed credentials, paginated import, photo decode,
+matching captions, playback with a rendered seek, and household access. The TV
+suite also requires the remote-control approval screen test. Only the synthetic
+test client trusts the fixture certificate. The QR code uses the Apache-2.0
+licensed ZXing Core dependency.
+
+Real-account validation needs a registered Dropbox app and eligible test
+account. No account credentials or app secret are included in the project.
+Apple app review and Dropbox production access are separate steps.
+[Dropbox OAuth](https://developers.dropbox.com/oauth-guide) ·
+[Dropbox HTTP API](https://www.dropbox.com/developers/documentation/http/documentation) ·
+[ZXing license](https://github.com/zxing/zxing/blob/master/LICENSE)
+
 ## Plex on Apple TV
 
 The isolated `codex/mediavault-plex-tvos` branch starts at development commit `942b1f2`.

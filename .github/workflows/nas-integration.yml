@@ -71,7 +71,7 @@ jobs:
       - name: Report compiler errors
         if: failure()
         run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/tvos-build.log" || true
-      - name: Test against local SMB, WebDAV, Jellyfin, and Plex fixtures
+      - name: Test against local SMB, WebDAV, Jellyfin, Plex, and Dropbox fixtures
         env:
           UI_ONLY: ${{ inputs.ui_only || false }}
         run: |
@@ -89,6 +89,9 @@ jobs:
           bash scripts/start_plex_fixture.sh "$RUNNER_TEMP/plex-fixture"
           PLEX_PID=$(cat "$RUNNER_TEMP/plex-fixture/server.pid")
           trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$PLEX_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_dropbox_fixture.sh "$RUNNER_TEMP/dropbox-fixture"
+          DROPBOX_PID=$(cat "$RUNNER_TEMP/dropbox-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$PLEX_PID" "$DROPBOX_PID" 2>/dev/null || true' EXIT
           for attempt in {1..30}; do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               cat "$RUNNER_TEMP/nas-fixture.log" >&2
@@ -108,6 +111,7 @@ jobs:
           # Install the ephemeral fixture's trust anchor only on this simulator.
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/plex-fixture/fixture.cer"
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/dropbox-fixture/fixture.cer"
           # Bash 3.2 treats an empty array as unset under nounset. Keep the full
           # invocation nonempty, then append the optional focused-test filters.
           TEST_ARGS=(-project CineVault.xcodeproj -scheme CineVault
@@ -149,14 +153,17 @@ jobs:
           with open(sys.argv[1]) as source:
               tests = set(passed(json.load(source)["testNodes"]))
           required = {"testCreateEditCollectionAndChooseAlternateVersion",
-                      "testMKVRemotePlaybackSeekingSubtitlesAndAudioKeepSession"}
+                      "testMKVRemotePlaybackSeekingSubtitlesAndAudioKeepSession",
+                      "testPrivacyPolicyIsReadableFromTheLockedProfilePicker"}
           if os.environ["UI_ONLY"] != "true":
               required |= {"testCommonContainersDecodeAndSeekOverGuardedSMB",
-                           "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey"}
+                           "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey",
+                           "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek",
+                           "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot"}
           missing = sorted(required - tests)
           if missing:
-              sys.exit("Required Apple TV library/playback cases did not pass: " + ", ".join(missing))
-          print("Required Apple TV library/playback cases passed.")
+              sys.exit("Required Apple TV fixture cases did not pass: " + ", ".join(missing))
+          print("Required Apple TV fixture cases passed.")
           PY
       - name: Export remote test screenshots
         if: always()
@@ -185,6 +192,7 @@ jobs:
             ${{ runner.temp }}/jellyfin-fixture/server.log
             ${{ runner.temp }}/webdav-fixture/server.log
             ${{ runner.temp }}/plex-fixture/server.log
+            ${{ runner.temp }}/dropbox-fixture/server.log
             ${{ runner.temp }}/nas-results.xcresult
           if-no-files-found: warn
           retention-days: 7

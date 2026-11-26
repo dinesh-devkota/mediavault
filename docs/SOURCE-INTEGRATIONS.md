@@ -1,9 +1,9 @@
 # Additional media sources
 
-The current development candidate includes SMB, HTTPS WebDAV, Jellyfin, Plex and
-personal OneDrive source adapters. Apple TV, iPhone, Android TV and Android phones
-share the corresponding platform implementations. Test coverage and remaining
-limits are recorded in [TESTING.md](TESTING.md) and the
+The current development candidate includes SMB, HTTPS WebDAV, Jellyfin, Plex,
+personal OneDrive, and Dropbox source adapters. Dropbox setup is available on
+Apple TV and Android. Its iPhone setup is tracked in a separate draft. Test coverage
+and remaining limits are recorded in [TESTING.md](TESTING.md) and the
 [handoff](../dist/AGENT-HANDOFF.md); a merged connector does not establish live-account
 or physical-device compatibility. See the [user guide](MEDIA-GUIDE.md) for setup.
 
@@ -91,11 +91,14 @@ provided the original comparison point; use the current status above for impleme
   appropriate authority for personal accounts, organizational accounts, or both.
   [Microsoft device-code flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code)
   [Graph permissions](https://learn.microsoft.com/en-us/graph/permissions-reference#filesread)
-- **Dropbox.** Register a Dropbox API app and enable public clients with PKCE.
-  Selecting files already in a user's Dropbox requires a Full Dropbox app and
-  the metadata-read and content-read scopes. An Apple TV flow needs a designed
-  companion authorization and callback. Store refresh credentials in Keychain.
-  [Dropbox OAuth](https://developers.dropbox.com/oauth-guide)
+- **Dropbox.** Register a scoped Dropbox API app with Full Dropbox access to
+  choose folders already in the account. Enable `files.metadata.read` and
+  `files.content.read`. Enter its public app key in the MediaVault source setup.
+  Approve in a Dropbox browser session and enter the one-time code shown there.
+  Dropbox supports PKCE with offline access and a manual code when the request
+  omits a redirect URI. A production app can provide its own registered public
+  key. Check the Dropbox App Console for linked-account limits and production
+  access requirements. [Dropbox OAuth](https://developers.dropbox.com/oauth-guide)
 - **Google Drive.** Enable the Drive API in a Google Cloud project and register
   OAuth clients for the chosen authorization flow. The listed TV device flow
   supports `drive.file` and `drive.appdata`. Broad access to existing files needs

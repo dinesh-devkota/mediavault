@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.cloud.ONEDRIVE
+import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.smb.NasBrowser
 import com.dineshdevkota.cinevault.smb.NasEntry
@@ -45,6 +47,7 @@ private fun IgnoredFoldersPanel(
     listCloudEntries: (suspend (String) -> List<NasEntry>)?,
 ) {
     val browser = remember { NasBrowser() }
+    val container = LocalContext.current.container
     var manual by remember { mutableStateOf("") }
     var showManual by remember { mutableStateOf(false) }
     var browsing by remember { mutableStateOf(false) }
@@ -78,6 +81,7 @@ private fun IgnoredFoldersPanel(
             require(config.host.isNotBlank() && (config.caseSensitivePaths || config.share.isNotBlank())) { "Enter the NAS address and share first." }
             require(config.port == null || config.port in 1..65535) { "Enter a valid NAS port." }
             entries = if (config.sourceType == ONEDRIVE) checkNotNull(listCloudEntries)(path)
+            else if (config.isDropbox) container.smb.browseDropbox(config, joined(path), container.family::requireAdmin)
                 else browser.listEntries(config.copy(rootPath = joined(path)))
         } catch (cancelled: CancellationException) {
             throw cancelled
