@@ -64,6 +64,25 @@ the episode caption. Button tint, disabled styling, Dynamic Type, and the hide
 timer retain their existing behavior. The phone journey checks the title while
 paused and its existing subtitle/control screenshot provides visual evidence.
 
+Run `45727532171` at `5019cc8` passed all 223 phone cases and unsigned release.
+Run `45729764030` at `d6e2600` passed 222/223 and release; its MKV journey and
+white metadata screenshot passed visual review. Its sole failure was WebDAV TLS:
+the fixture log records two handshake timeouts at 5.010 and 5.004 seconds, after
+earlier authenticated playback succeeded. The fixture now allows a separate,
+bounded 20-second TLS handshake while retaining its five-second HTTP idle limit.
+All five real-socket fixture tests pass, including delayed ClientHello, idle-client
+isolation, authentication, range reads, and certificate rejection. Production TLS
+and retry behavior are unchanged; an independent review found no issue.
+
+The successful phone recording also showed local captions covering the paused
+scrubber. The shared Apple fallback now measures its transport panel and places
+captions above it while visible, restoring their previous position when controls
+hide. Existing phone and TV journeys assert caption Text bounds above the title.
+The recorded accessibility frame excludes external padding, so this catches the
+actual overlap. This caption/fixture follow-up awaits hosted phone and TV checks.
+Full TLS evidence is in `.artifacts/apple-phone-d6e2600-full`; the inspected
+metadata screenshot is in `.artifacts/apple-phone-d6e2600/iphone-test-screenshots`.
+
 Earlier actual defects are corrected: TCP send completion, VLC parser timeout
 units, pending-pause acknowledgement, synchronous stream revocation, nested
 version navigation, phone collection sizing, focused button contrast and the

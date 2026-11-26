@@ -28,6 +28,9 @@ final class AlternativePlaybackRemoteTests: XCTestCase {
         remote.press(.menu)
         wait(app, "Back dismisses subtitles without closing playback") { !app.buttons["subtitles-done"].exists && app.buttons["alternative-play-pause"].exists }
         XCTAssertTrue(app.staticTexts["local-subtitle-caption"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertLessThanOrEqual(app.staticTexts["local-subtitle-caption"].frame.maxY,
+                                 app.staticTexts["MKV playback controls"].frame.minY,
+                                 "Captions must remain above the visible transport panel.")
         capture("MKV remote controls with local captions", app)
 
         let beforeAudio = seconds(app)

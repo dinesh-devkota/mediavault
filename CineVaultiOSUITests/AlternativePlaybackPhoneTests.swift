@@ -40,6 +40,9 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         wait(app, "Subtitle sheet dismisses") { !app.buttons["subtitles-done"].exists }
         waitLabel(app.staticTexts["fixture-alternative-state"], "Paused", app)
         XCTAssertTrue(app.staticTexts["local-subtitle-caption"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertLessThanOrEqual(app.staticTexts["local-subtitle-caption"].frame.maxY,
+                                 app.staticTexts["MKV playback controls"].frame.minY,
+                                 "Captions must remain above the visible transport panel.")
         capture("MKV local subtitle with phone transport controls", app)
 
         let beforeAudio = seconds(app)
