@@ -38,8 +38,12 @@ toolbar/source action and every poster group to be absent.
 Collection return waits for Done selecting, the exact three-file count, both
 selected poster descriptions, and absence of the collection form before the
 final exact count and group assertions.
-Profile collection isolation waits for the destination collections heading and
-form before checking that another profile's collection is absent. These waits
+Household setup first verifies the optional viewer PIN stays closed until
+requested. It selects the exact Fixture NAS grant with one remote action,
+confirms it is the only selection before saving, then checks the viewer's
+allowed and hidden media. Profile collection isolation waits for the
+destination collections heading and form before checking that another
+profile's collection is absent. These waits
 acknowledge rendered route state; they do not insert fixed delays.
 
 Journey `06-mp4-remote-playback` requires native focus on the ready player's

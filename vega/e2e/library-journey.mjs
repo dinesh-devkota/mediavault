@@ -704,11 +704,23 @@ try {
   await step('08-household-filtering', async () => {
     await click('action-sources'); await click('action-set-up-household-profiles');
     await enter('field-administrator-pin', '482619'); await enter('field-confirm-administrator-pin', '482619');
-    await enter('field-profile-name', 'Kids'); await click('action-fixture-nas'); await click('action-save-profile');
+    await enter('field-profile-name', 'Kids');
+    await focusVisible(byID('action-add-profile-pin'));
+    assert.equal(await exists(byID('field-profile-pin-optional')), false, 'A new viewer must have no open optional PIN editor.');
+    assert.equal(await exists(keyboardDone), false, 'Focusing the Add PIN action must leave the keyboard closed.');
+    await click('action-fixture-nas');
+    const granted = '//*[starts-with(@test_id,"profile-source-allowed-")]';
+    await waitFor(async () => {
+      const matches = await call('POST', '/elements', {using: 'xpath', value: granted});
+      return matches.length === 1 && await exists(granted + "[@description='Fixture NAS']");
+    }, 'Only the exact Fixture NAS grant must be selected before saving.');
+    await click('action-save-profile');
     await waitFor(async () => await exists(byID('action-set-up-household-profiles')) && !await exists(byID('field-profile-name')),
       'The household profile must finish saving before switching profiles.');
     await click('action-everyone'); await click('action-kids'); await click('action-continue');
     await element(byID(feature));
+    assert.equal(await exists('//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Seek Controls.mp4")]'), false,
+      'The viewer must not receive a title from the ungranted Formats NAS.');
     assert.equal(await exists('//*[starts-with(@test_id,"media-group-") and contains(@test_id,"Invalid Metadata.mp4")]'), false,
       'A restricted profile must not receive a title with malformed/unknown rating.');
     assert.equal(await exists(byID('action-sources')), false, 'A viewer cannot manage credentials or household permissions.');

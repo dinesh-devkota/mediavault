@@ -357,24 +357,35 @@ const MediaVaultApp = () => {
   </TVFocusGuideView>;
 };
 
-function ProfileEditor({library, needsAdminPIN, onSave}: {library: LibrarySnapshot; needsAdminPIN: boolean; onSave: (profile: HouseholdProfile, adultPIN: string, childPIN: string) => Promise<void>}) {
+export function ProfileEditor({library, needsAdminPIN, onSave}: {library: LibrarySnapshot; needsAdminPIN: boolean; onSave: (profile: HouseholdProfile, adultPIN: string, childPIN: string) => Promise<void>}) {
   const [name, setName] = useState(''), [adultPIN, setAdultPIN] = useState(''), [confirmPIN, setConfirmPIN] = useState(''), [childPIN, setChildPIN] = useState('');
+  const [useProfilePIN, setUseProfilePIN] = useState(false);
   const [folders, setFolders] = useState<string[]>([]), [rating, setRating] = useState('PG'), [tvRating, setTVRating] = useState('TV-PG');
   const [error, setError] = useState<string>(), [busy, setBusy] = useState(false);
   const save = async (): Promise<void> => {
     if (!name.trim() || name.length > 80 || library.profiles.some(value => value.name.toLowerCase() === name.trim().toLowerCase())) { setError('Choose a unique profile name.'); return; }
     if (library.profiles.length >= 20) { setError('The household profile limit has been reached.'); return; }
     if (needsAdminPIN && (!/^\d{6,12}$/.test(adultPIN) || adultPIN !== confirmPIN)) { setError('Choose a 6–12 digit administrator PIN and enter it twice.'); return; }
-    if (childPIN && !/^\d{6,12}$/.test(childPIN)) { setError('Use 6–12 digits for the profile PIN, or leave it empty.'); return; }
+    const profilePIN = useProfilePIN ? childPIN : '';
+    if (profilePIN && !/^\d{6,12}$/.test(profilePIN)) { setError('Use 6–12 digits for the profile PIN, or leave it empty.'); return; }
     setBusy(true); setError(undefined);
     try { const id = newID(); await onSave({id, name: name.trim(), admin: false, folders: library.sources.filter(value => folders.includes(value.id)).map(value => ({sourceId: value.id, path: value.root})),
-      maximumMovieRating: rating, maximumTVRating: tvRating, ...(childPIN ? {pinReference: id} : {})}, adultPIN, childPIN); }
+      maximumMovieRating: rating, maximumTVRating: tvRating, ...(profilePIN ? {pinReference: id} : {})}, adultPIN, profilePIN); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'The profile could not be saved.'); setBusy(false); }
   };
   return <ScrollView contentContainerStyle={{paddingBottom: 80}}><Text style={shared.heading}>Add a household profile</Text><Text style={shared.subtitle}>Restricted and unrated titles stay hidden until an authorized profile is unlocked.</Text>
     {needsAdminPIN && <><Field label="Administrator PIN" value={adultPIN} onChange={setAdultPIN} secure/><Field label="Confirm administrator PIN" value={confirmPIN} onChange={setConfirmPIN} secure/></>}
-    <Field label="Profile name" value={name} onChange={setName}/><Field label="Profile PIN (optional)" value={childPIN} onChange={setChildPIN} secure/>
-    <Text style={shared.heading}>Allowed sources</Text><View style={shared.row}>{library.sources.map(value => <Action key={value.id} label={value.name} selected={folders.includes(value.id)} onPress={() => setFolders(current => current.includes(value.id) ? current.filter(id => id !== value.id) : [...current, value.id])}/>)}</View>
+    <Field label="Profile name" value={name} onChange={setName}/>
+    <Action label={useProfilePIN ? 'Remove profile PIN' : 'Add profile PIN'} disabled={busy} onPress={() => {
+      if (useProfilePIN) { setChildPIN(''); }
+      setUseProfilePIN(!useProfilePIN);
+    }}/>
+    {useProfilePIN && <Field label="Profile PIN (optional)" value={childPIN} onChange={setChildPIN} secure/>}
+    <Text style={shared.heading}>Allowed sources</Text><View style={shared.row}>{library.sources.map(value => {
+      const allowed = folders.includes(value.id);
+      return <Action key={value.id} label={value.name} selected={allowed} testID={allowed ? `profile-source-allowed-${value.id}` : undefined}
+        onPress={() => setFolders(current => current.includes(value.id) ? current.filter(id => id !== value.id) : [...current, value.id])}/>;
+    })}</View>
     <Text style={shared.heading}>Highest movie rating</Text><View style={shared.row}>{['G', 'PG', 'PG-13', 'R', 'NC-17'].map(value => <Action key={value} label={value} selected={rating === value} onPress={() => setRating(value)}/>)}</View>
     <Text style={shared.heading}>Highest TV rating</Text><View style={shared.row}>{['TV-Y', 'TV-Y7', 'TV-G', 'TV-PG', 'TV-14', 'TV-MA'].map(value => <Action key={value} label={value} selected={tvRating === value} onPress={() => setTVRating(value)}/>)}</View>
     {error && <Text style={shared.error}>{error}</Text>}<Action label={busy ? 'Saving…' : 'Save profile'} disabled={busy} onPress={() => void save()}/></ScrollView>;

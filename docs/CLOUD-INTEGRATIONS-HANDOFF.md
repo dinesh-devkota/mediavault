@@ -207,8 +207,9 @@ OneDrive and Plex touch journeys have passed on the separate iPhone provider
 branch. The latter exact checkpoint ran 211 iPhone and 219 Apple TV cases.
 A focused local port for development preserves the current app's routes and
 adds native provider import and seek validation. Dropbox iPhone uses its own
-draft. Its first combined run passed the Dropbox touch and media fixtures,
-while two existing account sign-in screens timed out in the iPhone process.
+draft. Its exact unchanged retry passed all 217 iPhone and 224 Apple TV cases.
+GitHub confirmed the PR merge after the iPhone feature branch was
+fast-forwarded to the exact tested `a0210bfb` tree.
 [OneDrive iPhone #24](https://github.com/dinesh-devkota/mediavault/pull/24)
 · [Plex iPhone #25](https://github.com/dinesh-devkota/mediavault/pull/25)
 · [Dropbox iPhone #27](https://github.com/dinesh-devkota/mediavault/pull/27)
@@ -219,16 +220,21 @@ passed 117 cases. All three named phone Drive cases passed. The phone test
 revision `0bb9033` keeps the actual Back action and checks that it returns to the
 selected movie with its playback action available. The corrected head passed
 117 Android TV and 20 Android phone emulator cases, with every Drive case
-executed. Apple jobs cover the shared Swift range client. The iPhone Drive draft
-has its own simulator gate. Private Drive on Apple TV needs a registered
+executed. Apple TV passed 259 cases including the shared Swift range client.
+An unchanged iPhone WebDAV handshake stalled before HTTP and is being
+retested. The Google Drive iPhone draft is separately on `feebb5fa` with
+four named Files-access gates and uses the system document picker. Private Drive on Apple TV needs a registered
 Google OAuth/Picker flow and a reviewable HTTPS companion.
 [Android Drive #7](https://github.com/dinesh-devkota/mediavault/pull/7)
 · [iPhone Drive #23](https://github.com/dinesh-devkota/mediavault/pull/23)
 
 The isolated Emby reconciliation builds both Android app and instrumentation
 Kotlin and passed 101 core and 167 app tests. Three other cases require a
-configured synthetic service. The Apple checkpoint adds a real certificate-
-validated Emby import fixture with native direct-play and HLS seek assertions.
+configured synthetic service. Exact `de2d54c` passed 119 Android TV cases
+across the two reports and 268 Apple TV simulator tests, including native
+Emby direct play, authenticated HLS and seeking. The iPhone simulator passed
+its native Emby test and failed a separate WebDAV post-import screen check.
+The unsigned iPhone and tvOS releases passed.
 The NFS pilot passed all five disposable macOS host fixture tests plus both
 arm64 tvOS ABI checks at `8c6df87`. A local Android adapter passed six guarded
 reader tests, including a real JNI read of a disposable export. App-level NFS
@@ -237,7 +243,7 @@ and licensing review.
 [Emby #17](https://github.com/dinesh-devkota/mediavault/pull/17)
 · [NFS #8](https://github.com/dinesh-devkota/mediavault/pull/8)
 
-Apple privacy draft `ef0ea6e` bundles the policy for offline access on Apple TV
+Apple privacy draft `e5269e7` bundles the policy for offline access on Apple TV
 and iPhone and checks the exact shipped resources in both unsigned builds.
 Distribution requires an active Apple Developer team, signed archives, current
 App Store Connect metadata, provider rights, and review access to test media.

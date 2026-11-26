@@ -412,6 +412,22 @@ is pending. The harness verifies they are enabled and checks remote focus
 before each press, then checks the actual native request and clock. It records
 action timestamps to distinguish a dropped input from a decoder issue.
 
+Exact run `45789751322` at `69d308c` passed all three production packages,
+native and fixture package checks, production startup, and steps 01–07.
+The four MP4 requests settled paused near 11s, 41s, 31s and 21s with matching
+HTTP 206 ranges. The separate MKV case reproduced native 50004, kept the
+actual paused clock and safely reopened the previous verified checkpoint.
+The continuous-playback fixture selected Spanish, turned captions Off,
+honored the countdown cancellation, and decoded the next available episode.
+Its artifact `15103091770` shows that step 08 reached the optional profile
+PIN input instead of the source grant. The open system keyboard captured
+further remote movement, so that run reached neither the source grant nor
+the wrong-PIN/recovery step. The viewer PIN editor now opens only after
+choosing Add profile PIN. Removing it clears the draft. The household
+journey checks that remote focus leaves the editor closed, selects only the
+intended source grant, then checks allowed and restricted content.
+Device-backed keystore testing remains separate.
+
 The current verification branch checks the native clock before saving a seek,
 bounds keyboard-window observation without weakening same-window or field
 checks, and uses one verified foreground launch before its standalone MKV/MP4
@@ -419,7 +435,7 @@ probe. Vega's subtitle menu announces and displays the active track, names
 local languages and variants, and keeps Off and explicit track selection stable
 when native tracks arrive or reorder. WebDAV sidecars match the exact media
 filename case. SMB matching remains case-insensitive. Local synthetic
-validation at Node 22.23.5 passed all 85 app/SDK tests, 28 harness tests and 23 Python package
+validation at Node 22.23.5 passed all 88 app/SDK tests, 28 harness tests and 23 Python package
 contracts, plus typecheck and lint (0 errors, 50 existing warnings).
 
 The catalog review found the rendered Home and collection grids still repeated
