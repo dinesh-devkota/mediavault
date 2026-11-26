@@ -56,7 +56,7 @@ struct TVShowGroup: Identifiable {
                         .split(whereSeparator: \.isWhitespace).joined(separator: " ") + "|" + ($0.year.map(String.init) ?? "unknown")
                 }
         }
-        let prepared = episodes.map { ($0, aliases($0)) }
+        let prepared = episodes.filter { HouseholdStore.shared.allows($0) }.map { ($0, aliases($0)) }
         var known: [String: Set<Int>] = [:]
         for (movie, keys) in prepared {
             if let id = movie.seriesTMDBID {
@@ -201,7 +201,7 @@ struct TVShowBrowserView: View {
                         let number = TVShowGroup.episode(episode)
                         NavigationLink(value: episode) {
                             TVShowArtwork(title: number == Int.max ? episode.title : "E\(number) · \(episode.title)",
-                                subtitle: episode.isWatched ? "Watched" : episode.isInProgress ? "In progress" : "Episode",
+                                subtitle: episode.householdWatched ? "Watched" : episode.isInProgress ? "In progress" : "Episode",
                                 path: episode.backdropPath, wide: true, focused: focusedItem == key)
                         }
                         .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: key).id(key)

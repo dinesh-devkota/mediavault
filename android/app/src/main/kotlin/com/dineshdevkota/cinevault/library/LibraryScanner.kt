@@ -10,6 +10,11 @@ import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SecretBox
+import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.jellyfin.importJellyfinLibrary
+import com.dineshdevkota.cinevault.plex.PLEX
+import com.dineshdevkota.cinevault.plex.PlexException
+import com.dineshdevkota.cinevault.plex.importPlexLibrary
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.dineshdevkota.cinevault.smb.ScanProgress
@@ -70,13 +75,21 @@ class LibraryScanner(
         statusFlow.value = "Scanning ${source.name}…"
         var partialAdded = 0
         try {
+            if (source.sourceType == JELLYFIN || source.sourceType == PLEX) {
+                val report: (Int) -> Unit = { statusFlow.value = "Scanning ${source.name}: $it catalog items…" }
+                val result = if (source.sourceType == JELLYFIN) importJellyfinLibrary(database, source, secrets, onProgress = report)
+                    else importPlexLibrary(database, source, secrets, progress = report)
+                statusFlow.value = if (result == null) "${source.name} changed during the scan. Scan the source again."
+                    else "${source.name}: ${result.first} items (${result.second} new)."
+                return
+            }
             val movies = database.movies()
             val config = source.config(secrets)
             val foundPaths = mutableSetOf<String>()
             val scanned = if (scanWithProgress == null) scanVideos(config) else scanWithProgress(config) { progress ->
                 val allowed = progress.files.filter {
                     MediaFile.shouldIndex(it.path, it.size) &&
-                        !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles)
+                        !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.isWebDav)
                 }
                 database.withTransaction {
                     check(database.sources().get(source.id) == source) { "The NAS source changed during the scan. Scan again." }
@@ -92,7 +105,7 @@ class LibraryScanner(
                 statusFlow.value = "Scanning ${source.name}: ${foundPaths.size} items in ${progress.folders} folders…"
             }
             val files = scanned.filter { MediaFile.shouldIndex(it.path, it.size) &&
-                !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles) }
+                !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.isWebDav) }
             val added = database.withTransaction {
                 // An edit/delete can finish while the NAS operation is suspended. Never apply
                 // the old share's results to the replacement source (or recreate deleted rows).
@@ -126,7 +139,12 @@ class LibraryScanner(
             statusFlow.value = "Scan cancelled for ${source.name}. Items already found are kept."
             throw e
         } catch (e: Exception) {
-            val reason = SmbService.describe(e).trimEnd().removeSuffix(".")
+            val reason = if (source.sourceType == JELLYFIN) {
+                (e as? com.dineshdevkota.cinevault.jellyfin.JellyfinException)?.message
+                    ?: "Could not read the Jellyfin library"
+            } else if (source.sourceType == PLEX) {
+                (e as? PlexException)?.message ?: "Could not read the Plex library"
+            } else SmbService.describe(e).trimEnd().removeSuffix(".")
             statusFlow.value = "Scan failed for ${source.name}: $reason. Items already found are kept. Retry from Sources."
         }
     }

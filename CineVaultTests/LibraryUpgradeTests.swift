@@ -83,6 +83,35 @@ final class LibraryUpgradeTests: XCTestCase {
         }
     }
 
+    func testWebDAVConfigurationAndCaseSensitiveExclusionSurviveReopen() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cinevault-webdav-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("library.store")
+        let sourceID = UUID()
+
+        try withCurrentStore(at: url) { context in
+            let source = MediaSource(name: "WebDAV fixture", host: "https://fixture.example/media/", share: "", rootPath: "Movies", username: "")
+            source.id = sourceID
+            source.sourceProtocol = "webdav"
+            context.insert(source)
+            try source.applyIgnoredPaths(folders: ["Private", "private"], files: ["Film.en.srt"])
+            try context.save()
+        }
+
+        try withCurrentStore(at: url) { context in
+            let source = try XCTUnwrap(context.fetch(FetchDescriptor<MediaSource>()).first)
+            let config = try source.config()
+            XCTAssertEqual(config.id, sourceID)
+            XCTAssertTrue(config.isWebDAV)
+            XCTAssertEqual(config.host, "https://fixture.example/media/")
+            XCTAssertEqual(config.rootPath, "Movies")
+            XCTAssertEqual(config.ignoredFolders, ["Private", "private"])
+            XCTAssertTrue(config.excludesFile("Movies/Film.en.srt"))
+            XCTAssertFalse(config.excludesFile("Movies/film.en.srt"))
+        }
+    }
+
     func testOldLibraryMigratesWithoutLosingStateAndWatchlistPersistsAfterReopen() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cinevault-upgrade-\(UUID())", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -155,6 +184,8 @@ final class LibraryUpgradeTests: XCTestCase {
             XCTAssertEqual(source.name, "Original NAS")
             XCTAssertEqual(source.host, "nas.example.invalid")
             XCTAssertEqual(source.port, 1445)
+            XCTAssertNil(source.sourceProtocol)
+            XCTAssertFalse(source.isWebDAV)
             XCTAssertEqual(source.share, "Video")
             XCTAssertEqual(source.rootPath, "Movies")
             XCTAssertNil(source.ignoredFolders)
@@ -183,6 +214,8 @@ final class LibraryUpgradeTests: XCTestCase {
             XCTAssertEqual(movie.genres, ["Action", "Science Fiction"])
             XCTAssertEqual(movie.runtimeMinutes, 136)
             XCTAssertEqual(movie.rating, 8.7)
+            XCTAssertNil(movie.usContentRating, "Audience votes must never become a content certification during migration.")
+            XCTAssertNil(movie.usContentRatingFetched, "Old libraries need a real certification lookup.")
             XCTAssertTrue(movie.metadataFetched)
             XCTAssertTrue(movie.isLocked)
             XCTAssertEqual(movie.dateAdded, added)
@@ -199,6 +232,8 @@ final class LibraryUpgradeTests: XCTestCase {
             XCTAssertEqual(watched.duration, 600)
             XCTAssertFalse(watched.isWatchlisted)
             movie.isWatchlisted = true
+            movie.usContentRating = "R"
+            movie.usContentRatingFetched = true
             try context.save()
         }
 
@@ -206,6 +241,8 @@ final class LibraryUpgradeTests: XCTestCase {
             let movies = try context.fetch(FetchDescriptor<Movie>())
             let movie = try XCTUnwrap(movies.first { $0.id == movieID })
             XCTAssertTrue(movie.isWatchlisted, "The new field must survive closing and reopening the upgraded store.")
+            XCTAssertEqual(movie.usContentRating, "R")
+            XCTAssertEqual(movie.usContentRatingFetched, true)
             XCTAssertEqual(movie.playbackPosition, 720)
             XCTAssertTrue(movie.isHidden)
             XCTAssertTrue(movie.isMissing)

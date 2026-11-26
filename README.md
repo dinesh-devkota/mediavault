@@ -9,6 +9,11 @@ Built with SwiftUI on tvOS and Compose for TV on Android.
 The Library remembers your last section when you return or reopen the app.
 Find the installed version and build in **Settings**.
 
+Version **1.4.0, build 6** adds optional local household profiles. Admin chooses
+each person's allowed NAS folders and US movie/TV rating limits. Restricted media
+stays hidden, and each viewer has separate watched status, resume positions and
+Watchlist. [Household profile setup](docs/MEDIA-GUIDE.md#use-household-profiles)
+
 Choose **See all** on a Home shelf to browse its complete collection, keeping
 shows grouped and your saved Library filters intact. Back returns to the same
 shelf. Empty screens offer the next useful action, and resumed titles show
@@ -21,7 +26,7 @@ On either TV, **Continue Watching** shows one card per active series. Resume
 the file you paused or see the season and episode number before playing the
 next available file on your NAS. [Continue a series from Home](docs/MEDIA-GUIDE.md#continue-a-series-from-home)
 
-Version **1.3.0, build 5** adds SRT/WebVTT subtitles from the video's NAS folder,
+Version **1.3.0, build 5** introduced SRT/WebVTT subtitles from the video's NAS folder,
 optional SubDL searches and downloads, and continuous TV viewing with a cancellable
 next-episode countdown. Connect SubDL once in Settings and choose your subtitle
 language; local subtitle files work without an account.
@@ -264,6 +269,7 @@ Fastlane builds, the same bundle and product IDs can be provided as environment 
 
 1. **Settings** → paste your TMDB key (themoviedb.org → Settings → API; the v3 key or the v4 "read access token" both work).
 2. **Sources** → *Add NAS Source*: host/IP, username/password (empty = guest), share (use *List Shares*), and the folder inside the share (e.g. `Movies`). *Test Connection*, then *Save & Scan*.
+   For WebDAV, choose *Connect WebDAV*. Enter the full HTTPS address and the optional Basic-auth credentials. Choose a media folder, then test the connection and save. The server must respond to WebDAV folder listing requests and support HTTP byte ranges for seeking.
 3. Browse **Home** / **Movies**, press a poster to see details and play. Long scans run in the background; rescans happen on launch.
 4. Wrong poster? Open the movie → **Edit** → *Fix Match* and pick the right result, or rename it. Use *Hidden from library* to hide entries (see them under Movies → Show → Hidden).
 

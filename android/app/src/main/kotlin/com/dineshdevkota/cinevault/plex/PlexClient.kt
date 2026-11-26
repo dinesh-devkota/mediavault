@@ -9,6 +9,7 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.coroutines.coroutineContext
 import okhttp3.Headers
 import okhttp3.HttpUrl
@@ -28,7 +29,7 @@ private const val MAXIMUM_CATALOG_BYTES = 8 * 1024 * 1024
 private const val MAXIMUM_RANGE_BYTES = 8 * 1024 * 1024
 private val json = Json { ignoreUnknownKeys = true }
 
-private object PlexHTTP : PlexExchange {
+internal object PlexHTTP : PlexExchange {
     private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .callTimeout(30, TimeUnit.SECONDS).build()
 
@@ -119,22 +120,48 @@ internal class PlexMediaClient(
         val summary: String? = null,
         val year: Int? = null,
         val grandparentTitle: String? = null,
+        val grandparentRatingKey: JsonPrimitive? = null,
+        val librarySectionID: JsonPrimitive? = null,
         val parentIndex: Int? = null,
         val index: Int? = null,
+        val contentRating: String? = null,
+        val duration: Long? = null,
+        val thumb: String? = null,
+        val art: String? = null,
+        @SerialName("Guid") val guids: List<Guid> = emptyList(),
         @SerialName("Media") internal val media: List<Variant> = emptyList(),
     )
+
+    @Serializable
+    data class Guid(val id: String)
 
     @Serializable
     data class Variant(@SerialName("Part") val parts: List<Part> = emptyList())
 
     @Serializable
-    data class Part(val key: String, val size: Long? = null, val container: String? = null)
+    data class Part(
+        val key: String,
+        val size: Long? = null,
+        val container: String? = null,
+        @SerialName("Stream") val streams: List<Track> = emptyList(),
+    )
+
+    @Serializable
+    data class Track(
+        val streamType: Int,
+        val key: String? = null,
+        val codec: String? = null,
+        val language: String? = null,
+        val languageCode: String? = null,
+        val forced: Boolean = false,
+    )
 
     class MediaPart internal constructor(
         internal val owner: PlexMediaClient,
         internal val url: HttpUrl,
         val size: Long,
         val container: String?,
+        val tracks: List<Track>,
     )
 
     @Serializable
@@ -147,6 +174,7 @@ internal class PlexMediaClient(
     private data class Page(
         @SerialName("Metadata") val items: List<Item> = emptyList(),
         val offset: Int? = null,
+        val librarySectionID: JsonPrimitive? = null,
         val totalSize: Int? = null,
         val size: Int? = null,
     )
@@ -158,6 +186,47 @@ internal class PlexMediaClient(
         val request = request(pathURL(listOf("library", "sections")))
         val response = json.decodeFromString<Envelope<Sections>>(exchange.body(request))
         return response.container.libraries.filter { validID(it.key) && it.title.isNotEmpty() }
+    }
+
+    suspend fun item(id: String, libraryId: String? = null): Item {
+        if (!validID(id) || (libraryId != null && !validID(libraryId))) invalidResponse()
+        val url = pathURL(listOf("library", "metadata", id)).newBuilder().addQueryParameter("includeGuids", "1").build()
+        val page = json.decodeFromString<Envelope<Page>>(exchange.body(request(url))).container
+        val item = page.items.singleOrNull()?.takeIf { it.ratingKey == id } ?: invalidResponse()
+        if (libraryId != null) {
+            val sections = listOfNotNull(page.librarySectionID?.content, item.librarySectionID?.content)
+            if (sections.isEmpty() || sections.any { it != libraryId }) {
+                throw PlexException("This item no longer belongs to the linked Plex library. Rescan its source.")
+            }
+        }
+        return item
+    }
+
+    suspend fun image(item: Item, backdrop: Boolean, authorization: () -> Unit = {}): ByteArray {
+        val requested = (if (backdrop) item.art ?: item.thumb else item.thumb ?: item.art)
+            ?: throw PlexException("This item has no Plex artwork.")
+        val path = requested.split('/')
+        if (path.size !in 5..6 || path[0].isNotEmpty() || path[1] != "library" ||
+            path[2] != "metadata" || !validID(path[3]) || path[4] !in setOf("thumb", "art", "poster", "background") ||
+            (path.size == 6 && !validID(path[5]))) invalidResponse()
+        authorization()
+        val response = exchange.send(request(pathURL(path.drop(1))).newBuilder().header("Accept", "image/*").build(), 8 * 1024 * 1024)
+        authorization()
+        if (response.status != 200 || response.headers["Content-Type"]?.startsWith("image/", ignoreCase = true) != true ||
+            response.data.isEmpty()) throw PlexException("Plex could not load this image.", response.status)
+        return response.data
+    }
+
+    suspend fun subtitle(part: MediaPart, track: Track, authorization: () -> Unit = {}): ByteArray {
+        if (part.owner !== this || track !in part.tracks || track.streamType != 3) invalidResponse()
+        val path = track.key?.split('/') ?: invalidResponse()
+        if (path.size != 4 || path[0].isNotEmpty() || path[1] != "library" || path[2] != "streams" ||
+            !validID(path[3])) invalidResponse()
+        authorization()
+        val response = exchange.send(request(pathURL(path.drop(1))).newBuilder().removeHeader("Accept").build(), 1024 * 1024)
+        authorization()
+        if (response.status != 200 || response.data.isEmpty()) throw PlexException("Plex could not load this subtitle.", response.status)
+        return response.data
     }
 
     suspend fun catalog(library: Library, onPage: suspend (List<Item>) -> Unit) {
@@ -176,7 +245,8 @@ internal class PlexMediaClient(
         var offset = 0
         while (offset < 250_000) {
             coroutineContext.ensureActive()
-            val pageRequest = request(url).newBuilder().header("X-Plex-Container-Start", offset.toString())
+            val pageURL = url.newBuilder().addQueryParameter("includeGuids", "1").build()
+            val pageRequest = request(pageURL).newBuilder().header("X-Plex-Container-Start", offset.toString())
                 .header("X-Plex-Container-Size", pageSize.toString()).build()
             val page = json.decodeFromString<Envelope<Page>>(exchange.body(pageRequest)).container
             val count = page.items.size
@@ -198,7 +268,7 @@ internal class PlexMediaClient(
         val part = variant.parts.singleOrNull() ?: return@mapNotNull null
         val size = part.size?.takeIf { it > 0 } ?: return@mapNotNull null
         val path = mediaPath(part.key) ?: return@mapNotNull null
-        MediaPart(this, pathURL(path), size, part.container)
+        MediaPart(this, pathURL(path), size, part.container, part.streams)
     }
 
     suspend fun read(part: MediaPart, offset: Long, length: Int): ByteArray {

@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit) {
     val container = LocalContext.current.container
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(initialValue = null)
     val loadedSources = sources
     if (movies == null || loadedSources == null) {
         ScreenHeader("Search", Modifier.padding(horizontal = ScreenPadding))

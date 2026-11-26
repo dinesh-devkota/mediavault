@@ -1,5 +1,7 @@
 package com.dineshdevkota.cinevault.playback
 
+import android.net.Uri
+import android.util.Base64
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -13,22 +15,34 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.dineshdevkota.cinevault.MainActivity
+import com.dineshdevkota.cinevault.smb.RemoteHandle
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
+import com.dineshdevkota.cinevault.webdav.WebDavException
+import com.dineshdevkota.cinevault.webdav.WebDavMedia
+import com.dineshdevkota.cinevault.webdav.WebDavService
+import java.security.KeyStore
+import java.security.cert.CertificateFactory
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
-/** Decodes the fixture's 12-second H.264 movie through the app's real SMB data source. */
+/** Decodes and seeks the fixture movie through the app's file-backed Media3 data source. */
 @RunWith(AndroidJUnit4::class)
 class SmbPlaybackTest {
     @Test
@@ -39,57 +53,98 @@ class SmbPlaybackTest {
         val smb = SmbService()
         try {
             val movie = smb.scanVideos(config).single()
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                var player: ExoPlayer? = null
-                var view: PlayerView? = null
-                val observation = PlaybackObservation()
-                try {
-                    scenario.onActivity { activity ->
-                        val files = DataSource.Factory { SmbDataSource { smb.open(config, movie.path) } }
-                        val sources = ProgressiveMediaSource.Factory(
-                            files, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
-                        ).setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
-                        val exo = ExoPlayer.Builder(activity, DefaultRenderersFactory(activity).setEnableDecoderFallback(true))
-                            .setMediaSourceFactory(sources)
-                            .build()
-                        player = exo
-                        exo.addListener(observation)
-                        // This callback is on the playback thread; all other observations are on Main.
-                        exo.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
-                            observation.frameTimeUs.set(presentationTimeUs)
-                        }
-                        view = PlayerView(activity).apply {
-                            useController = false
-                            keepScreenOn = true
-                            this.player = exo
-                        }
-                        // An actual attached SurfaceView exercises decoding/rendering on the emulator.
-                        activity.setContentView(view)
-                        exo.setMediaItem(MediaItem.fromUri(PlayerActivity.smbUri(config, movie.path)))
-                        exo.prepare()
-                        exo.play()
-                    }
-                    val exo = checkNotNull(player)
-                    awaitPlayback(exo, observation, positionMs = 500)
-                    withContext(Dispatchers.Main) {
-                        assertTrue("The scanned movie must expose a seekable timeline", exo.isCurrentMediaItemSeekable)
-                        exo.seekTo(8_000)
-                        exo.play()
-                    }
-                    awaitPlayback(exo, observation, positionMs = 8_500)
-                    withContext(Dispatchers.Main) {
-                        assertTrue("Media3 must acknowledge the requested seek", observation.seekObserved)
-                        observation.throwIfFailed()
-                    }
-                } finally {
-                    withContext(NonCancellable + Dispatchers.Main) {
-                        view?.player = null
-                        player?.release()
-                    }
-                }
-            }
+            Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, movie.path)) { smb.open(config, movie.path) }
         } finally {
             smb.reset(config.id)
+        }
+    }
+
+    @Test
+    fun webDavAuthenticationScanPlaybackAndSeek() = runBlocking {
+        val fixtureCertificate = InstrumentationRegistry.getArguments().getString("webDavCertificate")
+        assumeTrue("Pass webDavCertificate to run the disposable WebDAV fixture.", !fixtureCertificate.isNullOrBlank())
+        val certificate = Base64.decode(checkNotNull(fixtureCertificate), Base64.DEFAULT).inputStream().use {
+            CertificateFactory.getInstance("X.509").generateCertificate(it)
+        }
+        val trust = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
+            load(null, null)
+            setCertificateEntry("webdav-fixture", certificate)
+        }
+        val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trust) }
+        val manager = factory.trustManagers.filterIsInstance<X509TrustManager>().single()
+        val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf(manager), null) }
+        val http = OkHttpClient.Builder().sslSocketFactory(tls.socketFactory, manager)
+            .followRedirects(false).followSslRedirects(false).build()
+        val provider = WebDavMedia(WebDavService(http))
+        val config = SourceConfig(
+            UUID.randomUUID().toString(), "https://10.0.2.2:15443/dav/", null, "", "Movies",
+            "cinevault", "fixture-only", sourceType = "webdav",
+        )
+        try {
+            provider.service.list(config.copy(password = "invalid"))
+            fail("The fixture must reject incorrect credentials")
+        } catch (error: WebDavException) {
+            assertEquals(401, error.status)
+        }
+        val movie = provider.scan(config) {}.single()
+        assertEquals("Movies/Film.mp4", movie.path)
+        assertEquals("https://10.0.2.2:15443/dav/Movies/Film.mp4", PlayerActivity.filePlaybackUri(config, movie.path).toString())
+        val captions = provider.subtitles(config, movie.path, "en")
+        assertEquals(1, captions.files.size)
+        Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, movie.path)) { provider.service.open(config, movie.path) }
+    }
+}
+
+internal object Media3FixturePlayback {
+    suspend fun verify(uri: Uri, openFile: () -> RemoteHandle) {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var player: ExoPlayer? = null
+            var view: PlayerView? = null
+            val observation = PlaybackObservation()
+            try {
+                scenario.onActivity { activity ->
+                    val files = DataSource.Factory { SmbDataSource(openFile = openFile) }
+                    val sources = ProgressiveMediaSource.Factory(
+                        files, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
+                    ).setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
+                    val exo = ExoPlayer.Builder(activity, DefaultRenderersFactory(activity).setEnableDecoderFallback(true))
+                        .setMediaSourceFactory(sources)
+                        .build()
+                    player = exo
+                    exo.addListener(observation)
+                    // This callback is on the playback thread; all other observations are on Main.
+                    exo.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
+                        observation.frameTimeUs.set(presentationTimeUs)
+                    }
+                    view = PlayerView(activity).apply {
+                        useController = false
+                        keepScreenOn = true
+                        this.player = exo
+                    }
+                    // An actual attached SurfaceView exercises decoding/rendering on the emulator.
+                    activity.setContentView(view)
+                    exo.setMediaItem(MediaItem.fromUri(uri))
+                    exo.prepare()
+                    exo.play()
+                }
+                val exo = checkNotNull(player)
+                awaitPlayback(exo, observation, positionMs = 500)
+                withContext(Dispatchers.Main) {
+                    assertTrue("The scanned movie must expose a seekable timeline", exo.isCurrentMediaItemSeekable)
+                    exo.seekTo(8_000)
+                    exo.play()
+                }
+                awaitPlayback(exo, observation, positionMs = 8_500)
+                withContext(Dispatchers.Main) {
+                    assertTrue("Media3 must acknowledge the requested seek", observation.seekObserved)
+                    observation.throwIfFailed()
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    view?.player = null
+                    player?.release()
+                }
+            }
         }
     }
 
@@ -111,7 +166,7 @@ class SmbPlaybackTest {
             @Suppress("UNREACHABLE_CODE")
             false
         } ?: false
-        assertTrue("SMB playback did not advance past $positionMs ms: $snapshot", advanced)
+        assertTrue("Fixture playback did not advance past $positionMs ms: $snapshot", advanced)
     }
 
     private class PlaybackObservation : Player.Listener {
@@ -129,7 +184,7 @@ class SmbPlaybackTest {
         }
 
         fun throwIfFailed() {
-            error?.let { throw AssertionError("Media3 failed to play the SMB fixture: ${it.errorCodeName}", it) }
+            error?.let { throw AssertionError("Media3 failed to play the fixture: ${it.errorCodeName}", it) }
         }
     }
 }

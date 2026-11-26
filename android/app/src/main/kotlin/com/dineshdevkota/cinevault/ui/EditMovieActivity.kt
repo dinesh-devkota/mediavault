@@ -78,7 +78,7 @@ private fun EditMovieScreen(movieId: String, onClose: () -> Unit) {
     val editor = container.editor
     val scope = rememberCoroutineScope()
     val movie by produceState<MovieEntity?>(null, movieId) {
-        container.database.movies().observe(movieId).collect { if (it == null) onClose() else value = it }
+        container.library.observe(movieId).collect { if (it == null) onClose() else value = it }
     }
     val current = movie ?: return
     if (current.isPhoto) {

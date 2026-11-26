@@ -60,7 +60,6 @@ private fun NasSetupScreen(onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val browser = remember { NasBrowser() }
     val sourceId = remember { UUID.randomUUID().toString() }
-    val listState = rememberLazyListState()
     var step by remember { mutableStateOf(SetupStep.Devices) }
     var name by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
@@ -85,6 +84,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var busyText by remember { mutableStateOf("") }
     var committing by remember { mutableStateOf(false) }
+    val isTv = LocalTvLayout.current
     val primaryFocus = remember { FocusRequester() }
     // Decide once per step so typing an address never moves focus to Connect.
     val focusAddress = remember(step) { host.isBlank() }
@@ -207,9 +207,8 @@ private fun NasSetupScreen(onDone: () -> Unit) {
     }
 
     BackHandler { back() }
-    LaunchedEffect(step, rootPath) { listState.scrollToItem(0) }
     LaunchedEffect(step, rootPath, focusReady, busy, windowFocused) {
-        if (focusReady && windowFocused && !busy && !focusedStage) focusedStage = primaryFocus.requestFocus()
+        if (isTv && focusReady && windowFocused && !busy && !focusedStage) focusedStage = primaryFocus.requestFocus()
     }
     LaunchedEffect(refresh, step == SetupStep.Devices) {
         if (step == SetupStep.Devices) NasDiscovery(context).discover().collect { discovery = it }
@@ -218,34 +217,47 @@ private fun NasSetupScreen(onDone: () -> Unit) {
         onDispose { generation++; requestJob?.cancel() }
     }
 
+    // A wizard stage/folder is a different list. Reusing its measured item indices while
+    // scrollToItem races a shorter next stage can retain an out-of-range prefetched item.
+    key(step, rootPath) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        state = listState,
+        state = rememberLazyListState(),
         contentPadding = PaddingValues(ScreenPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            ScreenHeader(if (step == SetupStep.Connect && !credentials) "Connect to NAS" else step.title,
-                kicker = "ADD NAS", showBack = false)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { back() }, enabled = !committing) { Text(if (busy) "Cancel" else "Back") }
-                if (step != SetupStep.Devices) {
-                    Text(runCatching { NasAddress.parse(host, port.trim().toIntOrNull()).authority }
-                        .getOrDefault("Choose your NAS"), color = SecondaryText)
+            // Keep asynchronous status changes within a row so D-pad focus
+            // never holds an index for a status row that has disappeared.
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column {
+                    ScreenHeader(if (step == SetupStep.Connect && !credentials) "Connect to NAS" else step.title,
+                        kicker = "ADD NAS", showBack = false)
+                    AdaptiveActions(12.dp) {
+                        OutlinedButton(onClick = { back() }, enabled = !committing) { Text(if (busy) "Cancel" else "Back") }
+                        if (step != SetupStep.Devices) {
+                            Text(runCatching { NasAddress.parse(host, port.trim().toIntOrNull()).authority }
+                                .getOrDefault("Choose your NAS"), color = SecondaryText)
+                        }
+                    }
                 }
+                if (busy) NasStatusPanel(busyText, working = true)
+                error?.let { detail -> NasStatusPanel("Connection needs attention", detail, error = true) }
+                exclusionsNotice?.let { note -> Text(note, color = SecondaryText) }
             }
         }
-        if (busy) item { NasStatusPanel(busyText, working = true) }
-        error?.let { detail -> item { NasStatusPanel("Connection needs attention", detail, error = true) } }
-        exclusionsNotice?.let { note -> item { Text(note, color = SecondaryText) } }
         when (step) {
             SetupStep.Devices -> {
+                item {
+                    OutlinedButton(onClick = { SourceEditorActivity.webdav(context); onDone() }) { Text("Connect WebDAV") }
+                    Text("For servers using a WebDAV web address. For SMB, choose a device below.", color = SecondaryText)
+                }
                 item {
                     NasStatusPanel(if (discovery.searching) "Looking for devices…" else "Devices on your network",
                         "Choose a NAS on this network, or enter its address.", working = discovery.searching)
                     discovery.error?.let { Text(it, color = SecondaryText) }
                     if (!discovery.searching && discovery.devices.isEmpty()) {
-                        Text("Your NAS may still be reachable by address. Check that the TV and NAS use the same network.", color = SecondaryText)
+                        Text("Your NAS may still be reachable by address. Check that this device and the NAS use the same network.", color = SecondaryText)
                     }
                 }
                 items(discovery.devices, key = { "${it.host}:${it.port}" }) { device ->
@@ -265,7 +277,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                     }
                 }
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AdaptiveActions(12.dp) {
                         Button(onClick = { step = SetupStep.Connect },
                             modifier = Modifier.focusRequester(primaryFocus).onGloballyPositioned { focusReady = true }) { Text("Enter NAS address") }
                         OutlinedButton(enabled = !discovery.searching, onClick = { refresh++ }) {
@@ -284,33 +296,39 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                     OutlinedButton(onClick = { advanced = !advanced }, enabled = !busy) { Text(if (advanced) "Hide connection options" else "Connection options") }
                     if (advanced) TvTextField(port, { invalidate(); if (port != it) clearExclusionsForSourceChange(); port = it }, "Port (usually 445)", keyboardType = KeyboardType.Number, enabled = !busy)
                 }
-                if (credentials) {
-                    item { Text("Use an account with access to your media folder.", color = SecondaryText) }
-                    item { TvTextField(username, { invalidate(); username = it }, "Username", Modifier.fillMaxWidth(), enabled = !busy) }
-                    item { TvTextField(password, { invalidate(); password = it }, "Password", Modifier.fillMaxWidth(), isPassword = true, enabled = !busy) }
-                }
                 item {
-                    if (!credentials) Text("Guest access is tried first. Sign in if your NAS needs an account.", color = SecondaryText)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = { loadShares() }, enabled = !busy,
-                            modifier = if (!focusAddress) Modifier.focusRequester(primaryFocus).onGloballyPositioned { focusReady = true } else Modifier) { Text("Connect") }
-                        OutlinedButton(onClick = {
-                            invalidate()
-                            credentials = !credentials
-                            if (!credentials) { username = ""; password = "" }
-                        }, enabled = !busy) { Text(if (credentials) "Use guest access" else "Sign in") }
-                        OutlinedButton(onClick = { manualShare = !manualShare }, enabled = !busy) { Text(if (manualShare) "Hide shared folder" else "Enter shared folder") }
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (credentials) {
+                            Text("Use an account with access to your media folder.", color = SecondaryText)
+                            TvTextField(username, { invalidate(); username = it }, "Username", Modifier.fillMaxWidth(), enabled = !busy)
+                            TvTextField(password, { invalidate(); password = it }, "Password", Modifier.fillMaxWidth(), isPassword = true, enabled = !busy)
+                        }
+                        if (!credentials) Text("Guest access is tried first. Sign in if your NAS needs an account.", color = SecondaryText)
+                        AdaptiveActions(12.dp) {
+                            Button(onClick = { loadShares() }, enabled = !busy,
+                                modifier = if (!focusAddress) Modifier.focusRequester(primaryFocus).onGloballyPositioned { focusReady = true } else Modifier) { Text("Connect") }
+                            OutlinedButton(onClick = {
+                                invalidate()
+                                credentials = !credentials
+                                if (!credentials) { username = ""; password = "" }
+                            }, enabled = !busy) { Text(if (credentials) "Use guest access" else "Sign in") }
+                            OutlinedButton(onClick = { manualShare = !manualShare }, enabled = !busy) { Text(if (manualShare) "Hide shared folder" else "Enter shared folder") }
+                        }
+                        if (manualShare) {
+                            Text("If your NAS restricts browsing, enter a share you can access.", color = SecondaryText)
+                            TvTextField(share, { invalidate(); if (share != it || rootPath.isNotEmpty()) clearExclusionsForSourceChange(); share = it; rootPath = "" }, "Share name", enabled = !busy)
+                            Button(onClick = { browse(share, "") }, enabled = !busy) { Text("Open shared folder") }
+                        }
                     }
-                }
-                if (manualShare) {
-                    item { Text("If your NAS restricts browsing, enter a share you can access.", color = SecondaryText) }
-                    item { TvTextField(share, { invalidate(); if (share != it || rootPath.isNotEmpty()) clearExclusionsForSourceChange(); share = it; rootPath = "" }, "Share name", enabled = !busy) }
-                    item { Button(onClick = { browse(share, "") }, enabled = !busy) { Text("Open shared folder") } }
                 }
             }
             SetupStep.Shares -> {
-                item { Text("Choose the shared folder that contains your media.", color = SecondaryText) }
-                if (shares.isEmpty()) item { Text("No shares returned. You can enter a share name manually.", color = SecondaryText) }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Choose the shared folder that contains your media.", color = SecondaryText)
+                        if (shares.isEmpty()) Text("No shares returned. You can enter a share name manually.", color = SecondaryText)
+                    }
+                }
                 items(shares, key = { it.name }) { entry ->
                     Button(onClick = { browse(entry.name, "") }, enabled = !busy,
                         modifier = Modifier.fillMaxWidth().then(if (entry == shares.firstOrNull()) Modifier.focusRequester(primaryFocus).onGloballyPositioned { focusReady = true } else Modifier)) {
@@ -327,7 +345,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                     TvTextField(name, { name = it }, "Library name (optional)", enabled = !busy)
                 }
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AdaptiveActions(12.dp) {
                         Button(enabled = !busy && folderReady,
                             modifier = Modifier.focusRequester(primaryFocus).onGloballyPositioned { focusReady = true }, onClick = {
                             val source = config(requireShare = true) ?: return@Button
@@ -346,7 +364,7 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                                         share = source.share, rootPath = source.rootPath, username = source.username,
                                         encryptedPassword = encrypted,
                                         ignoredFolders = source.ignoredFolders, ignoredFiles = source.ignoredFiles,
-                                    ))
+                                    )) { container.family.requireAdmin() }
                                     container.scope.launch { container.scanner.scan(sourceId) }
                                 }
                                 if (generation == token) onDone()
@@ -361,13 +379,16 @@ private fun NasSetupScreen(onDone: () -> Unit) {
                         Text(folder, Modifier.weight(1f)); Text("›")
                     }
                 }
-                if (error != null) item { Button(onClick = { browse(share, rootPath) }, enabled = !busy) { Text("Try again") } }
-                if (folderReady && folders.isEmpty()) item { Text("No subfolders. You can use this folder.", color = SecondaryText) }
                 item {
-                    IgnoredFoldersEditor(SourceConfig(sourceId, host, port.toIntOrNull(), share, rootPath, username, password),
-                        ignoredFolders, ignoredFiles, { ignoredFolders = it }, { ignoredFiles = it }, !busy && folderReady)
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (error != null) Button(onClick = { browse(share, rootPath) }, enabled = !busy) { Text("Try again") }
+                        if (folderReady && folders.isEmpty()) Text("No subfolders. You can use this folder.", color = SecondaryText)
+                        IgnoredFoldersEditor(SourceConfig(sourceId, host, port.toIntOrNull(), share, rootPath, username, password),
+                            ignoredFolders, ignoredFiles, { ignoredFolders = it }, { ignoredFiles = it }, !busy && folderReady)
+                    }
                 }
             }
         }
+    }
     }
 }

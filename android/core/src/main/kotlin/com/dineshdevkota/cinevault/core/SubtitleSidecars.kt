@@ -23,15 +23,15 @@ object SubtitleSidecars {
             !ScanExclusions.isFileExcluded(file, root, ignoredFolders, ignoredFiles)
     }
 
-    fun match(videoPath: String, subtitlePath: String): Match? {
-        val video = ScanExclusions.normalizeFile(videoPath) ?: return null
-        val subtitle = ScanExclusions.normalizeFile(subtitlePath) ?: return null
-        if (!video.substringBeforeLast('/', "").equals(subtitle.substringBeforeLast('/', ""), true)) return null
+    fun match(videoPath: String, subtitlePath: String, caseSensitive: Boolean = false): Match? {
+        val video = if (caseSensitive) videoPath else ScanExclusions.normalizeFile(videoPath) ?: return null
+        val subtitle = if (caseSensitive) subtitlePath else ScanExclusions.normalizeFile(subtitlePath) ?: return null
+        if (!video.substringBeforeLast('/', "").equals(subtitle.substringBeforeLast('/', ""), ignoreCase = !caseSensitive)) return null
         val extension = subtitle.substringAfterLast('.', "").lowercase(Locale.ROOT)
         if (extension !in setOf("srt", "vtt")) return null
         val stem = video.substringAfterLast('/').substringBeforeLast('.')
         val candidate = subtitle.substringAfterLast('/').substringBeforeLast('.')
-        if (!candidate.startsWith(stem, true)) return null
+        if (!candidate.startsWith(stem, ignoreCase = !caseSensitive)) return null
         val suffix = candidate.drop(stem.length)
         if (suffix.isNotEmpty() && suffix.first() !in ". _-") return null
         val tokens = suffix.trim('.', ' ', '_', '-').split(Regex("[. _]+"))

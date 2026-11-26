@@ -58,7 +58,12 @@ class PlexClientTest {
             assertEquals("fixture.example", request.url.host)
             assertEquals(32400, request.url.port)
             assertEquals("server-token", request.header("X-Plex-Token"))
-            assertNull(request.url.query)
+            if (request.url.encodedPath.endsWith("/all")) {
+                assertEquals(setOf("includeGuids"), request.url.queryParameterNames)
+                assertEquals("1", request.url.queryParameter("includeGuids"))
+            } else {
+                assertNull(request.url.query)
+            }
             when (request.url.encodedPath) {
                 "/library/sections" -> reply(
                     """{"MediaContainer":{"Directory":[{"key":"1","title":"Movies","type":"movie"}]}}""",
@@ -99,6 +104,21 @@ class PlexClientTest {
         try {
             otherClient.read(part, offset = 5, length = 5)
             fail("Expected server binding to reject this media part")
+        } catch (_: PlexException) {
+        }
+    }
+
+    @Test
+    fun currentItemMustStillBelongToTheLinkedLibrary() = runBlocking {
+        val client = mediaClient { request, _ ->
+            assertEquals("/library/metadata/7", request.url.encodedPath)
+            reply("""{"MediaContainer":{"librarySectionID":1,"Metadata":[
+                {"ratingKey":"7","type":"movie","title":"Film","librarySectionID":"1"}]}}""")
+        }
+        assertEquals("Film", client.item("7", "1").title)
+        try {
+            client.item("7", "2")
+            fail("Expected the wrong library to be rejected")
         } catch (_: PlexException) {
         }
     }

@@ -140,6 +140,7 @@ actor SMBService {
 
     func testConnection(_ config: SourceConfig) async throws {
         await reset(config)
+        if config.isWebDAV { _ = try await listEntries(config); return }
         _ = try await withManager(config) { try await $0.contentsOfDirectory(atPath: config.rootPath) }
     }
 
@@ -159,7 +160,8 @@ actor SMBService {
 
     /// Lists direct child directories for setup without recursively scanning media.
     func listFolders(_ config: SourceConfig) async throws -> [String] {
-        try await withManager(config) { manager in
+        if config.isWebDAV { return try await listEntries(config).filter(\.isDirectory).map(\.name) }
+        return try await withManager(config) { manager in
             let entries = try await manager.contentsOfDirectory(atPath: config.rootPath)
             return entries.compactMap { entry -> String? in
                 guard (entry[.isDirectoryKey] as? Bool) == true,
@@ -172,6 +174,10 @@ actor SMBService {
 
     /// Read-only entries for the source folder and exclusion pickers.
     func listEntries(_ config: SourceConfig, directory: String? = nil) async throws -> [NASDirectoryEntry] {
+        if config.isWebDAV {
+            let entries = try await webDAVEntries(config, path: directory ?? config.rootPath)
+            return entries.map { NASDirectoryEntry(name: String($0.path.split(separator: "/").last ?? ""), isDirectory: $0.isDirectory) }
+        }
         let path: String
         if let directory {
             guard let safe = SubtitleFile.safePath(directory, within: config.rootPath, allowRoot: true),
@@ -193,7 +199,10 @@ actor SMBService {
 
     /// Recursively lists indexable video files below the source's root folder.
     func scanVideos(_ config: SourceConfig) async throws -> [RemoteFile] {
-        try await withManager(config) { manager in
+        if config.isWebDAV {
+            return try await scanWebDAV(config, videosOnly: true) { _ in }
+        }
+        return try await withManager(config) { manager in
             var results: [RemoteFile] = []
             var pending = [config.rootPath]
             while let dir = pending.popLast() {
@@ -225,7 +234,8 @@ actor SMBService {
 
     /// Reports each directory/batch so large libraries become usable before traversal finishes.
     func scanMedia(_ config: SourceConfig, onProgress: MediaScanReporter) async throws -> [RemoteFile] {
-        try await withManager(config) { manager in
+        if config.isWebDAV { return try await scanWebDAV(config, onProgress: onProgress) }
+        return try await withManager(config) { manager in
             var results: [RemoteFile] = []
             var pending = [config.rootPath]
             var folders = 0
@@ -268,6 +278,10 @@ actor SMBService {
             throw SMBError.invalidByteRange
         }
         guard length > 0 else { return Data() }
+        if config.isWebDAV {
+            guard WebDAVAddress.contains(path, within: config.rootPath), !config.excludesFile(path) else { throw WebDAVError.invalidPath }
+            return try await withWebDAV(config) { try await $0.read(path, offset: offset, length: length) }
+        }
         return try await withManager(config) { manager in
             let lower = UInt64(offset)
             return try await manager.contents(atPath: path, range: lower..<(lower + UInt64(length)), progress: nil)
@@ -275,7 +289,11 @@ actor SMBService {
     }
 
     func fileSize(_ config: SourceConfig, path: String) async throws -> Int64 {
-        try await withManager(config) { manager in
+        if config.isWebDAV {
+            guard WebDAVAddress.contains(path, within: config.rootPath), !config.excludesFile(path) else { throw WebDAVError.invalidPath }
+            return try await withWebDAV(config) { try await $0.fileSize(path) }
+        }
+        return try await withManager(config) { manager in
             let attributes = try await manager.attributesOfItem(atPath: path)
             guard let size = (attributes[.fileSizeKey] as? NSNumber)?.int64Value, size > 0 else {
                 throw SMBError.invalidFileSize
@@ -283,4 +301,61 @@ actor SMBService {
             return size
         }
     }
+
+    private func withWebDAV<T>(_ config: SourceConfig, operation: (WebDAVTransport) async throws -> T) async throws -> T {
+        try Task.checkCancellation()
+        let generation = generations[config.id, default: 0]
+        let transport = try WebDAVTransport(address: WebDAVAddress(config.host), username: config.username, password: config.password)
+        let result = try await operation(transport)
+        try Task.checkCancellation()
+        guard generations[config.id, default: 0] == generation else { throw SMBError.sourceChanged }
+        return result
+    }
+
+    private func webDAVEntries(_ config: SourceConfig, path: String) async throws -> [WebDAVEntry] {
+        guard WebDAVAddress.contains(path, within: config.rootPath, allowRoot: true),
+              !config.excludesDirectory(path) else { throw WebDAVError.invalidPath }
+        return try await withWebDAV(config) { try await $0.list(path) }
+    }
+
+    private func scanWebDAV(_ config: SourceConfig, videosOnly: Bool = false, onProgress: MediaScanReporter) async throws -> [RemoteFile] {
+        let generation = generations[config.id, default: 0]
+        var pending = [config.rootPath]
+        var results: [RemoteFile] = []
+        var folders = 0
+        while let directory = pending.popLast() {
+            try Task.checkCancellation()
+            guard generations[config.id, default: 0] == generation else { throw SMBError.sourceChanged }
+            let entries = try await webDAVEntries(config, path: directory)
+            var batch: [RemoteFile] = []
+            folders += 1
+            for entry in entries {
+                let name = String(entry.path.split(separator: "/").last ?? "")
+                if entry.isDirectory {
+                    if !MediaFile.shouldSkipDirectory(name: name), !config.excludesDirectory(entry.path),
+                       !videosOnly || !VideoFile.shouldSkipDirectory(name: name) {
+                        pending.append(entry.path)
+                    }
+                    continue
+                }
+                guard !config.excludesFile(entry.path), MediaFile.shouldIndex(path: entry.path, size: entry.size),
+                      !videosOnly || VideoFile.shouldIndex(path: entry.path, size: entry.size) else { continue }
+                if MediaFile.requiresContentCheck(path: entry.path) {
+                    let prefix = try await read(config, path: entry.path, offset: 0, length: Int(min(entry.size, 1024)))
+                    guard MediaFile.isTransportStream(prefix: prefix) else { continue }
+                }
+                let file = RemoteFile(path: entry.path, size: entry.size)
+                results.append(file)
+                batch.append(file)
+                if batch.count == 100 {
+                    try await onProgress(ScanProgress(files: batch, found: results.count, folders: folders))
+                    batch.removeAll()
+                }
+            }
+            try await onProgress(ScanProgress(files: batch, found: results.count, folders: folders))
+        }
+        guard generations[config.id, default: 0] == generation else { throw SMBError.sourceChanged }
+        return results
+    }
+
 }
