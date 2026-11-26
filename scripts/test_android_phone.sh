@@ -17,11 +17,13 @@ PHONE_CASES=com.dineshdevkota.cinevault.AndroidPhoneNavigationTest
 LIBRARY_CASES=com.dineshdevkota.cinevault.LibraryFeaturesNavigationTest,com.dineshdevkota.cinevault.library.LocalLibraryIntegrationTest
 PLAYBACK_CASES=com.dineshdevkota.cinevault.playback.SmbPlaybackTest#mkvPlaybackAndSeekFromNas
 PLEX_CASES=com.dineshdevkota.cinevault.plex.PlexTlsIntegrationTest
+METADATA_TEST=com.dineshdevkota.cinevault.metadata.MetadataMutationTest
+METADATA_CASES="$METADATA_TEST#plexManualMovieMatchKeepsTheRatingUpdatedWhileItsReplyWasPending,$METADATA_TEST#plexManualTvMatchPreservesRestrictedAndUnknownServerRatings,$METADATA_TEST#plexResetAndAutomaticMetadataCannotDiscardServerIdentityOrClassification"
 cd android
 status=0
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
-  -Pandroid.testInstrumentationRunnerArguments.class="$PHONE_CASES,$LIBRARY_CASES,$PLAYBACK_CASES,$PLEX_CASES" \
+  -Pandroid.testInstrumentationRunnerArguments.class="$PHONE_CASES,$LIBRARY_CASES,$PLAYBACK_CASES,$PLEX_CASES,$METADATA_CASES" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   -Pandroid.testInstrumentationRunnerArguments.plexCertificate="$PLEX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.libraryUiFixture=true \
@@ -47,6 +49,9 @@ expected = {
     "invalidSidecarsClearOldRatingButTemporaryReadFailurePreservesIt",
     "touchNavigationOpensPlexLinking",
     "ownerConnectsOverTlsAndReadsCatalogAndMediaRange",
+    "plexManualMovieMatchKeepsTheRatingUpdatedWhileItsReplyWasPending",
+    "plexManualTvMatchPreservesRestrictedAndUnknownServerRatings",
+    "plexResetAndAutomaticMetadataCannotDiscardServerIdentityOrClassification",
 }
 if len(cases) != len(expected) or {case.get("name") for case in cases} != expected:
     raise SystemExit("Every required phone library, playback and touch journey must execute on exactly one emulator.")

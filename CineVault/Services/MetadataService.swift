@@ -139,7 +139,9 @@ final class MetadataService {
     }
 
     func resetToFileName(_ movie: Movie) {
-        guard household.isAdmin else { return }
+        // Plex paths are synthetic IDs, not names that can reconstruct the
+        // server's title, episode identity or parental certification.
+        guard household.isAdmin, movie.source?.isPlex != true else { return }
         // Reset is an explicit intent even when title/ID already match the filename.
         requests.removeValue(forKey: movie.id)
         movie.resetToFileName()

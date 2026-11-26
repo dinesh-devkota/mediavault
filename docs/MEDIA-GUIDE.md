@@ -15,10 +15,29 @@ The library/playback feature branch is version **1.5.0**, build **7**. This guid
 applies to Apple TV, iPhone, Android TV, and Android phones; tap on a phone or
 select with the remote on a TV. On iPhone, Sources and Settings are under **Manage**.
 
+## Connect a Plex library
+
+Open **Sources**, choose **Plex**, and start linking. On your phone or computer,
+open [Plex Link](https://plex.tv/link), sign in, and enter the code shown in
+MediaVault. Choose the server and one movie, TV, or photo library to import.
+Add another source to include another Plex library.
+
+Plex supplies artwork, show/season/episode information, and age ratings.
+Admin must grant each household viewer access to the imported library; watched
+status and resume positions remain local to that viewer. To refresh server details,
+rescan the source. **Reset to File Name** is unavailable for Plex because its
+catalog identifiers are not media filenames.
+
+Apple Plex playback currently supports native-compatible MP4/M4V/MOV files.
+Plex transcoding and Relay-only connections are not implemented; photos currently
+use the server's thumbnails. Android playback
+depends on the device's decoders. Real-server and physical-device validation remain
+separate from the automated fixture checks.
+
 ## Use local artwork and details
 
 Put artwork and an NFO/XML details file beside a movie, then rescan its source.
-This works with SMB and WebDAV without a TMDB key. Jellyfin items use the
+This works with SMB and WebDAV without a TMDB key. Jellyfin and Plex items use the
 metadata and artwork supplied by their server.
 
 For example:

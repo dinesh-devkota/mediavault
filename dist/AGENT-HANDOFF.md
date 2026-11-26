@@ -9,11 +9,26 @@ below retain their original names. Development work remains on
 
 ## Active library/playback work — November 25, 2026
 
+Follow-up review found that Plex's synthetic identifiers could be treated as
+filenames by the metadata editor. Apple `7363654` and Android `79c5754` hide and
+reject that reset, preserve imported server ratings during manual metadata edits,
+and retain episode identity. Android also keeps provider rows out of the global
+metadata-refresh reset. Three new Android regressions are required by the phone
+runner, bringing its required cases to 12; TV executes them in its full suite.
+Updated Android app unit checks passed 143 cases (two existing Jellyfin tests need
+their loopback fixture), instrumentation compilation and debug lint passed. New
+device regressions still need hosted execution. The pre-merge iPhone baseline
+`6430a02` completed 223/223 plus unsigned Release in run `45738582653`; screenshots
+show the imported Film in Library and its playback details. That run used the
+already-visible password-sheet path, so it does not alone prove the narrower
+interruption monitor handled an offer arriving inside a tap.
+
 Development advanced to `290b4a6` with Plex support while this candidate was being
 validated. The library/playback branch incorporates that pinned revision, retaining
 both sets of artwork, playback and test-runner behavior. iPhone now starts and
 trusts the synthetic Plex fixture and requires its shared runtime suite; Android
-phone retains all seven earlier journeys and adds its two Plex journeys. The merged
+phone retains all seven earlier journeys, adds two Plex journeys, and now includes
+the three metadata regressions described above. The merged
 candidate needs new hosted validation. Local validation includes four real HTTPS
 Plex fixture tests, seven XCTest-report guards, and syntax checks of four workflows
 and 27 embedded shell blocks. Earlier platform results below apply to their stated

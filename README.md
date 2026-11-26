@@ -4,7 +4,7 @@ Add one parent NAS folder to build your Movies, Documentaries, TV Shows, Music, 
 
 A personal media library for **Apple TV, iPhone, Android TV, and Android phones**
 that plays movies, shows and music and displays photo albums from SMB, HTTPS
-WebDAV, and Jellyfin sources. Built with SwiftUI on Apple devices and Compose
+WebDAV, Jellyfin, and Plex sources. Built with SwiftUI on Apple devices and Compose
 on Android, with remote controls on TVs and touch navigation on phones.
 
 Amazon Fire TV support is in development for both **Fire OS and Vega OS**.
@@ -18,6 +18,11 @@ all four platforms. Apple playback gains an additional VideoLAN engine for
 formats such as MKV, AVI, and WebM. See the [organization guide](docs/MEDIA-GUIDE.md#use-local-artwork-and-details)
 and [playback implementation and limits](docs/PLAYBACK-ENGINE.md). Build and
 device validation status is recorded in the [handoff](dist/AGENT-HANDOFF.md).
+
+Plex setup uses an on-screen link code, then lets you choose a server and library.
+Server artwork and age ratings stay with imported titles. Apple Plex playback
+currently requires compatible MP4/M4V/MOV files; transcoding and Relay-only
+connections remain unsupported. See [Plex setup](docs/MEDIA-GUIDE.md#connect-a-plex-library).
 
 The Library remembers your last section when you return or reopen the app.
 Find the installed version and build in **Settings**.
