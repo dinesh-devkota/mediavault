@@ -208,8 +208,12 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   the device's protected storage. Reconnection verifies the original drive
   and folder. The drafts cover scans, range playback and seek, photos and
   matching sidecars. With Plex present, the Android draft passed 105 TV
-  cases and all eight phone cases. The combined development candidate's
-  Android gates also passed and its Apple TV gate is queued. Live use requires an Entra public client ID configured
+  cases and all eight phone cases. The exact combined candidate passed the
+  Android TV, Android phone, and 219 Apple TV simulator cases and merged into
+  development at `c6d83d2ee6465453b8444b2dd0a6f44f316beaf5`. The separate
+  unsigned tvOS release workflow is tracked in CI. On iPhone the unsigned
+  release passed. The simulator rerun follows a debug-fixture compiler fix.
+  Live use requires an Entra public client ID configured
   for personal accounts, public client flows and delegated Files.Read. A
   Microsoft test account is required for live validation.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/4)
@@ -217,7 +221,8 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/24)
   · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45738347224)
   · [Android phone](https://github.com/dinesh-devkota/mediavault/actions/runs/45738347239)
-  · [Combined OneDrive candidate on Plex-enabled development](https://github.com/dinesh-devkota/mediavault/pull/29)
+  · [Merged OneDrive development PR](https://github.com/dinesh-devkota/mediavault/pull/29)
+  · [219 Apple TV simulator cases](https://github.com/dinesh-devkota/mediavault/actions/runs/45738622502)
 - Dropbox uses a public app key, a PKCE browser approval and a code entered
   in MediaVault. The Android draft links a folder, protects the refresh
   credential, and imports and reads media over read-only ranges. A real
@@ -229,7 +234,11 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   present, the Android draft passed 104 TV and five phone cases. The Apple TV
   fixture passed on the iPhone branch's shared Apple TV run, with 218 cases
   and zero failures or skips. It covered Dropbox and OneDrive seeking, and
-  subtitle discovery at an exact viewer folder grant boundary.
+  subtitle discovery at an exact viewer folder grant boundary. The
+  dedicated Apple TV candidate also passed 218 tests and its unsigned tvOS
+  build. The iPhone candidate passed 211 simulator cases and an unsigned
+  iOS 26.5 release build. The combined development candidate remains a draft
+  while its coexisting Plex, OneDrive and Dropbox runtime checks run.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/6)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/pull/26)
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/27)
@@ -237,6 +246,8 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   · [Android phone](https://github.com/dinesh-devkota/mediavault/actions/runs/45735178417)
   · [Shared Apple TV fixture run](https://github.com/dinesh-devkota/mediavault/actions/runs/45737000473)
   · [Dedicated Apple TV Dropbox playback and sidecar run](https://github.com/dinesh-devkota/mediavault/actions/runs/45737001484)
+  · [211 iPhone simulator cases and unsigned release](https://github.com/dinesh-devkota/mediavault/actions/runs/45739469510)
+  · [Combined Dropbox development draft](https://github.com/dinesh-devkota/mediavault/pull/30)
   · [Android TV with Plex](https://github.com/dinesh-devkota/mediavault/actions/runs/45738505171)
   · [Android phone with Plex](https://github.com/dinesh-devkota/mediavault/actions/runs/45738498037)
 - Google Drive uses the platform picker on Android TV and phone when the
@@ -248,8 +259,8 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   The current Android candidate passed all 100 TV and five phone cases,
   including range playback, photos, captions, scoped file reads, and the
   phone source editor. With Plex present, the Android phone candidate also
-  passed all seven named checks and the preceding implementation-identical
-  Android TV revision passed all 104 checks.
+  passed all seven named checks and the exact same Android revision passed
+  all 104 TV checks.
   Apple TV still needs a compliant companion picker with authorized
   Google OAuth registration before it can offer this provider.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/7)
@@ -257,13 +268,15 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   · [100 Android TV cases](https://github.com/dinesh-devkota/mediavault/actions/runs/45734155288)
   · [Five Android phone cases](https://github.com/dinesh-devkota/mediavault/actions/runs/45734155291)
   · [Android phone with Plex](https://github.com/dinesh-devkota/mediavault/actions/runs/45739684079)
+  · [Android TV with Plex](https://github.com/dinesh-devkota/mediavault/actions/runs/45739676881)
   · [Google's limited-input device scopes](https://developers.google.com/identity/protocols/oauth2/limited-input-device)
 
 The user authorized provider merges to development after the exact source
 branch passes its hosted emulator and simulator suites, including its named
-provider tests. The OneDrive, Dropbox and Google Drive Android drafts now
-include Plex-enabled development as a merge parent and have fresh gates for
-their combined trees. Earlier provider results remain linked above. Retain draft status while implementation or coverage remains
+provider tests. The development branch includes Plex and OneDrive. Dropbox
+has a separate combined draft against that branch. The linked Google Drive
+Android checks cover the Plex-enabled baseline and a later reconciliation with
+OneDrive is being staged. Earlier provider results remain linked above. Retain draft status while implementation or coverage remains
 incomplete. The Windows checkout was unavailable from cloud. The verified
 Git bundle contains development and the separate provider and platform refs.
 
