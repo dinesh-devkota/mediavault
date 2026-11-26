@@ -69,6 +69,26 @@ final class HouseholdRemoteTests: XCTestCase {
     }
 
     @MainActor
+    func testOwnerReachesPlexLinkSetupAndCanBackOut() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["--ui-preview-household"]; app.launch()
+        select(app.buttons["household-profile-Admin"], app)
+        let field = app.secureTextFields["household-unlock-pin"]
+        select(field, app)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        field.typeText("328614")
+        XCUIRemote.shared.press(.menu)
+        select(app.buttons["household-unlock"], app)
+        XCTAssertTrue(app.buttons["household-switch"].waitForExistence(timeout: 15), app.debugDescription)
+        select(app.buttons["Sources"], app)
+        select(app.buttons["source-add-plex"], app)
+        XCTAssertTrue(app.buttons["plex-link-start"].waitForExistence(timeout: 10), app.debugDescription)
+        capture("Plex linking entry is reachable by remote", app)
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.buttons["source-add-plex"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
     private func select(_ target: XCUIElement, _ app: XCUIApplication) {
         XCTAssertTrue(target.waitForExistence(timeout: 10), app.debugDescription)
         let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == YES")).firstMatch
