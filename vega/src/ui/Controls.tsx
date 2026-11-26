@@ -57,7 +57,7 @@ export const shared = StyleSheet.create({
 });
 const styles = StyleSheet.create({
   action: {backgroundColor: colors.raised, paddingHorizontal: 24, paddingVertical: 16, borderWidth: 3, borderColor: 'transparent', marginVertical: 4},
-  compactAction: {paddingHorizontal: 8},
+  compactAction: {paddingHorizontal: 8, paddingVertical: 8},
   actionText: {color: colors.text, fontSize: 23, fontWeight: '600'},
   focused: {backgroundColor: colors.focus, borderColor: colors.focus, transform: [{scale: 1.025}]},
   selected: {borderColor: colors.accent}, disabled: {opacity: .4},

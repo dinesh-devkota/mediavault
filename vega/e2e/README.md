@@ -67,8 +67,9 @@ acknowledgement uses the actual editor, not the wrapper's empty `getText` result
 Category changes open the Home section chooser, select the desired section,
 and return to the library through the same remote actions available to users.
 For a nonsecret replacement, the harness requires the expected old value and
-native editor focus. It then confirms a displayed keyboard window, selects that
-window's observed Clear control with strict native focus, and verifies an empty
+native editor focus. It then confirms a displayed keyboard window and exactly
+one visible Clear control scoped to the keyboard app, selects it with strict
+native focus, and verifies an empty
 editor before sending the new value. The pinned driver's clear/setText('') path
 left the previous value unchanged on the device. The final exact-value assertion
 remains. `input-replacement-diagnostic.json` records only lengths/comparison

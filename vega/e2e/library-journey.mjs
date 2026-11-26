@@ -259,10 +259,15 @@ async function enter(id, value, previous = '') {
     }
     // The pinned driver's clear/setText('') left the old value unchanged on
     // device. Use the observed IME Clear control as a real remote action.
-    let clearWindow;
-    await waitFor(async () => Boolean(clearWindow = await displayedKeyboardWindow()),
-      'The system keyboard must be visibly open before selecting Clear.');
-    await clickXPath(keyboardApp + `//window[@id=${literal(clearWindow)}]` + byID('key_Clear'));
+    const clearPath = keyboardApp + byID('key_Clear');
+    await waitFor(async () => {
+      if (!await displayedKeyboardWindow()) { return false; }
+      const matches = await call('POST', '/elements', {using: 'xpath', value: clearPath});
+      return matches.length === 1 && await nativeDisplayed(matches[0][elementKey]) === true;
+    }, 'The displayed system keyboard must expose one visible Clear control.');
+    // Native RPC object IDs are opaque; do not interpolate a window ID into
+    // serialized XPath @id. The app/test_id selector identifies the control.
+    await clickXPath(clearPath);
     // Nonsecret edits must acknowledge an empty editor before replacement.
     // Protected fields instead rely on the later unlock/connect assertion.
     if (!secret) {

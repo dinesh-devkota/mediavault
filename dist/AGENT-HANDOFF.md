@@ -212,7 +212,17 @@ on every target. Evidence is in `.artifacts/android-tv-b98f180`,
 `.artifacts/android-phone-b98f180` and `.artifacts/fire-compat-b98f180`.
 
 Vega follow-ups are on `codex/mediavault-vega-keyboard-visibility`, not PR20's
-remote head. Tested baseline `2847a6e` includes Apple `d5a9ab6` and its completed
+remote head. Latest app checkpoint `854b052`, run `45759707039`, passed all
+packages/native/startup checks and stages01/02. Real screenshots now show the
+NAS posters, filled controls, a white focused-card border and readable Play.
+Collection viewport is 580px, but watched cards are 604px and clip 24px at the
+top; compact toolbar vertical padding now targets a 612px viewport while retaining
+font sizes, poster ratio and watched status. This last spacing change needs
+native review. Stage03 failed before activating Clear because an opaque native
+window ID was incorrectly used as serialized XML @id. The harness now uses the
+observed keyboard app/test ID, requiring one visible Clear control plus actual
+native focus before Select. No input acknowledgement or secret guard was relaxed.
+ Tested baseline `2847a6e` includes Apple `d5a9ab6` and its completed
 handoff. Normal run `45756851737` passed all three production architectures,
 isolated fixture packaging, native regressions and production startup. Stages01/02
 passed without the earlier fatal overlay. Stage03 reached collection creation,
@@ -266,8 +276,8 @@ Vega device is available; do not ask the owner again. Complete media playback,
 continuous viewing and household UI journeys remain unverified on Vega.
 
 Owner follow-up: after finishing the feature fixes and validation, optimize app
-performance, release size and build times using measurements. A read-only review
-is being prepared in `.artifacts/build-optimization-review.md`; implementation
+performance, release size and build times using measurements. Read-only measured reviews
+are in `.artifacts/build-optimization-review.md` and the runtime review; implementation
 is deliberately deferred until the current feature checks finish. Preserve test
 coverage and keep protected credentials/private source out of shared build caches.
 
