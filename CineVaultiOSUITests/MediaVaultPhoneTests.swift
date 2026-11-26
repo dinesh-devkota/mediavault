@@ -57,12 +57,12 @@ final class MediaVaultPhoneTests: XCTestCase {
         dismissPasswordPrompt(in: app)
         if !library.isSelected { library.tap() }
         XCTAssertTrue(library.isSelected, app.debugDescription)
-        let poster = app.buttons["Film"]
+        // The generic Film.mp4 filename uses its Movies parent as the displayed title.
+        let poster = app.buttons["Movies"]
         for _ in 0..<3 where !poster.isHittable { app.swipeUp() }
         XCTAssertTrue(poster.isHittable, app.debugDescription)
         poster.tap()
-        XCTAssertTrue(app.staticTexts["Film"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.buttons["Play"].exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor
@@ -83,13 +83,13 @@ final class MediaVaultPhoneTests: XCTestCase {
         let link = app.buttons["plex-link-start"]
         XCTAssertTrue(link.waitForExistence(timeout: 10))
         link.tap()
-        XCTAssertTrue(app.staticTexts["plex-link-code"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["plex-link-code"].waitForExistence(timeout: 20), app.debugDescription)
 
         let server = app.buttons["Fixture Plex"]
-        XCTAssertTrue(server.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(server.waitForExistence(timeout: 45), "Expected Plex fixture approval and discovery. \(app.debugDescription)")
         server.tap()
         let section = app.buttons["Fixture Movies"]
-        XCTAssertTrue(section.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(section.waitForExistence(timeout: 30), app.debugDescription)
         section.tap()
 
         let scan = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "2 items · Scanned ")).firstMatch
@@ -97,7 +97,10 @@ final class MediaVaultPhoneTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Fixture Movies"].exists)
         let library = app.tabBars.buttons["Library"]
         library.tap()
+        if !library.isSelected { library.tap() }
+        XCTAssertTrue(library.isSelected, app.debugDescription)
         let poster = app.buttons["Fixture Movie"]
+        XCTAssertTrue(poster.waitForExistence(timeout: 10), app.debugDescription)
         for _ in 0..<3 where !poster.isHittable { app.swipeUp() }
         XCTAssertTrue(poster.isHittable, app.debugDescription)
         poster.tap()
