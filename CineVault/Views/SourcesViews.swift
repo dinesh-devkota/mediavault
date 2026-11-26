@@ -62,6 +62,7 @@ struct SourcesView: View {
         .sheet(item: $editing) { source in
             NavigationStack {
                 if source.isPlex { PlexSourceEditor(source: source) }
+                else if source.cloudFileProvider == .oneDrive { OneDriveSourceEditor(source: source) }
                 else if source.isJellyfin { JellyfinSourceEditor(source: source) }
                 else { SourceEditorView(source: source) }
             }
@@ -70,6 +71,7 @@ struct SourcesView: View {
 
     private func location(of source: MediaSource) -> String {
         if source.isPlex { return "Plex · " + (URL(string: source.host)?.host ?? "Server") }
+        if let provider = source.cloudFileProvider { return provider.title }
         if source.isJellyfin { return source.host }
         if source.isWebDAV { return [source.host, source.rootPath].filter { !$0.isEmpty }.joined(separator: " / ") }
         let address = (try? NASAddress.parse(source.host, port: source.port))?.authority ?? "NAS"

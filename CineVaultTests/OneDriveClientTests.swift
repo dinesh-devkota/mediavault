@@ -39,11 +39,15 @@ private final class OneDriveFixtureProtocol: URLProtocol {
             body = #"{"user_code":"SAMPLE","verification_uri":"https://www.microsoft.com/link","device_code":"fixture-device","expires_in":60,"interval":1}"#
         case ("login.microsoftonline.com", "/consumers/oauth2/v2.0/token") where request.httpMethod == "POST":
             body = #"{"access_token":"fixture-access","refresh_token":"fixture-refresh","expires_in":3600}"#
+        case ("graph.microsoft.com", "/v1.0/me/drive") where authenticated:
+            body = #"{"id":"drive-42"}"#
+        case ("graph.microsoft.com", "/v1.0/me/drive/root") where authenticated:
+            body = #"{"id":"root-folder","name":"OneDrive","folder":{}}"#
         case ("graph.microsoft.com", "/v1.0/me/drive/items/root-folder/children") where authenticated:
-            body = #"{"value":[{"id":"one","name":"First.mp4"}],"@odata.nextLink":"https://graph.microsoft.com/v1.0/drives/drive-42/items/root-folder/children?$skiptoken=next"}"#
+            body = #"{"value":[{"id":"one","name":"First.mp4","size":16,"file":{}}],"@odata.nextLink":"https://graph.microsoft.com/v1.0/drives/drive-42/items/root-folder/children?$skiptoken=next"}"#
         case ("graph.microsoft.com", "/v1.0/drives/drive-42/items/root-folder/children")
             where authenticated && query.contains(URLQueryItem(name: "$skiptoken", value: "next")):
-            body = #"{"value":[{"id":"two","name":"Second.mp4"}]}"#
+            body = #"{"value":[{"id":"two","name":"Second.mp4","size":16,"file":{}},{"id":"shortcut","name":"Other","folder":{},"remoteItem":{"id":"foreign"}}]}"#
         case ("graph.microsoft.com", "/v1.0/me/drive/items/one") where authenticated:
             body = #"{"id":"one","@microsoft.graph.downloadUrl":"https://download.fixture.example/video?sig=fixture-signature"}"#
         case ("download.fixture.example", "/video")
@@ -84,10 +88,65 @@ extension OneDriveClientTests {
         XCTAssertEqual(credentials.refresh_token, "fixture-refresh")
         var ids: [String] = []
         try await client.listChildren(folderID: "root-folder", accessToken: credentials.access_token) { page in
-            ids += page.map(\.id)
+            ids += page.compactMap(\.localItem).map(\.id)
         }
         XCTAssertEqual(ids, ["one", "two"])
         let data = try await client.read(fileID: "one", offset: 4, length: 4, accessToken: credentials.access_token)
         XCTAssertEqual(data, Data("ftyp".utf8))
+    }
+}
+
+extension OneDriveClientTests {
+    func testSelectedFolderReadRefreshAndDisconnect() async throws {
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [OneDriveFixtureProtocol.self]
+        let session = URLSession(configuration: sessionConfig)
+        defer { session.invalidateAndCancel() }
+        let clientID = "12345678-1234-1234-1234-123456789ABC"
+        let graph = try OneDriveClient(clientID: clientID, session: session)
+        let root = try await graph.rootFolder(accessToken: "fixture-access")
+        let drive = try await graph.identifyDrive(accessToken: "fixture-access")
+        let binding = try OneDriveSourceBinding(clientID: clientID, driveID: drive, folderID: root.id)
+        let config = SourceConfig(id: UUID(), host: clientID, share: root.id, rootPath: "",
+                                  username: drive, password: "", cloudFileProvider: .oneDrive)
+        let keychain = FixtureOneDriveKeychain()
+        let store = OneDriveAccountStore(storage: .init(read: { _ in keychain.load() },
+                                                       write: { value, _ in keychain.save(value) },
+                                                       delete: { _ in keychain.save(nil) }))
+        let expired = OneDriveClient.Credentials(access_token: "old-access", refresh_token: "old-refresh", expires_in: 1)
+        try await store.install(expired, binding: binding, id: config.id)
+        let transport = try OneDriveFileSource.transport(config, account: store, client: graph)
+        let items = try await transport.list("", check: {})
+        XCTAssertEqual(items.map(\.path), ["First.mp4", "Second.mp4"])
+        let media = try await transport.read("First.mp4", offset: 4, length: 4, check: {})
+        XCTAssertEqual(media, Data("ftyp".utf8))
+        let saved = try XCTUnwrap(keychain.load())
+        XCTAssertTrue(saved.contains("fixture-refresh"))
+        XCTAssertFalse(saved.contains("fixture-access"))
+        XCTAssertFalse(saved.contains("old-refresh"))
+
+        try await store.remove(id: config.id)
+        XCTAssertNil(keychain.load())
+        do {
+            _ = try await transport.list("", check: {})
+            XCTFail("The disconnected source still had usable credentials")
+        } catch CloudFileError.needsSignIn {}
+    }
+}
+
+private final class FixtureOneDriveKeychain: @unchecked Sendable {
+    private let lock = NSLock()
+    private var record: String?
+
+    func load() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return record
+    }
+
+    func save(_ value: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        record = value
     }
 }

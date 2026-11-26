@@ -125,6 +125,7 @@ jobs:
           else
             xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/nas-results.xcresult" > "$RUNNER_TEMP/nas-tests.json"
             python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json" --require-suite "$RUNNER_TEMP/nas-tests.json" PlexFixtureTests
+            python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json" --require-suite "$RUNNER_TEMP/nas-tests.json" OneDriveClientTests
           fi
       - name: Export remote test screenshots
         if: always()

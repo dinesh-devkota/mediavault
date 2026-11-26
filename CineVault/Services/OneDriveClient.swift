@@ -44,12 +44,23 @@ struct OneDriveClient: Sendable {
     struct Entry: Decodable, Sendable {
         struct Folder: Decodable, Sendable { let childCount: Int? }
         struct File: Decodable, Sendable { let mimeType: String? }
+        struct RemoteItem: Decodable, Sendable { let id: String? }
         let id: String
         let name: String
         let size: Int64?
         let folder: Folder?
         let file: File?
+        let remoteItem: RemoteItem?
+
+        var localItem: CloudFileTransport.Item? {
+            guard remoteItem == nil, OneDriveClient.isItemID(id) else { return nil }
+            if folder != nil { return .init(id: id, name: name, isDirectory: true, size: 0) }
+            guard file != nil, let size, size >= 0 else { return nil }
+            return .init(id: id, name: name, isDirectory: false, size: size)
+        }
     }
+
+    struct DriveIdentity: Decodable, Sendable { let id: String }
 
     private struct GraphPage: Decodable {
         let value: [Entry]
@@ -130,7 +141,22 @@ struct OneDriveClient: Sendable {
         return try JSONDecoder().decode(Credentials.self, from: data)
     }
 
-    func listChildren(folderID: String? = nil, accessToken: String, onPage: ([Entry]) async throws -> Void) async throws {
+    func identifyDrive(accessToken: String) async throws -> String {
+        let drive: DriveIdentity = try await graph("https://graph.microsoft.com/v1.0/me/drive", fields: ["id"], token: accessToken)
+        guard Self.isItemID(drive.id) else { throw OneDriveError.invalidResponse }
+        return drive.id
+    }
+
+    func rootFolder(accessToken: String) async throws -> CloudFileTransport.Item {
+        let entry: Entry = try await graph("https://graph.microsoft.com/v1.0/me/drive/root",
+                                           fields: ["id", "name", "folder", "remoteItem"], token: accessToken)
+        guard let item = entry.localItem, item.isDirectory else { throw OneDriveError.invalidResponse }
+        return item
+    }
+
+    func listChildren(folderID: String? = nil, accessToken: String, driveID: String? = nil,
+                      authorize: CloudFileTransport.Permission = {},
+                      onPage: ([Entry]) async throws -> Void) async throws {
         var endpoint = URL(string: "https://graph.microsoft.com/v1.0/me/drive")!
         if let folderID {
             guard Self.isItemID(folderID) else { throw OneDriveError.invalidResponse }
@@ -140,21 +166,27 @@ struct OneDriveClient: Sendable {
             endpoint.appendPathComponent("root")
         }
         endpoint.appendPathComponent("children")
-        var next: URL? = endpoint
+        guard var requestURL = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw OneDriveError.invalidResponse
+        }
+        requestURL.queryItems = [URLQueryItem(name: "$select", value: "id,name,size,folder,file,remoteItem")]
+        var next = requestURL.url
         var seen: Set<URL> = []
         while let url = next {
             try Task.checkCancellation()
+            try authorize()
             guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
                   parts.scheme == "https", parts.host == "graph.microsoft.com", parts.port == nil,
                   parts.user == nil, parts.password == nil, parts.fragment == nil,
-                  Self.isChildPage(parts.path, requested: endpoint.path, folderID: folderID),
+                  Self.isChildPage(parts.path, requested: endpoint.path, folderID: folderID, driveID: driveID),
                   seen.count < 10_000, seen.insert(url).inserted,
-                  !accessToken.isEmpty, accessToken.utf8.allSatisfy({ (33...126).contains($0) }) else {
+                  Self.isToken(accessToken) else {
                 throw OneDriveError.invalidResponse
             }
             var request = URLRequest(url: url)
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
             let (data, status) = try await send(request)
+            try authorize()
             guard status == 200 else { throw OneDriveError.rejected(status) }
             let page = try JSONDecoder().decode(GraphPage.self, from: data)
             try await onPage(page.value)
@@ -163,10 +195,13 @@ struct OneDriveClient: Sendable {
     }
 
     /// Resolve a fresh signed link so subsequent seeks do not depend on an expired link.
-    func read(fileID: String, offset: Int64, length: Int, accessToken: String) async throws -> Data {
+    func read(fileID: String, offset: Int64, length: Int, accessToken: String, expectedSize: Int64? = nil,
+              authorize: CloudFileTransport.Permission = {}) async throws -> Data {
+        try authorize()
         guard Self.isItemID(fileID), offset >= 0, (1...8 * 1024 * 1024).contains(length),
-              offset <= Int64.max - Int64(length), !accessToken.isEmpty,
-              accessToken.utf8.allSatisfy({ (33...126).contains($0) }) else { throw OneDriveError.invalidResponse }
+              offset <= Int64.max - Int64(length),
+              expectedSize.map({ offset + Int64(length) <= $0 }) ?? true,
+              Self.isToken(accessToken) else { throw OneDriveError.invalidResponse }
         let endpoint = URL(string: "https://graph.microsoft.com/v1.0/me/drive/items")!.appendingPathComponent(fileID)
         guard var url = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else { throw OneDriveError.invalidResponse }
         url.queryItems = [URLQueryItem(name: "$select", value: "id,@microsoft.graph.downloadUrl")]
@@ -175,6 +210,7 @@ struct OneDriveClient: Sendable {
         var metadata = URLRequest(url: metadataURL)
         metadata.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         let (data, status) = try await send(metadata)
+        try authorize()
         guard status == 200 else { throw OneDriveError.rejected(status) }
         let item = try JSONDecoder().decode(DownloadItem.self, from: data)
         guard item.id == fileID, let link = item.downloadURL,
@@ -191,10 +227,15 @@ struct OneDriveClient: Sendable {
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         guard let http = response as? HTTPURLResponse else { throw OneDriveError.invalidResponse }
-        guard http.statusCode == 206 else { throw OneDriveError.rejected(http.statusCode) }
-        guard let range = http.value(forHTTPHeaderField: "Content-Range"),
-              Self.matchesRange(range, offset: offset, end: end),
-              response.expectedContentLength < 0 || response.expectedContentLength == Int64(length),
+        if http.statusCode == 206 {
+            guard let range = http.value(forHTTPHeaderField: "Content-Range"),
+                  Self.matchesRange(range, offset: offset, end: end, size: expectedSize) else {
+                throw OneDriveError.invalidResponse
+            }
+        } else if http.statusCode != 200 || offset != 0 || expectedSize != Int64(length) {
+            throw OneDriveError.rejected(http.statusCode)
+        }
+        guard response.expectedContentLength < 0 || response.expectedContentLength == Int64(length),
               http.value(forHTTPHeaderField: "Content-Encoding").map({ $0.lowercased() == "identity" }) ?? true else {
             throw OneDriveError.invalidResponse
         }
@@ -203,30 +244,47 @@ struct OneDriveClient: Sendable {
             guard result.count < length else { throw OneDriveError.invalidResponse }
             result.append(byte)
         }
+        try authorize()
         guard result.count == length else { throw OneDriveError.invalidResponse }
         return result
     }
 
-    static func matchesRange(_ header: String, offset: Int64, end: Int64) -> Bool {
+    static func matchesRange(_ header: String, offset: Int64, end: Int64, size: Int64? = nil) -> Bool {
         let prefix = "bytes \(offset)-\(end)/"
         guard header.hasPrefix(prefix), let total = Int64(header.dropFirst(prefix.count)) else { return false }
-        return total > end && header == prefix + String(total)
+        return total > end && (size == nil || size == total) && header == prefix + String(total)
     }
 
-    private static func isChildPage(_ path: String, requested: String, folderID: String?) -> Bool {
+    private static func isChildPage(_ path: String, requested: String, folderID: String?, driveID: String?) -> Bool {
         if path == requested { return true }
         // Microsoft Graph can canonicalize an alias under /me/drive to a drive ID in nextLink.
         let parts = path.split(separator: "/", omittingEmptySubsequences: false)
         return parts.count == 7 && parts[0].isEmpty && parts[1] == "v1.0" && parts[2] == "drives" &&
             isItemID(String(parts[3])) && parts[4] == "items" && isItemID(String(parts[5])) &&
+            (driveID == nil || String(parts[3]) == driveID) &&
             (folderID == nil || String(parts[5]) == folderID) && parts[6] == "children"
     }
 
-    private static func isItemID(_ value: String) -> Bool {
+    static func isItemID(_ value: String) -> Bool {
         (1...256).contains(value.utf8.count) && value.utf8.allSatisfy {
             (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) ||
                 $0 == 33 || $0 == 45 || $0 == 95
         }
+    }
+
+    static func isToken(_ value: String) -> Bool {
+        (1...32_768).contains(value.utf8.count) && value.utf8.allSatisfy { (33...126).contains($0) }
+    }
+
+    private func graph<T: Decodable>(_ endpoint: String, fields: [String], token: String) async throws -> T {
+        guard Self.isToken(token), var components = URLComponents(string: endpoint) else { throw OneDriveError.invalidResponse }
+        components.queryItems = [URLQueryItem(name: "$select", value: fields.joined(separator: ","))]
+        guard let url = components.url else { throw OneDriveError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, status) = try await send(request)
+        guard status == 200 else { throw OneDriveError.rejected(status) }
+        return try JSONDecoder().decode(T.self, from: data)
     }
 
     private func oauth(_ path: String, fields: [String: String]) async throws -> (Data, Int) {
