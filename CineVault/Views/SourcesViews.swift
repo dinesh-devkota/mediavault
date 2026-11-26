@@ -63,6 +63,7 @@ struct SourcesView: View {
             NavigationStack {
                 if source.isPlex { PlexSourceEditor(source: source) }
                 else if source.cloudFileProvider == .oneDrive { OneDriveSourceEditor(source: source) }
+                else if source.cloudFileProvider == .dropbox { DropboxSourceEditor(source: source) }
                 else if source.isJellyfin { JellyfinSourceEditor(source: source) }
                 else { SourceEditorView(source: source) }
             }
