@@ -19,7 +19,7 @@ class OneDriveAccountStoreInstrumentedTest {
         val source = UUID.randomUUID()
         val refresh = "one-drive-fixture-refresh"
         val app = "12345678-abcd-1234-1234-123456789abc"
-        val store = AndroidOneDriveAccountStore(context, SecretBox())
+        val store = AndroidOneDriveAccountStore(context, SecretBox(context))
         try {
             store.save(source, SavedOneDriveAccount(source.toString(), app, "fixture-drive", refresh))
             val prefs = context.getSharedPreferences("onedrive-accounts", Context.MODE_PRIVATE)
@@ -27,7 +27,7 @@ class OneDriveAccountStoreInstrumentedTest {
             assertFalse(encrypted.contains(refresh))
             assertFalse(encrypted.contains("fixture-drive"))
 
-            val reopened = AndroidOneDriveAccountStore(context, SecretBox())
+            val reopened = AndroidOneDriveAccountStore(context, SecretBox(context))
             val restored = requireNotNull(reopened.load(source))
             assertEquals(refresh, restored.refreshToken)
             assertEquals("fixture-drive", restored.driveId)

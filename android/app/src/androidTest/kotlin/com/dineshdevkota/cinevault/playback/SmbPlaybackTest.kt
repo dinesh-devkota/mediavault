@@ -131,7 +131,7 @@ class SmbPlaybackTest {
         val drive = GoogleDriveDocuments(fixture, DriveFixture.AUTHORITY)
         val service = SmbService(fileSources = mapOf(GOOGLE_DRIVE_DOCUMENTS to drive))
         val familyPreferences = "drive-fixture-${UUID.randomUUID()}"
-        val secrets = SecretBox()
+        val secrets = SecretBox(context)
         val family = FamilyStore(context, secrets, familyPreferences)
         val source = SourceEntity(
             name = "Drive fixture", host = "google-drive", share = "selected", username = "android-documents",
@@ -288,7 +288,7 @@ class SmbPlaybackTest {
         val refresh = requireNotNull(credentials.refreshToken)
         val selected = client.metadata("/Media", credentials.accessToken)
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val secrets = SecretBox()
+        val secrets = SecretBox(context)
         val media = DropboxMedia(http)
         val profilePreferences = "dropbox-test-${UUID.randomUUID()}"
         val family = FamilyStore(context, secrets, profilePreferences)

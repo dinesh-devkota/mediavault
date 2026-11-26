@@ -24,7 +24,7 @@ class FamilyStoreInstrumentedTest {
     private lateinit var library: FamilyLibrary
     @Before fun prepare() {
         name = "family-fixture-${UUID.randomUUID()}"
-        store = FamilyStore(context, SecretBox(), name)
+        store = FamilyStore(context, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), name)
         db = Room.inMemoryDatabaseBuilder(context, CineVaultDatabase::class.java).build()
         library = FamilyLibrary(db, store)
     }
@@ -51,7 +51,7 @@ class FamilyStoreInstrumentedTest {
         assertTrue(library.get("movie")!!.isWatched)
         admin()
         assertTrue(library.get("movie")!!.isWatched)
-        val reloaded = FamilyStore(context, SecretBox(), name)
+        val reloaded = FamilyStore(context, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), name)
         assertTrue(reloaded.current.enabled)
         assertFalse(reloaded.current.unlocked)
         assertNull(FamilyLibrary(db, reloaded).get("movie"))
@@ -74,14 +74,14 @@ class FamilyStoreInstrumentedTest {
         repeat(4) { assertNotNull(store.unlock(HouseholdProfile.ADMIN, "999999")) }
         assertNull(store.unlock("viewer", ""))
         assertTrue(store.unlock(HouseholdProfile.ADMIN, "999999")!!.contains("Too many"))
-        val reloaded = FamilyStore(context, SecretBox(), name)
+        val reloaded = FamilyStore(context, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), name)
         assertTrue(reloaded.unlock(HouseholdProfile.ADMIN, "123456")!!.contains("Too many"))
         assertFalse(reloaded.current.unlocked)
     }
     @Test fun unreadableConfiguredControlsFailClosed() = runBlocking {
         admin()
         context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().putString("record", "damaged").commit()
-        val damaged = FamilyStore(context, SecretBox(), name)
+        val damaged = FamilyStore(context, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), name)
         assertTrue(damaged.current.damaged)
         assertFalse(damaged.current.admin)
         assertNotNull(damaged.unlock(HouseholdProfile.ADMIN, "123456"))
@@ -164,7 +164,7 @@ class FamilyStoreInstrumentedTest {
             catch (_: IllegalArgumentException) { }
         }
         assertEquals(2, store.profiles.size)
-        assertFalse(FamilyStore(context, SecretBox(), name).current.damaged)
+        assertFalse(FamilyStore(context, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), name).current.damaged)
     }
 
     @Test fun turningProfilesOffIsAuthenticatedAndRestoringUsesTheExistingPINAndHistory() = runBlocking {
@@ -176,7 +176,7 @@ class FamilyStoreInstrumentedTest {
         assertNotNull(library.get("movie"))
         try { store.setup("999999", "999999"); fail("Disabled household replaced its Admin PIN") } catch (_: IllegalStateException) { }
         try { store.saveProfile(HouseholdProfile("attack", "Attack"), null); fail("Disabled household changed protected profiles") } catch (_: IllegalStateException) { }
-        val restarted = FamilyStore(context, SecretBox(), name)
+        val restarted = FamilyStore(context, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), name)
         assertFalse(restarted.current.enabled)
         assertNotNull(restarted.unlock("viewer", ""))
         assertNotNull(restarted.unlock(HouseholdProfile.ADMIN, "999999"))
@@ -191,7 +191,7 @@ class FamilyStoreInstrumentedTest {
             override fun getSharedPreferences(preferenceName: String, mode: Int) = context.getSharedPreferences(prefix + preferenceName, mode)
         }
         var id = "admin"
-        val settings = Settings(isolated, SecretBox()) { id }
+        val settings = Settings(isolated, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext())) { id }
         try {
             val owner = com.dineshdevkota.cinevault.core.LibraryFacets(genres = setOf("Private genre"), sourceIds = setOf("private"))
             settings.libraryFacets = owner
@@ -221,7 +221,7 @@ class FamilyStoreInstrumentedTest {
         var delayed = false
         val started = java.util.concurrent.CountDownLatch(1)
         val release = java.util.concurrent.CountDownLatch(1)
-        val loader = com.dineshdevkota.cinevault.photos.NasPhotoLoader(context, db, SecretBox(), family = store,
+        val loader = com.dineshdevkota.cinevault.photos.NasPhotoLoader(context, db, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), family = store,
             openFile = { _, _ ->
                 reads++
                 object : com.dineshdevkota.cinevault.smb.RemoteHandle {

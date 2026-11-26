@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.os.ext.SdkExtensions
+import androidx.core.content.ContextCompat
 import com.dineshdevkota.cinevault.core.DiscoveryTiming
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
@@ -27,8 +28,8 @@ data class NasDiscoveryState(
 
 /** Searches only SMB services advertised on the local network. */
 class NasDiscovery(context: Context) {
-    private val manager = context.applicationContext.getSystemService(NsdManager::class.java)
-    private val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java)
+    private val manager = ContextCompat.getSystemService(context.applicationContext, NsdManager::class.java)
+    private val wifiManager = ContextCompat.getSystemService(context.applicationContext, WifiManager::class.java)
 
     fun discover(): Flow<NasDiscoveryState> = callbackFlow {
         val nsd = manager

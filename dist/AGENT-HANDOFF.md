@@ -9,25 +9,46 @@ below retain their original names. Development work remains on
 
 ## Active library/playback work — November 25, 2026
 
-Current integration checkpoint: public `96df268` passed Apple TV 242/242,
-Android TV 110/110 and Android phone 12/12. The iPhone run `45740845578` and
-core/unsigned-TV run `45740845630` are still in progress or queued. Apple TV
-screenshots show captions clear of playback details. The new Plex filename-reset
-regression passed. The earlier merged iPhone `86bcb09` passed 230/230 and unsigned
-Release, before the final reset safeguard.
+Current public candidate: `d5a9ab6` on `codex/mediavault-library-playback`,
+draft PR19. It includes development's `c6d83d2` OneDrive integration, Plex,
+WebDAV/Jellyfin, broader playback, local artwork/metadata, collections and versions.
+The latest change fixes unreadable Apple TV secondary button labels and exercises
+Watchlist changes while preserving the selected edition's resume point. The style
+change is tvOS-only; iPhone's existing readable appearance is retained. Apple TV run `45752854370` passed all 251 cases with zero skips; inspected
+screenshots show readable secondary labels and preserved Resume 1:30 after
+Watchlist add/remove. MKV captions remain clear of controls. iPhone run
+`45752854417` passed all 241 cases with zero failures/skips and its unsigned
+Release build. Its detail, OneDrive setup and caption screenshots were reviewed.
 
-Development subsequently advanced to `c6d83d2` with personal OneDrive. The current
-merge retains local-library/Plex playback and adds that source. Android phone
-retains its library and metadata checks alongside incoming OneDrive journeys;
-Apple phone and TV require both OneDriveClientTests and CloudFileTransportTests.
+Verified platform results:
+- Apple TV `d5a9ab6`: 251/251, zero failures/skips, run `45752854370`;
+  evidence and reviewed screenshots are in `.artifacts/apple-tv-d5a9ab6`.
+- iPhone `d5a9ab6`: 241/241, zero failures/skips, run `45752854417`; unsigned
+  Release packaging also passed. Evidence: `.artifacts/apple-phone-d5a9ab6`.
+- Base Android TV `7bfc5b5`: 113/113, run `45745610565`; Android phone: 16/16,
+  run `45745610574`. Android source/tests/workflows are unchanged at `d5a9ab6`.
+- Core/unsigned-TV CI `d5a9ab6`: run `45752854407` succeeded.
+
+The Apple OneDrive collection fixture now records ignored files relative to the
+saved source root (`Feature.mp4`, not `Movies/Feature.mp4`). Product path guards
+were unchanged. All OneDrive/cloud transport suites passed on both Apple targets,
+including real scan/seek, exact-path local artwork and the phone setup-form journey.
+Android OneDrive tests verify NFO/artwork import, preserved standalone photos,
+playback/seek and folder/age access restrictions. Live owner accounts were not used.
+Current Apple evidence is under the `d5a9ab6` artifact folders above; the
+Android evidence remains attached to its stated successful runs. Never test disposable fixtures on the owner's
+installed emulator or real NAS. Do not transfer passing counts to changed code.
+
+### Implementation and earlier validation history
+
+OneDrive imports use the guarded Android provider and exact Apple cloud paths.
 Local validation passed 101 core and 151 app Android tests (two existing Jellyfin
-cases need their loopback fixture), instrumentation compilation and debug lint.
-OneDrive now participates in Android local NFO/artwork imports using its guarded
-provider. Apple sidecar and collection matching use exact cloud paths. New
-regressions cover local artwork, authoritative file identity and household access.
-The phone runner requires 16 Android cases and a new real iPhone setup-form journey.
-Seven XCTest-report checks and workflow lint pass. Hosted runtime verification is
-still required; do not transfer results from `96df268` to this merge.
+cases require their loopback fixture), instrumentation compilation and debug lint.
+The phone runner requires 16 Android cases and a real iPhone setup-form journey;
+Apple phone and TV require OneDriveClientTests and CloudFileTransportTests.
+Seven XCTest-report checks and workflow lint passed. Pre-OneDrive `96df268` passed
+Apple TV 242/242, iPhone 231/231 plus unsigned Release, Android TV 110/110 and
+Android phone 12/12. The checkpoints below are historical, not current blockers.
 
 Follow-up review found that Plex's synthetic identifiers could be treated as
 filenames by the metadata editor. Apple `7363654` and Android `79c5754` hide and
@@ -179,6 +200,488 @@ Repeated Android TV testing found a nested-focus handoff that could keep an
 ignored season visible. `643cb35` suspends child focus restoration while removing
 content and bounds the handoff. Its full Android TV workflow passed
 (`45722101734`), retaining the real ignored-folder/navigation regression.
+
+## Amazon Fire TV work — November 26, 2026
+
+Remote PR20 head `b98f180` is green across Android/Fire OS: modern TV 120/120
+(run `45748429035`), phone 16/16 (`45748429096`), and API 22/25/28 22/22 each
+(`45748429091`), with zero failures/skips. Build/lint/APK/unsigned bundle passed.
+Four library screenshots were reviewed. OneDrive setup, protected credential
+storage, NFO/artwork import, folder/age permissions and actual playback/seek ran
+on every target. Evidence is in `.artifacts/android-tv-b98f180`,
+`.artifacts/android-phone-b98f180` and `.artifacts/fire-compat-b98f180`.
+
+Vega follow-ups are on `codex/mediavault-vega-keyboard-visibility`, not PR20's
+remote head. Latest tested `0e21f3a`, run `45768740001`, passed all three production
+packages, fixture packaging, native regressions, production startup and stages
+01-05. Native cold-start/Back focus, non-first poster restoration, complete bulk
+collection create/rename/remove/cancel/persisted selection, show/season/episode
+navigation and actual photo loading passed. All four bulk actions fit one row;
+612px viewports fully contain the 604px watched cards and their focus borders.
+Focused selected tiles are white; other selected tiles remain orange. Show/photo
+end captures return to Home, so they are functional evidence, not visual review
+of those intermediate screens.
+
+Stage06 plays MKV with actual advancing time and pauses, but native seek fails.
+The first application +30s request receives native error50004 before the SDK's
+duplicate +10s request. The SDK emits seeked despite rejection, leaving actual
+position near1s. The app's pending-seek guard can then prevent all further progress
+updates. The follow-up fixes use the documented SDK as the sole owner of remote
+media keys (explicit10s both directions), keep on-screen Forward30/Back10, recover
+from rejected/timed-out seeks without optimistic position, and protect saved
+resume after failed restoration. Harness assertions will separately prove each
+remote/on-screen seek, native control focus, paused stability and real advancement.
+All 69 app/SDK regressions and typecheck pass; lint has zero errors and 50 existing warnings.
+The underlying native rejection is still unresolved; removing duplication does
+not establish a fix. Fixture-only bounded numeric relay diagnostics are being
+prepared without paths, tokens, credentials or media content. Stages07-09 continuous
+TV and household/PIN remain unvisited. Evidence: `.artifacts/vega-ui-45768740001`.
+
+Follow-up `fafb05b` implements the player fixes; `b058e51` adds separate native
+remote/on-screen seek assertions and bounded fixture-only video/audio relay traces.
+Run `45774417317` passed all three release packages, fixture packaging and native
+regressions. Its app journey stopped at stage01 after address-field keyboard Back:
+native logs report the keyboard hidden, but automation visibility queries stalled
+45s each and returned unknown/failure. No valid final route observation, screenshot
+or playback trace was obtained. This is an automation transport/observability
+failure, not proof that the keyboard stayed open, and is not an app pass. No seek
+or later-stage conclusion can be drawn from this run. Optimized run45775231496
+is already running separately at ee07b52. Local native verification covered
+80 cases (five local build guards needed the existing SDK library path and then
+passed); all 69 app/SDK tests and 17 harness contracts passed before optimization.
+The trace is absent from the compiled production host binary and logs at most
+128 fixed-label/numeric records, never paths, tokens, headers or content.
+
+Standalone diagnostic `b7985b8`, run `45775008538`, compares four fresh W3C players:
+MKV/MP4, paused/playing, via stock nginx rather than MediaVault's relay. The MP4
+copies every coded video/audio packet from the unchanged synthetic MKV generator.
+Local SDK build, separate package identity, packet comparisons and exact HTTP
+range bytes passed. Native comparison is running. The new manual-only workflow
+mode skips normal app jobs; a failed diagnostic remains failed and does not count
+as application acceptance. No owner device, NAS or credentials are used.
+
+Earlier `3e4b813`, run `45765161506`, established that FlatList's `library-grid`
+ID is absent from the native publisher. Home/lock predicates now use actual
+exposed toolbar controls and poster groups, plus prior-route disappearance.
+The native return-focus assertion remains mandatory. Initial onboarding now has
+one setup card; filtered-empty and restricted-profile grids remain available.
+
+Earlier checkpoint `0590298`, run `45761600966`, passed all
+packages/native/startup checks and stages01/02. Reviewed screenshots confirm
+Home and collection viewports of 612px (y412..1024); 604px watched cards now fit
+entirely with all four white focus-border corners visible. Posters, filled
+controls and readable Play remain present. The short collection screenshot pair
+captures artwork loading, not an established persistent image failure.
+Stage03 still stops before Clear activation: its exact keyboard control is
+natively visible, but 21 direct setFocus attempts over about 25 seconds never
+receive native focus. The helper's Down-only fallback cannot reach Clear to the
+right. The follow-up uses bounded keyboard-only arrow navigation and requires actual
+native focus on Clear before Select; prior/empty/final nonsecret acknowledgements
+and protected-entry guards remain. All 17 harness contracts pass, including
+ineffective direct focus, no movement, stale/ambiguous focus and hidden keyboard.
+The app now records route-specific poster/scroll anchors for Home and collections,
+requests focus only after the returning item becomes viewable, falls back when
+it disappears, and cancels retries on directional input or household changes.
+An empty grid can accept first-scan results without reviving user-cancelled focus.
+Typecheck and all 60 domain/SDK tests pass (nine focus lifecycle cases).
+New native empty-Home and non-first-poster Back assertions use only remote input,
+without focus-setting helpers. They still require the next hosted run; offscreen
+restoration currently has unit/lifecycle coverage only. Complete playback/profile
+journeys remain pending.
+
+Tested baseline `2847a6e` includes Apple `d5a9ab6` and its completed
+handoff. Normal run `45756851737` passed all three production architectures,
+isolated fixture packaging, native regressions and production startup. Stages01/02
+passed without the earlier fatal overlay. Stage03 reached collection creation,
+but the driver's clear/setText('') left the seven-character old name unchanged;
+strict empty acknowledgement failed. The replacement now uses the observed
+keyboard Clear button with a positively visible window and strict native focus.
+Nonsecret prior/empty/final checks remain; PIN/password contents are never read.
+
+Home's grid improved from 94px to 580px (y444, five complete cards). Collection
+browsing also moves rename/delete to Manage collection, leaving a compact title
+and action row over the grid. Detail Add to collection keeps its candidates on
+that route instead of replacing the active Home bulk selection. Stage03 tests
+return navigation, the renamed collection and all three originally selected files.
+The new management field/actions were on-screen in the failed rename evidence;
+its poster grid and selection-return assertions still need a completed journey.
+
+The isolated rendering probe succeeded in run `45756854606` at `2847a6e` with
+SDK 2.0.15159, simulated x86_64 OS 2.0 TV Ship/102815880, OpenGL acceleration
+disabled. Square Views painted 100% expected color, while rounded Views painted
+0%. An unclipped bundled PNG painted all four quadrants correctly; the same PNG
+inside a rounded clipping parent painted none despite successful load callbacks.
+Native/React focus agreed: the rounded focused background was absent, while the
+square focused button was visible. A stale first screenshot was separately
+identified by consecutive captures. This is a measured virtual-device paint/clip
+failure, not evidence of physical-device behavior. See the probe README and
+`.artifacts/vega-render-probe-45756854606` for exact package and pixel evidence.
+
+The product follow-up uses the same rectangular surfaces in both production and
+fixture Vega builds, retaining spacing, colors, typography, borders and behavior.
+It also aborts a stuck native initialization before waiting for startup cleanup,
+and sends the SDK's required hidden transition to disable embedded subtitles.
+Per-player selection uses stable IDs and explicit Off, so delayed sidecars and
+native default-track events cannot replace a viewer's choice. Missing native
+tracks are skipped until available, and unchanged choices cause no repeated
+native enable/disable calls. Typecheck and all 51 app tests pass. SDK-method
+regressions execute the installed initialization, track setters and track-event
+code with only native boundaries replaced. These fixes require a new full
+hosted app journey and visual review; the isolated probe is not an app pass.
+
+The old URL polyfill called unsupported NativeModules.BlobModule; `77f31cc`
+replaced it with Vega's built-in URL API while retaining address guards. The
+harness now rejects fatal overlays before/after journeys and captures. Keyboard
+closure uses positive native-window visibility, one Back, then that same window
+hidden and Done absent; transient publisher absence cannot satisfy closure.
+
+The render probe is manual-only (`rendering_probe_only`); normal jobs are skipped
+in that mode. Its separate package contains a known bundled PNG, no MediaVault
+native module/libsmb2, no network/accounts, and exact template/dependency provenance.
+Production secure storage cannot be validated by this simulator. No physical
+Vega device is available; do not ask the owner again. Complete media playback,
+continuous viewing and household UI journeys remain unverified on Vega.
+
+The optimization follow-up retains the catalog/group/collection derivations with
+standard React useMemo and replaces repeated collection membership searches with
+Sets. Source, profile, folder/rating, lock and rescan changes still invalidate the
+results immediately; existing resource/session authorization remains independent.
+All 76 app/SDK tests pass, including seven real React lifecycle regressions;
+typecheck passes and lint remains zero errors/50 existing warnings. The current
+immutable update paths were audited. No persistence format or codec change is made.
+
+Synthetic desktop Node22/V8 measurements at 10,000 metadata-rich items and
+20 collections of 250 members: full collection recomputation 49.700 -> 11.828ms;
+whole parent derivation 60.330 -> 23.432ms. A separate React viewing-update benchmark
+(with Sets on both sides) measures 23.181 -> 1.715ms. These isolated measurements
+are not physical TV/Hermes/FPS results and their measured boundaries differ.
+The preserved baseline SHA256 remains
+`ceae9ce031ca3d4ec9493cfed2257ebbb103389bcd79fe4ab44bf990b04d707b`.
+Reports and separate before/after results are in `.artifacts/runtime-catalog-optimization-review.md`.
+
+Runtime build setup now installs required Linux packages without optional
+recommendations, explicitly retaining the two GUI recommendations, Python and CA
+certificates. The measured candidate omits 31,228,552 archive bytes, mostly an
+unrelated speech language model. All existing explicit packages and required Mesa
+OpenGL dependencies remain; the graphics comparison retains its extra explicit
+Mesa/EGL tools. Disposable Ubuntu checks generated all four media fixtures and
+opened Xvfb successfully. Full VVD compatibility and elapsed-time savings still
+need the optimized cloud trial. Parallel job scheduling and SDK-state caching are
+deferred; the current job graph, cold devices and complete checks are retained.
+
+Cloud continuation is active in the Linux cloud checkout on
+`codex/mediavault-vega-keyboard-visibility`, starting from `a3d38a4`.
+The earlier Windows handoff attempt could not start a cloud task automatically.
+No owner installation or private NAS is involved in the current validation.
+
+Optimized hosted run `45775231496` at `ee07b52` passed all production
+architectures, native regressions, fixture packaging, production startup and
+stages 01–05 with the reduced virtual-device dependency list. Stage 06 observed
+one 10-second forward seek to 11.245s. Native rejected it with 50004, emitted
+seeked anyway, and the paused clock stayed near 1s. The fixture logged the
+initial full GET and no seek-time byte-range request. Those observations do
+not identify the fault in the native stack, request handling, or container.
+Stages 07–09 remain pending. The standalone run `45775008538` verified fixture
+packet equality and host HTTP ranges, but the probe stayed on the launcher
+and no stock media case ran. The single-launch retry `45779284821` also
+passed the host HTTP and coded-packet checks, then failed waiting for its
+banner. Artifact `15098057008` shows that its packaged React Native
+application registered `VegaSeekProbe`, while the SDK launched
+`com.dineshdevkota.mediavault.seekprobe.main`. The diagnostic now uses the
+manifest component name and checks it before and after packaging.
+
+Corrected stock run `45781527800` at `8cec98cb` executed all four cases
+(artifact `15099740508`). With identical coded streams, MP4 landed near 31s
+and 11s while paused and playing and requested HTTP 206 ranges for both.
+The SDK emitted `seeked` at the old clock before the later verified landing.
+Both MKV cases failed to land and made no new range request. The playing MKV
+case advanced naturally only. That reproduces the MKV seek limit away from
+MediaVault's relay and identifies a separate early-event confirmation issue
+that also affects successful native MP4 seeks. PlayerSession now waits up
+to ten seconds for a verified native landing after early completion events.
+The product fixture retains the full seek and caption journey on packet-
+equivalent MP4 and independently measures MKV playback, the native request,
+the actual clock and its saved resume position.
+
+Full run `45785271448` passed the native checks, all three production packages,
+the synthetic package, production startup, and stages 01–05. Stage 06
+confirmed one MP4 forward seek and the matching HTTP 206. It sent no second
+native request when the harness tried Forward 30 during settlement of the
+first request. The app now disables both seek controls while the native seek
+is pending. The harness verifies they are enabled and checks remote focus
+before each press, then checks the actual native request and clock. It records
+action timestamps to distinguish a dropped input from a decoder issue.
+
+Exact run `45789751322` at `69d308c` passed all three production packages,
+native and fixture package checks, production startup, and steps 01–07.
+The four MP4 requests settled paused near 11s, 41s, 31s and 21s with matching
+HTTP 206 ranges. The separate MKV case reproduced native 50004, kept the
+actual paused clock and safely reopened the previous verified checkpoint.
+The continuous-playback fixture selected Spanish, turned captions Off,
+honored the countdown cancellation, and decoded the next available episode.
+Its artifact `15103091770` shows that step 08 reached the optional profile
+PIN input instead of the source grant. The open system keyboard captured
+further remote movement, so that run reached neither the source grant nor
+the wrong-PIN/recovery step. The viewer PIN editor now opens only after
+choosing Add profile PIN. Removing it clears the draft. The household
+journey checks that remote focus leaves the editor closed, selects only the
+intended source grant, then checks allowed and restricted content.
+Device-backed keystore testing remains separate.
+
+The current verification branch checks the native clock before saving a seek,
+bounds keyboard-window observation without weakening same-window or field
+checks, and uses one verified foreground launch before its standalone MKV/MP4
+probe. Vega's subtitle menu announces and displays the active track, names
+local languages and variants, and keeps Off and explicit track selection stable
+when native tracks arrive or reorder. WebDAV sidecars match the exact media
+filename case. SMB matching remains case-insensitive. Local synthetic
+validation at Node 22.23.5 passed all 88 app/SDK tests, 28 harness tests and 23 Python package
+contracts, plus typecheck and lint (0 errors, 50 existing warnings).
+
+The catalog review found the rendered Home and collection grids still repeated
+filtering and grouping on viewing-only updates. Both now reuse memoized
+derivations with tests for invalidation when authorization, library contents or
+filters change. On a separate 10,000-item Node fixture, repeated filtered Home
+derivation measured 53.683ms before and 0.008ms after memoization. Actual
+virtual-device frame rate and hardware performance remain separate checks.
+The Release matrix now runs its architecture-independent TypeScript, lint and
+Jest checks once, on x86_64, while every native package retains its own SDK
+doctor, native compilation and package content checks. Superseded PR runs may
+cancel without canceling manual diagnostics. The next native step is the
+full simulator acceptance of the clock-confirmation remedy, with separate MP4
+seek and MKV behavior checks. No release job is authorized.
+
+Dropbox PR #30 merged into development at `312b9ade` after all exact synthetic
+checks passed. OneDrive iPhone PR #24 merged into the iPhone feature parent at
+`03b00e929d33114c5a1760c063c9296aaf2fb3dd` after its exact iPhone and Apple
+TV checks passed. Plex iPhone PR #25 then merged into the same feature parent
+at `72e2f197` after 211 iPhone and 219 Apple TV tests, Swift package tests and
+both unsigned releases. Dropbox iPhone PR #27 is testing separately on
+`a0210bfb`.
+
+The combined library and playback PR #19 merged into development at
+`1f819609` after 115 Android TV, 17 Android phone, 256 Apple TV and 245 iPhone
+synthetic tests, Swift core, Android packaging and both unsigned Apple builds.
+That tree includes the base iPhone app. The separate provider touch journeys
+still need reconciliation from the provider feature chain. The blocked Fire
+and Vega work still requires its own product fixture run before merging.
+
+### Earlier Fire validation and investigations
+
+At `3edbd0b`, API 22 and 28 each passed 21/22; only the OneDrive setup-form
+assertion failed. The follow-up checks the exact entered UUID, performs the
+field's existing Next action and scrolls to Sign in before checking enabled.
+It retains invalid-input activation. All targets passed at `b98f180` above.
+The earlier Vega keyboard diagnostic showed Done was temporarily absent while
+the keyboard window was still opening, causing the conditional Back to be skipped.
+Native-window visibility is now the authoritative boundary; strict application
+focus assertions have not been relaxed. The checkpoints below are historical.
+
+Fire integration `4b87c31` includes public `96df268` and Plex's secure-storage test
+adaptations for API 22. Local checks passed 101 core and 146 app unit cases, with
+two pre-existing Jellyfin cases requiring their loopback fixture; instrumentation
+compilation and debug lint passed. The Fire matrix now requires 19 cases per API
+22/25/28: the original 13, three Plex transport/catalog/storage checks, and three
+metadata-rating/reset regressions. At `3d78667`, hosted run `45742006243` passed
+19/19 on each of API 22, 25 and 28, with no failures or skips. Fire phone
+`45742006199` passed 12/12. Shared base `96df268` passed Android TV 110/110 and
+phone 12/12. Modern Fire TV runtime passed 117/117 (run `45742006292`). Its
+separate build job hit Maven Central HTTP 429; the single-job retry `139654868437`
+passed core/app tests, Debug and Release lint, APK and unsigned bundle builds.
+The successful runtime tests were not repeated. Current Fire work additionally
+incorporates OneDrive merge `7bfc5b5`. Local Fire checks passed 101 core and 154
+app cases, with two existing Jellyfin fixture-dependent skips, instrumentation
+compilation and lint. The API 22/25/28 runner now requires 22 cases, adding
+OneDrive credential persistence, setup and guarded local artwork/playback.
+Those expanded runtime checks still need new hosted validation.
+
+Vega run `45738633627` at `1dad04d` passed every package and native check, but
+notification suppression did not fix focus. Everyone, the scroll container, and
+Add source all stayed unfocused while Back retained focus. Paired screenshots
+alternated between stale Home and current Sources and still omitted rounded
+backgrounds. Comparison `45742000030` verified both original package ZIP digests,
+booted with SDK-default graphics on Mesa llvmpipe, and reproduced the same focus
+failure and byte-identical screenshot pair. This does not establish behavior on
+a physical GPU. Evidence is in `.artifacts/vega-ui-45738633627` and
+`.artifacts/vega-ui-45742000030`. No library journey has passed; fixture credentials
+and runtime diagnostics do not establish physical-device secure storage.
+
+An independent audit found that the app's long-lived, whole-screen focus guide
+uses `autoFocus` while its route children change; the SDK template does not.
+The current diagnostic candidate removes only that property, retaining the guide,
+session key and all strict focus assertions. SDK 2.0.15159 typecheck, lint (zero
+errors) and all 42 app tests pass. Hosted `f89640d` run `45744255024` passed all
+packages/native checks and production startup. The strict runtime journey now
+passes Home to Sources, Add source, NAS/SMB, Source name entry and its first
+keyboard dismissal. It then fails focusing the second IME session Done key
+while the NAS address field is active. The earlier Sources blocker is absent
+in this run, but no complete library journey has passed. Audit the system
+keyboard boundary separately; do not loosen app-button native-focus assertions.
+The follow-up harness uses one documented Back key only for an observed system
+keyboard, then requires it closed, the same field present, and non-secret text
+unchanged. Secret fields are never read back. Node syntax and all seven startup
+contracts pass; the full journey must establish actual runtime behavior.
+Cold-start D-pad focus and return navigation remain to be verified. An ignored
+minimal official-template probe is prepared under `.artifacts/vega-focus-probe`;
+it was not built or dispatched because the original failure did not recur.
+
+Latest verified checkpoint: Fire `5c88fe8` passed Android TV 110/110 (run
+`45735053621`). Android phone 7/7 and Fire compatibility 13/13 on each API
+22/25/28 passed at `7e207f2`; their code and dependencies are unchanged at `5c88fe8`.
+Base `7983719` passed Apple TV 233/233 (`45733330571`). Its iPhone run
+`45733330589` passed 222/223 and unsigned Release: caption clearance and the
+authenticated WebDAV scan passed. The remaining Library-navigation test tap
+was consumed by a transient system Save Password prompt; the narrow test-only
+interruption handling is being corrected, with no change to production navigation.
+
+Vega run `45735053415` at `5c88fe8` passed all production architectures, isolated
+fixture packaging, native checks and the production startup probe. Library journey
+01 still failed at Add source. This time both screenshots show Sources, and the
+native `UiObject:focused` query agrees with XML that Back retains focus despite
+successful setFocus responses. No complete library journey has passed. A fixture-only
+experiment will follow the pinned SDK template's notification suppression while
+retaining console/native diagnostics, uncaught-error screens and strict focus checks.
+Do not infer a production rendering defect or hardware readiness from this evidence.
+Diagnostics are in `.artifacts/vega-ui-45735053415`.
+
+The owner explicitly approved private revision `7420284` in build-only run
+`45734118734`, and that exact approval has been submitted. Package tests and the
+unsigned tvOS build passed; simulator tests are running. TestFlight is disabled.
+This supersedes the older pending-approval note below; no further approval for
+this exact run is needed. The old trusted-main workflow still does not verify
+the new licensed iPhone/VLC integration.
+
+Run `45732509539` at `7e207f2` passed all packages/native checks and production
+startup. Fixture warning dismissal now works (count 1), but Add source focus was
+not acknowledged within 25 seconds despite successful setFocus RPC responses.
+XPath/XML retained Back focus; the screenshot showed the prior Home page. Amazon's
+community has a reproducible alternating stale/current VVD screenshot report.
+No production rendering defect is established. The next harness uses the pinned
+driver's documented `UiObject:focused` attribute (native `isFocused`, string true
+or null), records native-versus-serialized focus, and retains paired screenshots.
+It follows app logs after installation to preserve early diagnostics. Evidence is
+under `.artifacts/vega-ui-45732509539`; complete library journeys remain unverified.
+
+Fire `7e207f2` phone run `45732509596` passed all 7 tests, including the formerly
+failing touch setup/playback case; compatibility run `45732510580` also passed.
+Base `7983719` is now merged: measured Apple caption clearance plus the bounded
+20-second fixture TLS handshake allowance (HTTP idle stays five seconds). Five
+real-socket fixture tests pass. New Apple runtime checks are pending.
+
+Approved commercial run `45727288957` finished: 28/28 package tests, 41/42 simulator
+cases, all six new engine tests passing in both suites, unsigned tvOS build passed,
+TestFlight skipped. The single actual StoreKit iterator stall remains unproven.
+Private `7420284383009976eaa6121d3d3cc55a9b928427` fixes a separately confirmed
+cancelled-waiter retention defect, with three new regressions and independent
+review. Five generator tests pass; new Swift tests await hosted validation.
+Build-only run `45734118734` pins that private revision and waits for a fresh owner
+approval, already requested. Do not reuse the prior approval. Its old trusted-main
+workflow still cannot verify the new licensed iPhone/VLC wiring.
+
+Run `45730914333` at `96073fa` passed all packages, native checks and the production
+startup probe. Fixture journey 01 still failed before Add source focused. The
+warning detector incorrectly queried an XML-only `<text>` node without an object
+ID; it now queries the owning text control. Focus acknowledgement also retries
+within its existing 25-second overall budget when initial screen focus arrives
+late, and records non-sensitive RPC results for diagnosis. Actual runtime remains
+pending; no complete library journey has passed. Logs now retain installed app
+diagnostics correctly. Evidence: `.artifacts/vega-ui-45730914333`.
+
+The owner confirmed **no Vega device is available**. Do not ask again; production
+credential persistence and physical playback remain unverified. The owner also
+explicitly approved build-only commercial run `45727288957`. GitHub still showed
+it waiting, so that exact approval was submitted through the API. Its private
+package tests and unsigned tvOS build passed; licensed simulator tests are running.
+TestFlight upload remains disabled.
+
+The current Fire branch also includes base `26078e3`, a narrow Android phone test
+wait correction for a confirmed activity-transition race, and `db8cb1e`, which
+makes collection posters open their titles while home bulk selection stays active.
+The latter extends journey 03 through title details and Back to the same collection.
+Typecheck, all 42 app tests and test-script syntax pass; new runtime remains required.
+
+Vega `e40bd26` run `45728952472` again passed all package/native jobs and the
+actual production startup probe. Fixture journey 01 reached Sources, then the
+Debug SDK LogBox took focus before Add source. Exact screenshot/XML is under
+`.artifacts/vega-ui-45728952472`. The new harness dismisses only that observed SDK
+warning within the fixture app, records a dismissal count, and reacquires focus
+from the live selector. It does not suppress product errors or change production.
+Log collection now queries stored app logs after installation; LoggingCtl cannot
+see apps that were installed after its session began. Test07 also verifies real
+episode-four progress and valid subtitle choices beside a bad subtitle file.
+
+Two further Vega fixes pass 42 app tests: reentrant cleanup shares one teardown
+promise, and oversized/malformed subtitle files no longer discard valid siblings.
+Profile/source authorization and transport failures still propagate. Hosted
+runtime for this next checkpoint remains required. Base `d6e2600` includes the
+Apple player metadata contrast fix and immediate reveal/tap test helper; base
+`5019cc8` has passed all 223 iPhone tests and unsigned release (`45727532171`).
+
+Run `45726677998` at `c538b89` passed every release architecture, the isolated
+fixture package, and all 74 native checks. The actual VVD production startup
+probe passed: unsupported keystore, hidden library, enabled Retry. Fixture startup
+and its banner passed, and Source name accepted the full typed value. Journey 01
+failed because `getText` queried RN's focus wrapper, not its editable child.
+Evidence is under `.artifacts/vega-ui-45726677998`. The new harness targets the
+editor, dismisses the observed IME with Done, and uses bounded D-pad/focus steps
+for off-screen fields. It also suppresses raw driver console RPC bodies.
+
+The following checkpoint fixes actual SDK playback initialization: wait for the
+native surface callback before setting src, poll real native state if events are
+absent, resume once, and preserve terminal completion during cleanup. Ten new
+lifecycle regressions pass; the full app/domain suite is 37/37, typecheck passes,
+and lint has no errors. A loopback-only HTTP playback policy passes SDK manifest
+validation, and 20 packaged/staging guards plus seven probe tests pass. Actual
+playback remains under VVD validation. The mixed invalid/unavailable NFO rating
+case is fixed in Vega and Android (`369c890` in PR19); Apple already fails closed.
+
+Fresh private build-only run `45727288957` pins companion `5cd626e` and waits for
+the owner's protected `commercial` approval. It can verify standalone private
+engine tests and the existing main tvOS integration; full new VLC/iPhone wiring
+still requires reviewed public code/workflow promotion and a later approved run.
+
+Latest Vega checkpoint: all 74 native host regressions pass (57 production,
+17 isolated fixture). The SDK-built Debug/x86_64 simulator-only VPKG passes
+manifest/ABI and actual packaged marker checks. Its package ID is
+`com.dineshdevkota.mediavault.vvdfixture`; production remains
+`com.dineshdevkota.cinevault`. Nineteen staging/package tests and seven startup
+probe tests pass. Production storage is unchanged. Hosted runtime now probes
+production startup independently, terminates it, and runs nine library/player
+journeys in the synthetic-only fixture build. Secure storage/restart remains a
+hardware-required skip. These new device journeys have not passed yet; inspect
+their results before claiming runtime coverage. The owner has been asked whether
+a physical Vega device is available; do not wait to finish independent testing.
+
+The owner answered **Do it for all**, including both Fire OS and Vega OS.
+Worktree `D:\CineVault\.worktrees\mediavault-fire-tv`, branch
+`codex/mediavault-fire-tv`, draft PR [20](https://github.com/dinesh-devkota/mediavault/pull/20)
+is based on PR 19. Fire OS uses the Android APK with minimum API 22. The API
+22/25/28 compatibility matrix passed 13 tests per version (run `45709712064`),
+including encrypted secrets, PINs, photos, remote controls and MKV playback.
+Physical Fire TV compatibility and codec/memory performance are not certified.
+
+The separate `vega/` app uses actual Amazon SDK 2.0.15159, React Native 0.83 and
+Vega OS 2 (rolled out across current Vega devices). Visible name MediaVault;
+internal ID matches Android's `com.dineshdevkota.cinevault`. Type checking and
+25 app/contract tests pass. The actual SDK native module compiles; all three
+release architectures and 57 native host cases pass in the latest cloud build.
+These include real transport fixtures, error-response classification and fixed
+platform-error categories. VVD installed/launched the real application but stops
+at `MV06`, opening the private keystore, before any library journey can pass.
+Amazon's [Crypto documentation](https://developer.amazon.com/docs/vega-api/2.0/README.amazon-devices_keplercrypto)
+says its API is unsupported in the simulator. Typed error diagnostics are being
+checked before choosing the next test approach. Keep PR 20 draft; physical-device
+credential persistence and playback remain unverified.
+
+Rejected SMB sign-ins now have bounded socket/authentication negotiation and
+can be cancelled. System hostname resolution still precedes that loop and can
+wait for the system resolver; do not describe the deadline as covering DNS.
+
+`tools/vega/Dockerfile` provides a pinned Linux compiler host. VVD is unsupported
+inside Docker, so `.github/workflows/vega.yml` runs it directly on Ubuntu with
+KVM and a disposable synthetic NAS. See `docs/FIRE-TV.md` for reproducible commands,
+license sources and current Vega parity gaps (TMDB/SubDL settings, NAS discovery,
+editing existing profiles). Native host tests do not verify the device keystore.
 
 The private companion branch is `codex/mediavault-playback-engines` at
 `5cd626eba6ce3b534ec1f0b3e74cc7cbfe0bb6c0`, in

@@ -97,3 +97,13 @@ def format_fixtures(root: Path) -> None:
     ], check=True, timeout=60)
     (root / "Controls.en.srt").write_text(
         "1\n00:00:01,000 --> 00:00:50,000\nLocal subtitle controls fixture.\n", encoding="utf-8")
+
+
+def add_vega_seek_controls(root: Path) -> None:
+    """Give the Vega seek fixture the same coded media in a separate MP4 title."""
+    subprocess.run([
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+        "-i", str(root / "Controls.mkv"), "-map", "0", "-c", "copy",
+        "-movflags", "+faststart", str(root / "Seek Controls.mp4"),
+    ], check=True, timeout=60)
+    shutil.copyfile(root / "Controls.en.srt", root / "Seek Controls.en.srt")

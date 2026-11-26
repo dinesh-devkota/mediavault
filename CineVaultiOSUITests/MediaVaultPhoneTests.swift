@@ -98,7 +98,9 @@ final class MediaVaultPhoneTests: XCTestCase {
         let connectedOrFailed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             savedSource.exists || connectionMessage.exists
         }, object: nil)
-        guard XCTWaiter.wait(for: [connectedOrFailed], timeout: 25) == .completed else {
+        // Wait through WebDAV's 60-second resource timeout so an actual
+        // transport failure can reach the form and be captured below.
+        guard XCTWaiter.wait(for: [connectedOrFailed], timeout: 65) == .completed else {
             capture("WebDAV did not report a connection result", app)
             XCTFail("The source connection did not complete or report an error.")
             return

@@ -1,0 +1,67 @@
+schema-version = 1
+
+[package]
+title = "MediaVault"
+icon = "@image/mediavault.png"
+version = "1.5.0"
+# Floor so local builds pass vpt validate; pass an increasing --build-number for every Appstore upload.
+build-number = 7
+id = "com.dineshdevkota.cinevault"
+
+[os.version]
+min = "2.0"
+target = "2.0"
+
+# Media is handed to the native player through a revocable loopback relay.
+# Vega OS 2 URL-mode playback applies this policy before opening that HTTP URI.
+# Remote WebDAV/Jellyfin connections remain HTTPS-only in the native bridge.
+[network-traffic-policy.cleartext]
+allowed-domains = ["127.0.0.1"]
+
+[needs]
+[wants]
+[[wants.module]]
+id = "/com.amazon.kepler.crypto@ICrypto"
+[[wants.module]]
+id = "/com.amazon.kepler.keystore@IKeystoreModule"
+[[wants.module]]
+id = "/com.amazon.kepler.security@IKeplerSecurityModule"
+[[wants.module]]
+id = "/com.amazon.kepler.file_system@IFileSystems"
+[[wants.service]]
+id = "com.amazon.inputmethod.service"
+# W3C playback and captions require these backing services as well as the SDK
+# module: https://developer.amazon.com/docs/vega/2.0/media-player-setup
+[[wants.service]]
+id = "com.amazon.mediametrics.service"
+[[wants.service]]
+id = "com.amazon.mediabuffer.service"
+[[wants.service]]
+id = "com.amazon.mediatransform.service"
+[[wants.service]]
+id = "com.amazon.media.server"
+[[wants.service]]
+id = "com.amazon.media.playersession.service"
+[[wants.service]]
+id = "com.amazon.audio.stream"
+[[wants.service]]
+id = "com.amazon.audio.control"
+[[wants.service]]
+id = "com.amazon.audio.system"
+[[wants.service]]
+id = "com.amazon.inputd.service"
+[[wants.service]]
+id = "com.amazon.gipc.uuid.*"
+[[wants.privilege]]
+id = "com.amazon.devconf.privilege.accessibility"
+
+[offers]
+[[offers.service]]
+id = "com.amazon.gipc.uuid.*"
+
+[components]
+[[components.interactive]]
+id = "com.dineshdevkota.cinevault.main"
+runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]

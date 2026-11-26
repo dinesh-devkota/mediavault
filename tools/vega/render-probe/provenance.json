@@ -1,0 +1,13 @@
+{
+  "sdk": "2.0.15159",
+  "templateSource": "Amazon SDK 2.0.15159 React Native application template, retained at .artifacts/vega-template",
+  "unchangedTemplateFilesSha256": {
+    "index.js": "fc530cf0535f5c8cd03e391c1b515cc298dc7628df2eadf70b5a9c32908a1d8e",
+    "babel.config.js": "d76a3a8625b204efa0f42c4bdd220f484211798f88a56f2e784bc082231cc292",
+    "metro.config.js": "34bf2977bc5f1d3da15aef66472cca8021af47c5b1b161851bdfe2da05bcb2e3"
+  },
+  "dependencyResolution": "vega/package-lock.json; build.sh verifies exact direct versions and reuses its installed node_modules",
+  "fixtureSource": "CineVaultTests/Fixtures/Photos/02.png",
+  "fixtureSha256": "00fb3e3ed601f74883fc276871ee8ee314fea845ceb080488422758911a61ef9",
+  "templateTextLineEndings": "LF, matching the committed Git blobs and Linux checkout"
+}

@@ -22,7 +22,7 @@ class PlexProviderInstrumentedTest {
         val name = "plex-connection-fixture-" + UUID.randomUUID()
         val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
         try {
-            val box = SecretBox()
+            val box = SecretBox(context)
             val store = PlexKeystoreConnectionStore(prefs, box)
             val fakeToken = "plex-fixture-token"
             val server = SavedPlexServer("Home", "id", "https://fixture.example", UUID.randomUUID().toString(), fakeToken)
@@ -31,7 +31,7 @@ class PlexProviderInstrumentedTest {
             assertFalse(sealed.contains(fakeToken))
             assertFalse(sealed.contains("fixture.example"))
             assertFalse(prefs.all.values.toString().contains(fakeToken))
-            val restored = checkNotNull(PlexKeystoreConnectionStore(prefs, SecretBox()).read())
+            val restored = checkNotNull(PlexKeystoreConnectionStore(prefs, SecretBox(context)).read())
             assertEquals(fakeToken, restored.serverToken)
             assertEquals(server.endpoint, restored.endpoint)
             assertEquals(server.deviceID, restored.deviceID)
@@ -39,7 +39,7 @@ class PlexProviderInstrumentedTest {
             assertNull(store.read())
             assertNull(prefs.getString(PlexKeystoreConnectionStore.KEY, null))
         } finally {
-            context.deleteSharedPreferences(name)
+            check(context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit())
         }
     }
 

@@ -80,7 +80,7 @@ class JellyfinAndroidIntegrationTest {
         val session = client.signIn("fixture", "fixture-only")
         try {
             val library = client.libraries(session).single { it.name == "Fixture Movies" }
-            val secrets = SecretBox()
+            val secrets = SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext())
             val sealed = secrets.encrypt(session.token)
             assertNotEquals(session.token, sealed)
             val source = SourceEntity(
@@ -160,7 +160,7 @@ class JellyfinAndroidIntegrationTest {
         val client = JellyfinClient(endpoint, id, "fixture", http = http)
         val session = client.signIn("fixture", "fixture-only")
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val secrets = SecretBox()
+        val secrets = SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext())
         val database = Room.inMemoryDatabaseBuilder(context, CineVaultDatabase::class.java).build()
         val profilePreferences = "jellyfin-fixture-$id"
         val household = FamilyStore(context, secrets, profilePreferences)

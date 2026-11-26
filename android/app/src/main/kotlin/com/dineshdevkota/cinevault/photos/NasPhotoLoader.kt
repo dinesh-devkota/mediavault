@@ -6,7 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.ColorSpace
 import android.graphics.ImageDecoder
 import android.graphics.Matrix
-import android.media.ExifInterface
+import androidx.exifinterface.media.ExifInterface
 import android.os.Build
 import android.util.LruCache
 import androidx.annotation.RequiresApi
@@ -268,11 +268,11 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
         val options = BitmapFactory.Options().apply {
             inSampleSize = PhotoDecodePolicy.sampleSize(bounds.outWidth, bounds.outHeight, size)
             inPreferredConfig = Bitmap.Config.ARGB_8888
-            inPreferredColorSpace = ColorSpace.get(ColorSpace.Named.SRGB)
+            if (Build.VERSION.SDK_INT >= 26) inPreferredColorSpace = ColorSpace.get(ColorSpace.Named.SRGB)
             inScaled = false
         }
         val bitmap = BitmapFactory.decodeFile(file.path, options)
-            ?: throw PhotoLoadException("This photo's format isn't supported on this TV, or the file is damaged.")
+            ?: throw PhotoLoadException("This photo's format isn't supported on this device, or the file is damaged.")
         val orientation = runCatching { ExifInterface(file.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
             .getOrDefault(ExifInterface.ORIENTATION_NORMAL)
         val transform = Matrix()
@@ -301,7 +301,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             is PhotoLoadException -> error.message.orEmpty()
             is IllegalArgumentException -> "This photo's dimensions are too large or invalid."
             else -> if (Build.VERSION.SDK_INT >= 28 && error is ImageDecoder.DecodeException)
-                "This photo's format isn't supported on this TV, or the file is damaged." else SmbService.describe(error)
+                "This photo's format isn't supported on this device, or the file is damaged." else SmbService.describe(error)
         }
     }
 }

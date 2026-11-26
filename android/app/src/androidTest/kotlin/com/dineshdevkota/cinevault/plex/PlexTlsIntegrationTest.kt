@@ -49,7 +49,7 @@ class PlexTlsIntegrationTest {
         val owner = UUID.randomUUID()
         val name = "plex-tls-fixture-$device"
         val preferences = context.getSharedPreferences(name, Context.MODE_PRIVATE)
-        val secrets = SecretBox()
+        val secrets = SecretBox(context)
         val storage = PlexKeystoreConnectionStore(preferences, secrets)
         val account = PlexAccountClient(device, exchange)
         val manager = PlexConnectionManager({ owner }, storage, device, account) { server, connection ->
@@ -72,7 +72,7 @@ class PlexTlsIntegrationTest {
             manager.disconnect()
             assertNull(storage.read())
         } finally {
-            context.deleteSharedPreferences(name)
+            check(context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().commit())
         }
     }
 
@@ -164,7 +164,7 @@ class PlexTlsIntegrationTest {
             }
         } finally {
             database.close()
-            context.deleteSharedPreferences(householdPreferences)
+            check(context.getSharedPreferences(householdPreferences, Context.MODE_PRIVATE).edit().clear().commit())
         }
     }
 

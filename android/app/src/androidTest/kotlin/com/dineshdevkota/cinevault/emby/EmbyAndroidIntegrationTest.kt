@@ -73,7 +73,7 @@ class EmbyAndroidIntegrationTest {
             val client = EmbyClient(endpoint, "fixture-android", "fixture", http)
             val account = client.signIn("fixture", "fixture-password")
             val library = client.libraries(account).single()
-            val secrets = SecretBox()
+            val secrets = SecretBox(context)
             val sealed = secrets.encrypt(account.AccessToken)
             assertNotEquals(account.AccessToken, sealed)
             val source = SourceEntity(name = library.Name, host = endpoint, share = library.Id,

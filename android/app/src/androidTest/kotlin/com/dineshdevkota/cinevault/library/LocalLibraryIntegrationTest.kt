@@ -30,7 +30,7 @@ class LocalLibraryIntegrationTest {
         val source = SourceEntity(id = "local", name = "Local fixture", host = "127.0.0.1", share = "fixture")
         var bytes = "<movie><mpaa>PG</mpaa></movie>".toByteArray()
         var offline = false
-        val importer = LocalMetadataImporter(db, SecretBox(), list = { listOf(com.dineshdevkota.cinevault.smb.NasEntry("Movie.nfo", false)) },
+        val importer = LocalMetadataImporter(db, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), list = { listOf(com.dineshdevkota.cinevault.smb.NasEntry("Movie.nfo", false)) },
             open = { _, _ ->
                 if (offline) throw java.io.IOException("Synthetic disconnected source")
                 val content = bytes
@@ -63,7 +63,7 @@ class LocalLibraryIntegrationTest {
             var episodePresent = true
             var episodeOffline = false
             var parentOffline = false
-            val episodeImporter = LocalMetadataImporter(db, SecretBox(), list = { config ->
+            val episodeImporter = LocalMetadataImporter(db, SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), list = { config ->
                 when (config.rootPath) {
                     "Show/Season 01" -> buildList {
                         if (episodePresent) add(com.dineshdevkota.cinevault.smb.NasEntry("Show.S01E01.nfo", false))
@@ -138,7 +138,7 @@ class LocalLibraryIntegrationTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val host = requireNotNull(InstrumentationRegistry.getArguments().getString("nasHost")) { "The disposable NAS fixture is required." }
         val db = Room.inMemoryDatabaseBuilder(context, CineVaultDatabase::class.java).build()
-        val secrets = SecretBox(); val smb = SmbService()
+        val secrets = SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()); val smb = SmbService()
         val prefs = "library-fixture-${UUID.randomUUID()}"
         val family = FamilyStore(context, secrets, prefs)
         val source = SourceEntity(name = "Local Library", host = host, port = 1445, share = "MEDIALIBRARY", username = "cinevault", encryptedPassword = secrets.encrypt("fixture-only"))
@@ -178,7 +178,7 @@ class LocalLibraryIntegrationTest {
     @Test fun customCollectionsPersistButNeverCrossHouseholdProfilesOrRevealRestrictedFranchises() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = Room.inMemoryDatabaseBuilder(context, CineVaultDatabase::class.java).build()
-        val secrets = SecretBox(); val name = "collection-fixture-${UUID.randomUUID()}"
+        val secrets = SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()); val name = "collection-fixture-${UUID.randomUUID()}"
         val family = FamilyStore(context, secrets, "$name-family")
         val library = FamilyLibrary(db, family); val store = MediaCollections(context, family, library, name)
         val transitions = java.util.Collections.synchronizedList(mutableListOf<Pair<String, List<MediaCollection>>>())

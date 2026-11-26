@@ -1,0 +1,4 @@
+#pragma once
+namespace mediavault {
+inline constexpr char trustRoots[] = R"MEDIAVAULT_CA(@MEDIAVAULT_TRUST_ROOTS@)MEDIAVAULT_CA";
+}

@@ -70,6 +70,10 @@ struct AlternativePlaybackDesignPreview: View {
                     .accessibilityIdentifier("fixture-alternative-ready")
                 Text(playback.playing ? "Playing" : "Paused").accessibilityIdentifier("fixture-alternative-state")
                 Text(String(format: "%.2f", playback.position)).accessibilityIdentifier("fixture-alternative-seconds")
+                let request = playback.fixtureSeekRequest
+                Text("Seek \(request?.sequence ?? 0)")
+                    .accessibilityLabel("\(request?.sequence ?? 0)|\(request?.target ?? -1)|\(request?.submitted ?? false)|\(playback.fixtureDecoderPosition)")
+                    .accessibilityIdentifier("fixture-alternative-seek-evidence")
             }.font(.caption2).foregroundStyle(.white).padding(6).background(.black.opacity(0.5))
         }
     }

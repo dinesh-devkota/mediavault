@@ -1,11 +1,11 @@
+import argparse
 import logging
 import shutil
-import sys
 from pathlib import Path
 
 from impacket import smbserver
 from impacket.ntlm import compute_lmhash, compute_nthash
-from media_library_fixture import library_fixtures, format_fixtures
+from media_library_fixture import add_vega_seek_controls, format_fixtures, library_fixtures
 
 
 MOVIE_SIZE = 60 * 1024 * 1024
@@ -53,10 +53,12 @@ def playback_fixtures(root: Path) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: nas_fixture.py <fixture directory>")
-
-    root = Path(sys.argv[1]).resolve()
+    parser = argparse.ArgumentParser(description="Serve the synthetic MediaVault test library over SMB.")
+    parser.add_argument("fixture_directory", type=Path)
+    parser.add_argument("--vega-seek-controls", action="store_true",
+                        help="Add the stream-copy MP4 beside the original MKV controls fixture.")
+    args = parser.parse_args()
+    root = args.fixture_directory.resolve()
     feature = root / "Movies" / "Feature (2020)"
     playable_movie(feature / "Feature (2020).mp4")
     (feature / "bytes.bin").write_bytes(b"0123456789")
@@ -99,6 +101,8 @@ def main() -> None:
     library_fixtures(library_root)
     formats_root = root.with_name(root.name + "-formats")
     format_fixtures(formats_root)
+    if args.vega_seek_controls:
+        add_vega_seek_controls(formats_root)
 
     logging.basicConfig(level=logging.INFO)
     server = smbserver.SimpleSMBServer(listenAddress="127.0.0.1", listenPort=1445)

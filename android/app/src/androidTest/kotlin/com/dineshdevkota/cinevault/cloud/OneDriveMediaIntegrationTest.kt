@@ -68,7 +68,7 @@ class OneDriveMediaIntegrationTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, CineVaultDatabase::class.java).build()
         val profilePreferences = "onedrive-fixture-$sourceId"
-        val secrets = SecretBox()
+        val secrets = SecretBox(context)
         val family = FamilyStore(context, secrets, profilePreferences)
         val library = FamilyLibrary(database, family)
         val photos = NasPhotoLoader(context, database, secrets, smb = smb, family = family)
@@ -176,7 +176,7 @@ class OneDriveMediaIntegrationTest {
         } finally {
             media.disconnect(sourceId, CLIENT_ID)
             photos.clearMemory()
-            context.deleteSharedPreferences(profilePreferences)
+            context.getSharedPreferences(profilePreferences, Context.MODE_PRIVATE).edit().clear().commit()
             database.close()
         }
     }

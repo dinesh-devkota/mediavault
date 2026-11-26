@@ -1,0 +1,133 @@
+/// <reference types="node" />
+/* global globalThis */
+import React from 'react';
+import {create, ReactTestRenderer} from 'react-test-renderer';
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {runInNewContext} from 'node:vm';
+import {JsxEmit, ModuleKind, ScriptTarget, transpileModule} from 'typescript';
+import {PlayerSession} from '../src/ui/PlayerSession';
+import {SubtitleSelection} from '../src/ui/PlaybackTracks';
+import {subtitleLanguageName} from '../src/domain/subtitles';
+
+// Run the actual component with React, replacing only the native view/decoder
+// boundary. Native focus acknowledgement remains a separate device assertion.
+test('loading controls gain preference only when enabled and raw media keys never duplicate SDK commands', async () => {
+  (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
+  jest.useFakeTimers();
+  const events = new Map<string, () => void>();
+  const english = {id: 'fixture-en', label: '', language: 'en', mode: 'showing'};
+  const spanish = {id: 'fixture-es', label: '', language: 'es', mode: 'hidden'};
+  const tracks = {0: english, 1: spanish, length: 2, addEventListener: () => {}, removeEventListener: () => {}};
+  let nativeClock = 0, delaySeek = false;
+  const nativeSeeks: number[] = [];
+  const video = {src: '',
+    get currentTime() { return nativeClock; },
+    set currentTime(position: number) { nativeSeeks.push(position); if (!delaySeek) { nativeClock = position; } },
+    duration: NaN, paused: false, seeking: false, ended: false, error: null,
+    defaultSeekIntervalInSec: 0, initialize: jest.fn(async () => {}), deinitialize: jest.fn(async () => {}),
+    play: jest.fn(async () => {}), pause: jest.fn(), setSurfaceHandle: jest.fn(), clearSurfaceHandle: jest.fn(),
+    setCaptionViewHandle: jest.fn(), clearCaptionViewHandle: jest.fn(),
+    textTracks: tracks, audioTracks: {length: 0},
+    addEventListener: (name: string, listener: () => void) => events.set(name, listener), removeEventListener: (name: string) => events.delete(name)};
+  let remote!: (event: {eventType: string; eventKeyAction: number}) => void;
+  let back: (() => boolean) | undefined;
+  const dependencies: Record<string, unknown> = {
+    react: React,
+    'react-native': {View: 'View', Text: 'Text', ScrollView: 'ScrollView', StyleSheet: {create: (value: unknown) => value, absoluteFill: {}},
+      AppState: {addEventListener: () => ({remove: () => {}})},
+      BackHandler: {addEventListener: (_event: string, listener: () => boolean) => {
+        back = listener; return {remove: () => { back = undefined; }};
+      }}},
+    '@amazon-devices/react-native-kepler': {useTVEventHandler: (listener: typeof remote) => { remote = listener; }},
+    '@amazon-devices/react-native-w3cmedia': {VideoPlayer: function () { return video; }, KeplerVideoSurfaceView: 'VideoSurface', KeplerCaptionsView: 'Captions'},
+    '../domain/subtitles': {subtitleLanguageName}, './Controls': {Action: 'Action', colors: {}, shared: {}}, './PlayerSession': {PlayerSession}, './PlaybackTracks': {SubtitleSelection},
+  };
+  const output: Record<string, any> = {};
+  runInNewContext(transpileModule(readFileSync(join(__dirname, '../src/ui/Player.tsx'), 'utf8'), {
+    compilerOptions: {target: ScriptTarget.ES2022, module: ModuleKind.CommonJS, jsx: JsxEmit.React, esModuleInterop: true},
+  }).outputText, {exports: output, require: (name: string) => dependencies[name] ?? {}, setTimeout, clearTimeout});
+  const onClose = jest.fn();
+  let tree!: ReactTestRenderer;
+  const action = (label: string) => tree.root.findAll(node => String(node.type) === 'Action' && node.props.label === label)[0]!;
+  try {
+    await React.act(async () => {
+      tree = create(React.createElement(output.Player, {
+        item: {id: 'synthetic', title: 'Fixture', fileName: 'Controls.mkv', kind: 'movie'},
+        load: async () => ({uri: 'http://127.0.0.1/fixture', mime: 'video/x-matroska'}), releaseResource: async () => {},
+        subtitles: async () => [], onProgress: () => {}, onClose, onNext: () => {}, autoNext: false, onAutoNext: () => {},
+      }));
+    });
+    expect(action('Pause').props.disabled).toBe(true); expect(action('Pause').props.preferred).toBe(false);
+    expect(action('Back').props.preferred).toBe(true);
+    await React.act(async () => { tree.root.find(node => String(node.type) === 'VideoSurface').props.onSurfaceViewCreated('surface'); });
+    expect(video.defaultSeekIntervalInSec).toBe(10);
+    await React.act(async () => { video.duration = 60; events.get('loadedmetadata')?.(); });
+    expect(action('Pause').props.disabled).toBe(false); expect(action('Pause').props.preferred).toBe(true);
+    expect(action('Back').props.preferred).toBe(false);
+    const plays = video.play.mock.calls.length, pauses = video.pause.mock.calls.length;
+    await React.act(async () => {
+      for (const eventType of ['playpause', 'forward', 'fastforward', 'skip_forward', 'rewind', 'skip_backward', 'stop']) {
+        remote({eventType, eventKeyAction: 0}); remote({eventType, eventKeyAction: 1});
+      }
+    });
+    expect(video.currentTime).toBe(0); expect(video.play).toHaveBeenCalledTimes(plays);
+    expect(video.pause).toHaveBeenCalledTimes(pauses); expect(onClose).not.toHaveBeenCalled();
+    await React.act(async () => { action('Forward 30 seconds').props.onPress(); });
+    expect(video.currentTime).toBe(30);
+    await React.act(async () => { action('Back 10 seconds').props.onPress(); });
+    expect(video.currentTime).toBe(20);
+
+    // The SDK emits seeked at the old position and may expose the new time
+    // while native still reports seeking. Both buttons wait for settlement.
+    delaySeek = true;
+    await React.act(async () => {
+      video.currentTime = 30; video.seeking = true; events.get('seeking')?.();
+    });
+    expect(action('Back 10 seconds').props.disabled).toBe(true);
+    expect(action('Forward 30 seconds').props.disabled).toBe(true);
+    await React.act(async () => {
+      video.seeking = false; events.get('seeked')?.();
+      action('Forward 30 seconds').props.onPress();
+    });
+    expect(nativeSeeks).toEqual([30, 20, 30]);
+    expect(action('Forward 30 seconds').props.disabled).toBe(true);
+    await React.act(async () => {
+      nativeClock = 30; video.seeking = true; await jest.advanceTimersByTimeAsync(250);
+    });
+    expect(action('Forward 30 seconds').props.disabled).toBe(true);
+    await React.act(async () => {
+      video.seeking = false; await jest.advanceTimersByTimeAsync(250);
+    });
+    expect(action('Forward 30 seconds').props.disabled).toBe(false);
+    expect(action('Back 10 seconds').props.disabled).toBe(false);
+    delaySeek = false;
+    await React.act(async () => { action('Forward 30 seconds').props.onPress(); });
+    expect(nativeSeeks).toEqual([30, 20, 30, 60]);
+    expect(video.currentTime).toBe(60);
+
+    await React.act(async () => { action('Pause').props.onPress(); });
+    expect(video.pause).toHaveBeenCalledTimes(pauses + 1);
+    expect(action('Spanish')).toBeUndefined();
+    await React.act(async () => { action('Subtitles · English').props.onPress(); });
+    expect(action('English').props.selected).toBe(true);
+    const chooseSpanish = action('Spanish').props.onPress as () => void;
+    // Reordered decoder notifications must not change the choice's track ID.
+    [tracks[0], tracks[1]] = [tracks[1], tracks[0]];
+    await React.act(async () => { chooseSpanish(); });
+    expect(spanish.mode).toBe('showing');
+    expect(english.mode).toBe('disabled');
+    expect(action('Subtitles · Spanish').props.preferred).toBe(true);
+    await React.act(async () => { action('Subtitles · Spanish').props.onPress(); });
+    await React.act(async () => { expect(back?.()).toBe(true); });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(spanish.mode).toBe('showing');
+    await React.act(async () => { action('Subtitles · Spanish').props.onPress(); });
+    await React.act(async () => { action('Off').props.onPress(); });
+    expect(spanish.mode).toBe('disabled');
+    expect(action('Subtitles · Off').props.preferred).toBe(true);
+  } finally {
+    await React.act(async () => { tree?.unmount(); });
+    jest.useRealTimers();
+  }
+});

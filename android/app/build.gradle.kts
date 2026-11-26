@@ -30,7 +30,7 @@ android {
 
     defaultConfig {
         applicationId = "com.dineshdevkota.cinevault"
-        minSdk = 26
+        minSdk = 22
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "NFS_DEVELOPMENT_ENABLED", "false")
@@ -88,6 +88,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -116,6 +117,10 @@ kotlin {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
+    // Already part of SMBJ's runtime; explicitly use its portable PBKDF2 on Fire OS 5/6.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.79")
     implementation(project(":core"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

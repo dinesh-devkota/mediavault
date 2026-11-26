@@ -24,6 +24,15 @@ final class AlternativePlayback: ObservableObject {
     @Published private(set) var ended = false
     @Published private(set) var failure: String?
     @Published private(set) var audioTracks: [Track] = []
+    #if DEBUG
+    struct FixtureSeekRequest {
+        let sequence: Int
+        let target: Double
+        var submitted = false
+    }
+    @Published private(set) var fixtureSeekRequest: FixtureSeekRequest?
+    var fixtureDecoderPosition: Double { Double(engine.time.intValue) / 1000 }
+    #endif
     private let relay: MediaByteRelay
     private var timer: Task<Void, Never>?
     private var parser: VLCMediaParser?
@@ -117,12 +126,18 @@ final class AlternativePlayback: ObservableObject {
     func seek(to seconds: Double) {
         guard ready, !stopped, seconds.isFinite else { return }
         let target = min(max(0, seconds), duration)
+        #if DEBUG
+        fixtureSeekRequest = FixtureSeekRequest(sequence: (fixtureSeekRequest?.sequence ?? 0) + 1, target: target)
+        #endif
         if !observedPlaying { engine.media?.addOption(":start-time=\(target)") }
         pendingSeek = target
         if engine.isSeekable { applySeek(target) }
     }
     private func applySeek(_ seconds: Double) {
         engine.time = VLCTime(number: NSNumber(value: seconds * 1000))
+        #if DEBUG
+        if fixtureSeekRequest?.target == seconds { fixtureSeekRequest?.submitted = true }
+        #endif
         position = seconds; pendingSeek = nil
     }
     func stop() {

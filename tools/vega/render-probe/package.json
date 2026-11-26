@@ -1,0 +1,33 @@
+{
+  "name": "@mediavault/vega-render-probe",
+  "version": "0.1.0",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:debug": "react-native build-vega --target x86_64 --build-type Debug --max-workers 4 --include-js-bundle true"
+  },
+  "dependencies": {
+    "@amazon-devices/react-native-kepler": "~4.0.0",
+    "react": "19.2.0",
+    "react-native": "0.83.0"
+  },
+  "devDependencies": {
+    "@amazon-devices/kepler-cli-platform": "0.22.14",
+    "@react-native-community/cli": "20.0.0",
+    "@react-native/babel-preset": "0.83.0",
+    "@react-native/metro-config": "0.83.0",
+    "@react-native/typescript-config": "0.83.0",
+    "@types/react": "19.3.3",
+    "typescript": "5.8.3"
+  },
+  "kepler": {
+    "projectType": "application",
+    "appName": "Vega Render Probe",
+    "targets": [
+      "tv"
+    ]
+  }
+}

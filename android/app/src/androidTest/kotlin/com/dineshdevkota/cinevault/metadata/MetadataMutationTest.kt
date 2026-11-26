@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 class MetadataMutationTest {
     private fun library(database: CineVaultDatabase) = com.dineshdevkota.cinevault.family.FamilyLibrary(database,
-        com.dineshdevkota.cinevault.family.FamilyStore(ApplicationProvider.getApplicationContext(), com.dineshdevkota.cinevault.data.SecretBox(), "isolated-editor-${java.util.UUID.randomUUID()}"))
+        com.dineshdevkota.cinevault.family.FamilyStore(ApplicationProvider.getApplicationContext(), com.dineshdevkota.cinevault.data.SecretBox(androidx.test.core.app.ApplicationProvider.getApplicationContext()), "isolated-editor-${java.util.UUID.randomUUID()}"))
     private lateinit var database: CineVaultDatabase
 
     @Before
