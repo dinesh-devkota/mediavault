@@ -243,3 +243,16 @@ signing, export-compliance confirmation, App Store Connect setup, and App Review
 are separate release steps.
 
 [Original iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)
+
+### Plex on Apple TV
+
+The isolated `codex/mediavault-plex-tvos` branch starts at development commit `942b1f2`.
+An owner can link using the code shown in Sources, choose an advertised Plex Media Server and choose one movie, TV, or photo library. Reconnect preserves the server and library identity. The source stores its server token in Keychain. Removing the source clears its local catalog and credential. Household profiles need an explicit whole-library grant and keep their local watched, resume and Watchlist records separate from the Plex account.
+
+The implementation supports protected Plex artwork, photo thumbnails, native MP4/M4V/MOV direct play with byte-range seeking, and matching external SRT or WebVTT tracks. A disposable HTTPS fixture covers Plex linking, discovery, catalog groups, paging, media ranges, restricted artwork, and caption playback. The branch also adds a remote navigation test for the owner's setup entry. Local cloud checks use Python transport tests and Swift source parsing. The Apple TV hosted jobs are the compile and runtime gate.
+
+Before shipping, validate a real Plex server and account against Apple TV hardware. Plex transcoding, Relay-only connections, and full-size original Plex photos are pending. Apple simulator and unsigned release checks require no distribution credentials. App Store submission and approval require the owner's separate Apple process.
+
+### Plex on iPhone
+
+The separate iPhone Plex branch reuses the Apple TV catalog, credential scope, photos, subtitles and range-backed player. The iPhone shows its own device name and uses touch source setup from Manage. The simulator CI starts disposable Plex services and requires both the shared import, playback, seek and subtitle tests and a touch test covering PIN linking, server selection, and library import. Live Plex accounts, signing and physical-device checks remain separate.

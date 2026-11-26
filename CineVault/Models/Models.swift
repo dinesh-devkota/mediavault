@@ -32,6 +32,7 @@ final class MediaSource {
 
     var isWebDAV: Bool { sourceProtocol == "webdav" }
     var isJellyfin: Bool { sourceProtocol == "jellyfin" }
+    var isPlex: Bool { sourceProtocol == "plex" }
     var cloudFileProvider: CloudFileProvider? { sourceProtocol.flatMap(CloudFileProvider.init(rawValue:)) }
     var caseSensitivePaths: Bool { isWebDAV || isJellyfin || cloudFileProvider != nil }
 
@@ -50,7 +51,7 @@ final class MediaSource {
         if cloudFileProvider == nil, !username.isEmpty { secret = try password() }
         return SourceConfig(id: id, host: host, port: port, share: share, rootPath: rootPath,
                             username: username, password: secret, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [],
-                            isWebDAV: isWebDAV, isJellyfin: isJellyfin, cloudFileProvider: cloudFileProvider)
+                            isWebDAV: isWebDAV, isJellyfin: isJellyfin, isPlex: isPlex, cloudFileProvider: cloudFileProvider)
     }
 
     func isIgnored(filePath: String) -> Bool {
@@ -100,15 +101,17 @@ struct SourceConfig: Sendable, Hashable {
     let ignoredFiles: [String]
     let isWebDAV: Bool
     let isJellyfin: Bool
+    let isPlex: Bool
     let cloudFileProvider: CloudFileProvider?
     var caseSensitivePaths: Bool { isWebDAV || isJellyfin || cloudFileProvider != nil }
 
     init(id: UUID, host: String, port: Int? = nil, share: String, rootPath: String,
          username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = [],
-         isWebDAV: Bool = false, isJellyfin: Bool = false, cloudFileProvider: CloudFileProvider? = nil) {
+         isWebDAV: Bool = false, isJellyfin: Bool = false, isPlex: Bool = false, cloudFileProvider: CloudFileProvider? = nil) {
         self.id = id; self.host = host; self.port = port; self.share = share; self.rootPath = rootPath
         self.username = username; self.password = password; self.ignoredFolders = ignoredFolders
         self.ignoredFiles = ignoredFiles; self.isWebDAV = isWebDAV; self.isJellyfin = isJellyfin
+        self.isPlex = isPlex
         self.cloudFileProvider = cloudFileProvider
     }
 
@@ -121,7 +124,7 @@ struct SourceConfig: Sendable, Hashable {
     }
 
     var serverURL: URL? {
-        isJellyfin || cloudFileProvider != nil ? nil : (try? NASAddress.parse(host, port: port))?.serverURL
+        (isJellyfin || isPlex || cloudFileProvider != nil) ? nil : (try? NASAddress.parse(host, port: port))?.serverURL
     }
 }
 
@@ -133,7 +136,7 @@ final class Movie {
     }
     var episodeInfo: EpisodeInfo? {
         guard !MediaFile.isAudio(path: filePath), !MediaFile.isPhoto(path: filePath) else { return nil }
-        let local = EpisodeParser.parse(path: filePath)
+        let local = source?.isPlex == true ? nil : EpisodeParser.parse(path: filePath)
         guard let name = seriesTitle ?? local?.seriesTitle, !name.isEmpty,
               let season = seasonNumber ?? local?.season, let episode = episodeNumber ?? local?.episode,
               (0...999).contains(season), (0...999).contains(episode) else { return nil }
@@ -142,7 +145,7 @@ final class Movie {
     }
     var seriesKey: String? {
         guard let info = episodeInfo else { return nil }
-        if let providerSeriesID, let source { return "jellyfin:\(source.id.uuidString):\(providerSeriesID)" }
+        if let providerSeriesID, let source { return "\(source.sourceProtocol ?? "jellyfin"):\(source.id.uuidString):\(providerSeriesID)" }
         if let seriesTMDBID { return "tmdb:\(seriesTMDBID)" }
         return "local:\(TitleMatcher.normalize(info.seriesTitle))|\(info.year.map(String.init) ?? "")"
     }
