@@ -2,6 +2,8 @@ package com.dineshdevkota.cinevault.smb
 
 import com.dineshdevkota.cinevault.cloud.CloudClientException
 import com.dineshdevkota.cinevault.cloud.ONEDRIVE
+import com.dineshdevkota.cinevault.cloud.DROPBOX
+import com.dineshdevkota.cinevault.cloud.DropboxMedia
 import com.dineshdevkota.cinevault.core.SubtitleSidecars
 import com.dineshdevkota.cinevault.core.RemoteFile
 import com.dineshdevkota.cinevault.core.VideoFile
@@ -47,9 +49,10 @@ data class SourceConfig(
     val sourceType: String = "smb",
     val allowInsecureHttp: Boolean = false,
 ) {
-    init { require(sourceType in setOf("smb", "webdav", ONEDRIVE)) { "Unsupported source type." } }
+    init { require(sourceType in setOf("smb", "webdav", ONEDRIVE, DROPBOX)) { "Unsupported source type." } }
     val isWebDav: Boolean get() = sourceType == "webdav"
     val caseSensitivePaths: Boolean get() = isWebDav || sourceType == ONEDRIVE
+    internal val isDropbox: Boolean get() = sourceType == DROPBOX
     override fun toString(): String = "SourceConfig(id=$id, host=${runCatching { NasAddress.parse(host, port).host }.getOrDefault("invalid")}, share=$share)"
 }
 
@@ -93,10 +96,12 @@ class SmbService(
 ) {
     private fun fileSource(config: SourceConfig): FileSourceTransport? {
         if (config.sourceType == "smb" || config.isWebDav) return null
+        if (config.isDropbox) return dropbox
         return fileSources[config.sourceType] ?: throw SmbException("This source is unavailable.")
     }
 
     private val webdav = com.dineshdevkota.cinevault.webdav.WebDavMedia()
+    private val dropbox = DropboxMedia()
 
     private class Connected(val connection: Connection, val session: Session, val share: DiskShare) {
         fun close() {
@@ -195,6 +200,7 @@ class SmbService(
         sessions.reset(sourceId)
         webdav.service.reset(sourceId)
         fileSources.values.forEach { it.reset(sourceId) }
+        dropbox.reset(sourceId)
     }
 
     suspend fun testConnection(config: SourceConfig) {
@@ -370,6 +376,15 @@ class SmbService(
         }
         SmbRemoteHandle(file, length, lease.retain())
     }
+
+    internal fun openDropbox(config: SourceConfig, path: String, authorize: () -> Unit): RemoteHandle =
+        dropbox.open(config, path, authorize)
+
+    internal suspend fun probeDropbox(config: SourceConfig, path: String, authorize: () -> Unit): Boolean =
+        dropbox.accepts(config, path, authorize)
+
+    internal suspend fun browseDropbox(config: SourceConfig, path: String, authorize: () -> Unit): List<NasEntry> =
+        dropbox.browse(config, path, authorize)
 
     companion object {
         /** Session-level failures where reconnecting can help; other NT statuses (not found, denied) are final. */

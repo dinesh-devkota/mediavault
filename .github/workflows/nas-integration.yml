@@ -61,7 +61,7 @@ jobs:
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
-      - name: Test against local SMB, WebDAV, Jellyfin, and Plex fixtures
+      - name: Test against local SMB, WebDAV, Jellyfin, Plex, and Dropbox fixtures
         env:
           UI_ONLY: ${{ inputs.ui_only || false }}
         run: |
@@ -79,6 +79,9 @@ jobs:
           bash scripts/start_plex_fixture.sh "$RUNNER_TEMP/plex-fixture"
           PLEX_PID=$(cat "$RUNNER_TEMP/plex-fixture/server.pid")
           trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$PLEX_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_dropbox_fixture.sh "$RUNNER_TEMP/dropbox-fixture"
+          DROPBOX_PID=$(cat "$RUNNER_TEMP/dropbox-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$PLEX_PID" "$DROPBOX_PID" 2>/dev/null || true' EXIT
           for attempt in {1..30}; do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               cat "$RUNNER_TEMP/nas-fixture.log" >&2
@@ -98,6 +101,7 @@ jobs:
           # Install the ephemeral fixture's trust anchor only on this simulator.
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/plex-fixture/fixture.cer"
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/dropbox-fixture/fixture.cer"
           # Bash 3.2 treats an empty array as unset under nounset. Keep the full
           # invocation nonempty, then append the optional focused-test filters.
           TEST_ARGS=(-project CineVault.xcodeproj -scheme CineVault
@@ -108,7 +112,11 @@ jobs:
           if [[ "$UI_ONLY" == "true" ]]; then
             TEST_ARGS+=(-only-testing:CineVaultUITests -only-testing:CineVaultTests/HomeCollectionTests)
           fi
-          xcodebuild "${TEST_ARGS[@]}" test-without-building | tail -n 200
+          xcodebuild "${TEST_ARGS[@]}" test-without-building | tee "$RUNNER_TEMP/tvos-test-output.log" | tail -n 200
+          if [[ "$UI_ONLY" != "true" ]]; then
+            grep -F "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek]' passed" "$RUNNER_TEMP/tvos-test-output.log"
+            grep -F "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot]' passed" "$RUNNER_TEMP/tvos-test-output.log"
+          fi
       - name: Report simulator test results
         if: always()
         env:
@@ -152,6 +160,8 @@ jobs:
             ${{ runner.temp }}/jellyfin-fixture/server.log
             ${{ runner.temp }}/webdav-fixture/server.log
             ${{ runner.temp }}/plex-fixture/server.log
+            ${{ runner.temp }}/dropbox-fixture/server.log
+            ${{ runner.temp }}/tvos-test-output.log
             ${{ runner.temp }}/nas-results.xcresult
           if-no-files-found: warn
           retention-days: 7

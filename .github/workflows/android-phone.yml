@@ -7,6 +7,9 @@ on:
       - ".github/workflows/android-phone.yml"
       - "scripts/test_android_phone.sh"
       - "scripts/nas_fixture.py"
+      - "scripts/dropbox_fixture.py"
+      - "scripts/start_dropbox_fixture.sh"
+      - "scripts/webdav_fixture.py"
       - "scripts/nas-test-requirements.txt"
       - "scripts/start_plex_fixture.sh"
       - "scripts/plex_fixture.py"
@@ -17,6 +20,9 @@ on:
       - ".github/workflows/android-phone.yml"
       - "scripts/test_android_phone.sh"
       - "scripts/nas_fixture.py"
+      - "scripts/dropbox_fixture.py"
+      - "scripts/start_dropbox_fixture.sh"
+      - "scripts/webdav_fixture.py"
       - "scripts/nas-test-requirements.txt"
       - "scripts/start_plex_fixture.sh"
       - "scripts/plex_fixture.py"
@@ -88,6 +94,7 @@ jobs:
             android/app/build/outputs/androidTest-results/
             android/app/build/reports/androidTests/
             ${{ runner.temp }}/phone-plex/server.log
+            ${{ runner.temp }}/android-phone-dropbox/server.log
           if-no-files-found: warn
       - name: Stop synthetic SMB and Plex fixtures
         if: always()

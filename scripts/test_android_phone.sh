@@ -12,13 +12,22 @@ if [[ -z "$SERIAL" || "$SERIAL" == *$'\n'* || "$(adb -s "$SERIAL" shell getprop 
   exit 1
 fi
 export ANDROID_SERIAL="$SERIAL"
+DROPBOX_FIXTURE="${RUNNER_TEMP:?}/android-phone-dropbox"
+bash scripts/start_dropbox_fixture.sh "$DROPBOX_FIXTURE"
+DROPBOX_PID=$(cat "$DROPBOX_FIXTURE/server.pid")
+trap 'kill "$DROPBOX_PID" 2>/dev/null || true' EXIT
+DROPBOX_CERTIFICATE=$(openssl base64 -A -in "$DROPBOX_FIXTURE/fixture.cer")
+APP_ID="com.dineshdevkota.cinevault"
+PHONE_TEST="$APP_ID.AndroidPhoneNavigationTest"
+PLEX_CASES="$APP_ID.plex.PlexTlsIntegrationTest"
+DROPBOX_MEDIA="$APP_ID.playback.SmbPlaybackTest#dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate"
 PLEX_CERTIFICATE=$(base64 -w0 "$RUNNER_TEMP/phone-plex/fixture.cer")
-APP_ID=com.dineshdevkota.cinevault
-CLASSES="$APP_ID.AndroidPhoneNavigationTest,$APP_ID.plex.PlexTlsIntegrationTest,$APP_ID.cloud.OneDriveSetupNavigationTest,$APP_ID.cloud.OneDriveMediaIntegrationTest,$APP_ID.cloud.OneDriveAccountStoreInstrumentedTest"
+CLASSES="$PHONE_TEST,$PLEX_CASES,$DROPBOX_MEDIA,$APP_ID.cloud.OneDriveSetupNavigationTest,$APP_ID.cloud.OneDriveMediaIntegrationTest,$APP_ID.cloud.OneDriveAccountStoreInstrumentedTest"
 cd android
 status=0
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
   "-Pandroid.testInstrumentationRunnerArguments.class=$CLASSES" \
+  "-Pandroid.testInstrumentationRunnerArguments.dropboxCertificate=$DROPBOX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   "-Pandroid.testInstrumentationRunnerArguments.plexCertificate=$PLEX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.phoneUiFixture=true || status=$?
@@ -37,6 +46,7 @@ expected = {
     "ownerCanOpenOneDriveSetupAndRecoverFromInvalidPublicApplicationId",
     "stagedSignInImportsSelectedFolderAndPlaysWithBoundedReadsAndCaptions",
     "refreshRecordIsEncryptedOnDiskAndRemovable",
+    "dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate",
 }
 failures = 0
 for case in cases:

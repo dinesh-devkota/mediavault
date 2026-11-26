@@ -337,8 +337,12 @@ private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> U
         try {
             container.family.requireAdmin()
             val config = withContext(Dispatchers.IO) { source.config(container.secrets) }
-            folders = if (source.sourceType == ONEDRIVE) container.oneDrive.childFolders(config, path)
-                else NasBrowser().listFolders(config.copy(rootPath = path))
+            folders = when {
+                source.sourceType == ONEDRIVE -> container.oneDrive.childFolders(config, path)
+                config.isDropbox -> container.smb.browseDropbox(config, path, container.family::requireAdmin)
+                    .filter { it.isDirectory }.map { it.name }
+                else -> NasBrowser().listFolders(config.copy(rootPath = path))
+            }
             container.family.requireAdmin(); ready = true
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { error = SmbService.describe(failure) }
