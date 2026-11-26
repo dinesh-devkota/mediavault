@@ -66,6 +66,8 @@ import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.plex.PLEX
+import com.dineshdevkota.cinevault.plex.plexItemId
 import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.jellyfin.jellyfinItemID
 import kotlinx.coroutines.CancellationException
@@ -120,7 +122,7 @@ internal fun MediaArtwork(
     seasonArtwork: Boolean = false,
 ) {
     val localPath = if (kind == JellyfinImage.Backdrop) movie.localBackdropPath ?: movie.localPosterPath else if (seasonArtwork) movie.localSeasonPosterPath ?: movie.localPosterPath else movie.localPosterPath
-    if ((jellyfinItemID(movie.filePath) == null && localPath == null) || movie.isHidden || movie.isMissing) {
+    if ((jellyfinItemID(movie.filePath) == null && plexItemId(movie.filePath) == null && localPath == null) || movie.isHidden || movie.isMissing) {
         Artwork(url, title, modifier)
         return
     }
@@ -129,7 +131,7 @@ internal fun MediaArtwork(
         .collectAsStateWithLifecycle(null)
     val session by container.family.session.collectAsStateWithLifecycle()
     val activeSource = source
-    if (activeSource == null || (activeSource.sourceType != JELLYFIN && localPath == null)) {
+    if (activeSource == null || (activeSource.sourceType !in setOf(JELLYFIN, PLEX) && localPath == null)) {
         Artwork(url, title, modifier)
         return
     }

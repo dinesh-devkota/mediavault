@@ -248,7 +248,7 @@ final class MetadataService {
         if !local.contains("tagline") { movie.tagline = nil }
         if !local.contains("runtime") { movie.runtimeMinutes = episode?.runtime ?? details.episodeRunTime?.first { $0 > 0 } }
         movie.rating = episode?.voteAverage ?? details.voteAverage
-        if !local.contains("certification") {
+        if !local.contains("certification"), movie.source?.isPlex != true {
             movie.usContentRating = details.contentRatings?.usContentRating
             movie.usContentRatingFetched = details.contentRatings != nil
         }
@@ -280,7 +280,7 @@ final class MetadataService {
                 if !movie.isLocked { movie.setTitle(movie.parsedTitle); movie.year = info.year }
             }
             movie.tmdbID = nil
-            if movie.localMetadataFields?.contains("certification") != true {
+            if movie.localMetadataFields?.contains("certification") != true, movie.source?.isPlex != true {
                 movie.usContentRating = nil
                 movie.usContentRatingFetched = nil
             }
@@ -325,7 +325,7 @@ final class MetadataService {
         if !local.contains("tagline") { movie.tagline = details.tagline }
         if !local.contains("runtime") { movie.runtimeMinutes = details.runtime }
         movie.rating = details.voteAverage
-        if !local.contains("certification") {
+        if !local.contains("certification"), movie.source?.isPlex != true {
             movie.usContentRating = details.releaseDates?.usContentRating
             movie.usContentRatingFetched = details.releaseDates != nil
         }
@@ -362,7 +362,7 @@ final class MetadataService {
         if let best = TitleMatcher.bestMatch(title: title, year: year, in: results) {
             _ = try await apply(tmdbID: best.id, to: movie, force: false, token: token, reference: reference)
         } else {
-            if movie.localMetadataFields?.contains("certification") != true {
+            if movie.localMetadataFields?.contains("certification") != true, movie.source?.isPlex != true {
                 movie.usContentRating = nil
                 movie.usContentRatingFetched = nil
             }
@@ -374,7 +374,7 @@ final class MetadataService {
     /// upgrading a library must not replace a user's title, artwork or progress.
     func fetchUSContentRating(for movie: Movie) async throws {
         guard movie.localMetadataFields?.contains("certification") != true else { return }
-        guard !movie.isDeleted, !movie.isMissing, try hasKey,
+        guard !movie.isDeleted, !movie.isMissing, movie.source?.isPlex != true, try hasKey,
               !MediaFile.isAudio(path: movie.filePath), !MediaFile.isPhoto(path: movie.filePath) else { return }
         let reference = MovieReference(movie)
         guard reference.isAvailable(movie), let token = beginRequest(for: reference, manual: false) else { return }

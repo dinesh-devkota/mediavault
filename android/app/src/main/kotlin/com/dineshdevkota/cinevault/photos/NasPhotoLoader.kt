@@ -22,6 +22,10 @@ import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.jellyfin.jellyfinConnection
 import com.dineshdevkota.cinevault.jellyfin.jellyfinItemID
 import com.dineshdevkota.cinevault.jellyfin.jellyfinPhotoID
+import com.dineshdevkota.cinevault.plex.PLEX
+import com.dineshdevkota.cinevault.plex.authorizedItem
+import com.dineshdevkota.cinevault.plex.plexClient
+import com.dineshdevkota.cinevault.plex.plexItemId
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.hierynomus.security.bc.BCSecurityProvider
@@ -74,15 +78,17 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             val photo = database.movies().get(photoId) ?: throw PhotoLoadException("This photo is no longer in the library.")
             check(family.isCurrent(session) && family.permits(photo)) { "This photo is unavailable for this profile." }
             val source = database.sources().get(photo.sourceId) ?: throw PhotoLoadException("This image's source was removed.")
-            val providerItem = if (source.sourceType == JELLYFIN) {
-                if (artwork == null) jellyfinPhotoID(photo.filePath) else jellyfinItemID(photo.filePath)
-            } else null
-            val localArtwork = if (source.sourceType != JELLYFIN && artwork != null) when (artwork) {
+            val providerItem = when (source.sourceType) {
+                JELLYFIN -> if (artwork == null) jellyfinPhotoID(photo.filePath) else jellyfinItemID(photo.filePath)
+                PLEX -> plexItemId(photo.filePath).takeIf { artwork != null || photo.isPhoto }
+                else -> null
+            }
+            val localArtwork = if (source.sourceType !in setOf(JELLYFIN, PLEX) && artwork != null) when (artwork) {
                 JellyfinImage.Backdrop -> photo.localBackdropPath ?: photo.localPosterPath
                 else -> if (season) photo.localSeasonPosterPath ?: photo.localPosterPath else photo.localPosterPath
             } else null
             val remotePath = localArtwork ?: photo.filePath
-            val config = source.takeIf { it.sourceType != JELLYFIN && (artwork == null || localArtwork != null) }?.config(secrets)
+            val config = source.takeIf { it.sourceType !in setOf(JELLYFIN, PLEX) && (artwork == null || localArtwork != null) }?.config(secrets)
             fun validateItem(item: MovieEntity) {
                 if (config != null && localArtwork != null) {
                     if (item.isMissing || item.isHidden || !source.includesFile(item.filePath) || !source.includesFile(localArtwork) ||
@@ -106,6 +112,14 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             var decoded: Bitmap? = null
             try {
                 val loadContext = currentCoroutineContext()
+                val plexImage = if (source.sourceType == PLEX) {
+                    authorize(photo)
+                    val client = source.plexClient(secrets)
+                    val allowed = client.authorizedItem(photo, source.share, ::authorize)
+                    client.image(allowed.item, artwork != null && artwork != JellyfinImage.Primary) {
+                        authorize(photo.copy(ageCertification = allowed.rating))
+                    }
+                } else null
                 runInterruptible {
                     authorize(photo)
                     fun copy(input: InputStream, length: Long) {
@@ -125,7 +139,9 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                             }
                         }
                     }
-                    if (providerItem != null) {
+                    if (plexImage != null) {
+                        plexImage.inputStream().use { copy(it, plexImage.size.toLong()) }
+                    } else if (providerItem != null) {
                         val connection = source.jellyfinConnection(secrets, fixtureHttp)
                         connection.client.openImage(connection.session, providerItem, artwork ?: JellyfinImage.Primary, edge).use { response ->
                             authorize(photo)

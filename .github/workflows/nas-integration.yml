@@ -71,7 +71,7 @@ jobs:
       - name: Report compiler errors
         if: failure()
         run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/tvos-build.log" || true
-      - name: Test against local SMB, WebDAV, and Jellyfin fixtures
+      - name: Test against local SMB, WebDAV, Jellyfin, and Plex fixtures
         env:
           UI_ONLY: ${{ inputs.ui_only || false }}
         run: |
@@ -86,6 +86,9 @@ jobs:
           bash scripts/start_jellyfin_tvos_fixture.sh "$RUNNER_TEMP/jellyfin-fixture"
           JELLYFIN_PID=$(cat "$RUNNER_TEMP/jellyfin-fixture/server.pid")
           trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_plex_fixture.sh "$RUNNER_TEMP/plex-fixture"
+          PLEX_PID=$(cat "$RUNNER_TEMP/plex-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$PLEX_PID" 2>/dev/null || true' EXIT
           for attempt in {1..30}; do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               cat "$RUNNER_TEMP/nas-fixture.log" >&2
@@ -104,6 +107,7 @@ jobs:
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/jellyfin-fixture/fixture.cer"
           # Install the ephemeral fixture's trust anchor only on this simulator.
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/plex-fixture/fixture.cer"
           # Bash 3.2 treats an empty array as unset under nounset. Keep the full
           # invocation nonempty, then append the optional focused-test filters.
           TEST_ARGS=(-project CineVault.xcodeproj -scheme CineVault
@@ -127,8 +131,12 @@ jobs:
             exit 1
           fi
           xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/nas-results.xcresult" > "$RUNNER_TEMP/nas-summary.json"
-          python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json"
           xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/nas-results.xcresult" > "$RUNNER_TEMP/nas-tests.json"
+          if [[ "$UI_ONLY" == "true" ]]; then
+            python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json"
+          else
+            python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json" --require-suite "$RUNNER_TEMP/nas-tests.json" PlexFixtureTests
+          fi
           python3 - "$RUNNER_TEMP/nas-tests.json" <<'PY'
           import json, os, sys
           def passed(nodes):
@@ -174,6 +182,7 @@ jobs:
             ${{ runner.temp }}/tvos-tests.log
             ${{ runner.temp }}/jellyfin-fixture/server.log
             ${{ runner.temp }}/webdav-fixture/server.log
+            ${{ runner.temp }}/plex-fixture/server.log
             ${{ runner.temp }}/nas-results.xcresult
           if-no-files-found: warn
           retention-days: 7
