@@ -461,7 +461,15 @@ seek but sampled one unreadable Appium clock before the next command. The
 updated draft `5d2afd2` fixes the Android test and lets the existing bounded
 confirmation poll again before requiring the real native event and clock.
 Production and instrumentation Kotlin compile and 31 Node contracts passed
-locally. Exact hosted branch checks remain separate. No release job is authorized.
+locally. The tested Android paths then passed all 66 Fire OS compatibility
+cases across APIs 22, 25, and 28 in `45799865922`. The broader Android TV
+runtime job was retried separately after Maven Central returned HTTP 429.
+The exact Vega rerun verified MP4 and MKV playback controls before
+Appium's Silverstone Done query timed out. Draft `5e798c0` moves that
+confirmation query to the pinned driver's read-only loopback RPC and still
+requires the original keyboard window to be explicitly hidden and a
+successful scoped result with no Done control. Thirty-two local harness
+contracts pass. Exact merged-base hosted checks remain separate. No release job is authorized.
 
 Dropbox PR #30 merged into development at `312b9ade` after all exact synthetic
 checks passed. OneDrive iPhone PR #24 merged into the iPhone feature parent at

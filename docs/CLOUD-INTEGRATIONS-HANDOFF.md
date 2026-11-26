@@ -266,6 +266,10 @@ which reached the secure-storage error screen when built unsigned.
 The reliability draft keeps the real Film-and-Play check, moves the full
 Apple TV development fixture job to the supported macOS runner, and shares
 one ad hoc signed preview and OCR script between both preview workflows.
+The first draft passed all 245 iPhone and 256 Apple TV simulator cases.
+Its real signed preview passed Home and Detail, then exposed unreadable
+Apple TV filter labels. Current draft `1d050fb` fixes the affected label
+contrast and waits on the hosted screenshot and simulator checks.
 [Apple simulator reliability #31](https://github.com/dinesh-devkota/mediavault/pull/31)
 
 ## tvOS submission readiness
