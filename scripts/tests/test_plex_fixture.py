@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import socket
 import ssl
 import sys
 import tempfile
@@ -12,16 +13,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from plex_fixture import ACCOUNT_TOKEN, SERVER_ID, SERVER_TOKEN, FixtureServer, certificate
 
 
+class ObservedFixtureServer(FixtureServer):
+    def __init__(self, *args, **kwargs):
+        self.accepting = threading.Event()
+        super().__init__(*args, **kwargs)
+
+    def get_request(self):
+        self.accepting.set()
+        return super().get_request()
+
+
 class PlexFixtureTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         directory = cls.enterClassContext(tempfile.TemporaryDirectory(prefix="mediavault-plex-test-"))
         cert, key = certificate(Path(directory))
-        cls.server = FixtureServer(0, "127.0.0.1")
-        cls.addClassCleanup(cls.server.server_close)
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls.load_cert_chain(cert, key)
-        cls.server.socket = tls.wrap_socket(cls.server.socket, server_side=True)
+        cls.server = ObservedFixtureServer(0, "127.0.0.1", ssl_context=tls)
+        cls.addClassCleanup(cls.server.server_close)
         worker = threading.Thread(target=cls.server.serve_forever)
         worker.start()
         cls.addClassCleanup(worker.join)
@@ -51,6 +61,14 @@ class PlexFixtureTest(unittest.TestCase):
             client.open(self.origin + "/health", timeout=5)
         self.assertIsInstance(error.exception.reason, ssl.SSLCertVerificationError)
         self.assertEqual(self.request("/health")[2], b"ready")
+
+    def test_idle_tcp_peer_does_not_block_device_link(self):
+        self.server.accepting.clear()
+        with socket.create_connection(self.server.server_address, timeout=2):
+            self.assertTrue(self.server.accepting.wait(2), "Listener never reached the idle connection")
+            status, _, body = self.request("/api/v2/pins?strong=false", method="POST", device="idle-peer-test")
+            self.assertEqual(status, 201)
+            self.assertIn("id", json.loads(body))
 
     def test_device_link_pending_then_discovery_and_separate_tokens(self):
         status, _, body = self.request("/api/v2/pins?strong=false", method="POST")

@@ -347,3 +347,22 @@ Google documentation
 [Android Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files)
 · [Limited-input device OAuth](https://developers.google.com/identity/protocols/oauth2/limited-input-device)
 · [Google Drive authorization scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
+
+## Google Drive through Files on iPhone
+
+The iPhone branch uses Apple’s document picker. In Files, enable Google Drive
+under Locations and sign in with the Google Drive app. In MediaVault, use
+Sources → Add NAS → Connect Google Drive via Files. Select a folder if the
+Files provider offers it, or explicitly select media and matching SRT/VTT
+sidecars. Individual file selections appear in one library and need distinct
+names. The underlying Files provider handles downloading or caching a remote
+item before MediaVault reads and seeks within it.
+
+MediaVault keeps only the chosen security-scoped bookmarks in the local
+Keychain. It uses coordinated read-only file access, existing household grants,
+and the existing media scanner, Photos, and range player. Choose the original
+selection to reconnect or disconnect in Sources to remove the bookmarks and
+library. Live Google account/provider behavior requires the installed Drive
+app on an iPhone. The hosted simulator has an isolated local file fixture for
+the folder, protected reads, captions, and playback seek, alongside the
+owner-visible setup UI test. This Files integration is iPhone-only.

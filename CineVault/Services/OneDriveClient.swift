@@ -94,6 +94,12 @@ struct OneDriveClient: Sendable {
     init(clientID: String, session: URLSession? = nil) throws {
         guard let id = UUID(uuidString: clientID) else { throw OneDriveError.invalidClient }
         self.clientID = id.uuidString.lowercased()
+        #if DEBUG && os(iOS) && targetEnvironment(simulator)
+        if session == nil && ProcessInfo.processInfo.arguments.contains("--ui-test-onedrive") {
+            self.session = OneDrivePhoneFixtureProtocol.session
+            return
+        }
+        #endif
         self.session = session ?? Self.defaultSession
     }
 
@@ -318,3 +324,59 @@ struct OneDriveClient: Sendable {
         return (data, http.statusCode)
     }
 }
+
+#if DEBUG && os(iOS) && targetEnvironment(simulator)
+/// Routes the real device-code and Graph requests to the hosted test's loopback HTTPS server.
+final class OneDrivePhoneFixtureProtocol: URLProtocol {
+    static let clientID = "15cf518d-e2a1-46b0-b260-34bb4dd6c758"
+    static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [OneDrivePhoneFixtureProtocol.self]
+        return URLSession(configuration: config)
+    }()
+    private static let loopback: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.urlCredentialStorage = nil
+        config.urlCache = nil
+        config.timeoutIntervalForRequest = 10
+        return URLSession(configuration: config, delegate: OneDriveRedirectDelegate(), delegateQueue: nil)
+    }()
+    private var loopbackTask: URLSessionDataTask?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let original = request.url, var url = URLComponents(url: original, resolvingAgainstBaseURL: false),
+              url.scheme == "https", url.user == nil, url.password == nil, url.port == nil, url.fragment == nil,
+              let prefix = ["login.microsoftonline.com": "auth", "graph.microsoft.com": "graph",
+                            "download.onedrive.invalid": "download"][url.host ?? ""] else {
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+            return
+        }
+        url.host = "127.0.0.1"
+        url.port = 18897
+        url.percentEncodedPath = "/" + prefix + url.percentEncodedPath
+        var local = request
+        local.url = url.url
+        loopbackTask = Self.loopback.dataTask(with: local) { [weak self] data, response, error in
+            guard let self else { return }
+            if let error {
+                if (error as? URLError)?.code != .cancelled {
+                    client?.urlProtocol(self, didFailWithError: error)
+                }
+            } else if let data, let response {
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: data)
+                client?.urlProtocolDidFinishLoading(self)
+            } else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            }
+        }
+        loopbackTask?.resume()
+    }
+
+    override func stopLoading() { loopbackTask?.cancel() }
+}
+#endif

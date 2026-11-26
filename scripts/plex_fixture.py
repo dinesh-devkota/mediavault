@@ -1,7 +1,7 @@
 """Disposable Plex account and Media Server HTTPS fixture for simulator tests."""
 
 import argparse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import itertools
 import json
 from pathlib import Path
@@ -10,6 +10,8 @@ import ssl
 import subprocess
 import threading
 from urllib.parse import parse_qs, urlsplit
+
+from webdav_fixture import TLSFixtureServer
 
 
 PORT = 18777
@@ -69,9 +71,11 @@ def catalog():
     }, {item["ratingKey"]: item for item in [movie, second_movie, show, season, episode, photo]}
 
 
-class FixtureServer(ThreadingHTTPServer):
-    def __init__(self, port, advertised_host):
-        super().__init__(("127.0.0.1", port), Handler)
+class FixtureServer(TLSFixtureServer):
+    handshake_log_tag = "plex-tls"
+
+    def __init__(self, port, advertised_host, *, ssl_context):
+        super().__init__(("127.0.0.1", port), Handler, ssl_context=ssl_context)
         self.origin = f"https://{advertised_host}:{self.server_address[1]}"
         self.pages, self.items = catalog()
         self.pins = {}
@@ -98,7 +102,10 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def send_json(self, value, status=200):
-        self.send_body(status, json.dumps(value).encode("utf-8"), [("Content-Type", "application/json")])
+        self.send_body(status, json.dumps(value).encode("utf-8"), [
+            ("Content-Type", "application/json"),
+            ("Cache-Control", "no-store"),
+        ])
 
     def do_POST(self):
         parts = urlsplit(self.path)
@@ -115,7 +122,8 @@ class Handler(BaseHTTPRequestHandler):
             pin_id = next(self.server.pin_ids)
             code = f"{pin_id % 10000:04d}"
             self.server.pins[pin_id] = (device, code, False)
-        self.send_json({"id": pin_id, "code": code, "expiresIn": 60}, status=201)
+        print("Plex fixture created a link code.", flush=True)
+        self.send_json({"id": pin_id, "code": code, "expiresIn": 300}, status=201)
 
     def do_GET(self):
         parts = urlsplit(self.path)
@@ -142,6 +150,7 @@ class Handler(BaseHTTPRequestHandler):
             if credential != ACCOUNT_TOKEN or query.get("includeHttps") != ["1"]:
                 self.send_body(401)
                 return
+            print("Plex fixture returned its advertised server.", flush=True)
             self.send_json([{
                 "name": "Fixture Plex", "clientIdentifier": SERVER_ID, "provides": "server",
                 "accessToken": SERVER_TOKEN,
@@ -160,6 +169,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 entry = None
         if entry:
+            print("Plex fixture returned an approved link." if entry[2]
+                  else "Plex fixture returned a pending link.", flush=True)
             self.send_json({"authToken": ACCOUNT_TOKEN if entry[2] else None})
         else:
             self.send_body(404)
@@ -274,10 +285,9 @@ def main():
     parser.add_argument("--port", type=int, default=PORT)
     args = parser.parse_args()
     cert, key = certificate(args.directory)
-    with FixtureServer(args.port, args.advertised_host) as server:
-        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        tls.load_cert_chain(cert, key)
-        server.socket = tls.wrap_socket(server.socket, server_side=True)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert, key)
+    with FixtureServer(args.port, args.advertised_host, ssl_context=tls) as server:
         server.serve_forever()
 
 

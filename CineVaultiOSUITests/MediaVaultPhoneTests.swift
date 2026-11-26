@@ -98,8 +98,11 @@ final class MediaVaultPhoneTests: XCTestCase {
         let connectedOrFailed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             savedSource.exists || connectionMessage.exists
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [connectedOrFailed], timeout: 25), .completed,
-                       "The source connection did not complete or report an error.")
+        guard XCTWaiter.wait(for: [connectedOrFailed], timeout: 25) == .completed else {
+            capture("WebDAV did not report a connection result", app)
+            XCTFail("The source connection did not complete or report an error.")
+            return
+        }
         if connectionMessage.exists {
             capture("WebDAV connection failed before saving", app)
             XCTFail("WebDAV connection failed before saving: \(connectionMessage.label)")
@@ -215,11 +218,239 @@ final class MediaVaultPhoneTests: XCTestCase {
         capture("Imported WebDAV movie opens its playback details", app)
     }
 
+    @MainActor
+    func testLinkPlexAndImportLibraryFromSources() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test-empty-library", "--ui-test-plex-fixture"]
+        app.launch()
+
+        let manage = app.tabBars.buttons["Manage"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 15))
+        manage.tap()
+        let sources = app.buttons["manage-media-sources"]
+        XCTAssertTrue(sources.waitForExistence(timeout: 10))
+        sources.tap()
+        let plex = app.buttons["source-add-plex"]
+        XCTAssertTrue(plex.waitForExistence(timeout: 10))
+        plex.tap()
+        let link = app.buttons["plex-link-start"]
+        XCTAssertTrue(link.waitForExistence(timeout: 10))
+        link.tap()
+        XCTAssertTrue(app.staticTexts["plex-link-code"].waitForExistence(timeout: 20), app.debugDescription)
+
+        let server = app.buttons["Fixture Plex"]
+        XCTAssertTrue(server.waitForExistence(timeout: 45), "Expected Plex fixture approval and discovery. \(app.debugDescription)")
+        server.tap()
+        let section = app.buttons["Fixture Movies"]
+        XCTAssertTrue(section.waitForExistence(timeout: 30), app.debugDescription)
+        section.tap()
+
+        let scan = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "2 items · Scanned ")).firstMatch
+        XCTAssertTrue(scan.waitForExistence(timeout: 25), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Fixture Movies"].exists)
+        XCTAssertTrue(app.navigationBars["Sources"].waitForExistence(timeout: 10))
+        selectLibraryAfterFixtureImport(app)
+        let poster = app.buttons["Fixture Movie"]
+        XCTAssertTrue(poster.waitForExistence(timeout: 10), app.debugDescription)
+        for _ in 0..<3 where !poster.isHittable { app.swipeUp() }
+        XCTAssertTrue(poster.isHittable, app.debugDescription)
+        poster.tap()
+        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
+    func testConnectOneDriveDeviceCodeAndImportSelectedFolder() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test-empty-library", "--ui-test-onedrive"]
+        app.launch()
+
+        let manage = app.tabBars.buttons["Manage"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 15))
+        manage.tap()
+        app.buttons["manage-media-sources"].tap()
+        app.buttons["Add NAS"].tap()
+        let connect = app.buttons["add-onedrive-source"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10), app.debugDescription)
+        connect.tap()
+        let registration = app.textFields["onedrive-client"]
+        XCTAssertTrue(registration.waitForExistence(timeout: 10))
+        registration.tap()
+        let clientID = "15cf518d-e2a1-46b0-b260-34bb4dd6c758"
+        registration.typeText(clientID)
+        let valid = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", clientID), object: registration)
+        XCTAssertEqual(XCTWaiter.wait(for: [valid], timeout: 5), .completed)
+        let signIn = app.buttons["onedrive-sign-in"]
+        XCTAssertTrue(signIn.isEnabled)
+        if !signIn.isHittable { app.swipeUp() }
+        XCTAssertTrue(signIn.isHittable)
+        signIn.tap()
+
+        let code = app.staticTexts["onedrive-user-code"]
+        XCTAssertTrue(code.waitForExistence(timeout: 12), app.debugDescription)
+        XCTAssertEqual(code.label, "OD-PHONE")
+        let movies = app.buttons["Open Movies"]
+        XCTAssertTrue(movies.waitForExistence(timeout: 25), app.debugDescription)
+        movies.tap()
+        XCTAssertTrue(app.staticTexts["Movies"].waitForExistence(timeout: 10))
+        let save = app.buttons["onedrive-use-folder"]
+        XCTAssertTrue(save.isHittable, app.debugDescription)
+        save.tap()
+
+        let scan = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "1 item · Scanned ")).firstMatch
+        XCTAssertTrue(scan.waitForExistence(timeout: 25), app.debugDescription)
+        XCTAssertTrue(app.navigationBars["Sources"].waitForExistence(timeout: 10))
+        selectLibraryAfterFixtureImport(app)
+        let film = app.buttons["OneDrive Journey"]
+        XCTAssertTrue(film.waitForExistence(timeout: 10), app.debugDescription)
+        for _ in 0..<3 where !film.isHittable { app.swipeUp() }
+        XCTAssertTrue(film.isHittable, app.debugDescription)
+        film.tap()
+        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
+    private func selectLibraryAfterFixtureImport(_ app: XCUIApplication) {
+        let library = app.tabBars.buttons["Library"]
+        let prompt = app.sheets["Save Password?"]
+        // Use one navigation budget even if iOS begins presenting its password
+        // window before its sheet becomes accessible or after the first tap.
+        let deadline = Date().addingTimeInterval(10)
+        var needsTap = true
+        var handledPasswordInterruption = false
+        // The password offer can appear and disappear entirely inside tap(),
+        // consuming that touch before our between-action queries can see it.
+        // Let XCTest provide the actual interrupting element, including a
+        // system-owned window, and only decline the known synthetic-login offer.
+        let monitor = addUIInterruptionMonitor(withDescription: "Decline fixture password saving") { element in
+            guard element.label == "Save Password?" || element.staticTexts["Save Password?"].exists,
+                  element.buttons["Not Now"].exists,
+                  element.buttons["Save"].exists else { return false }
+            element.buttons["Not Now"].tap()
+            handledPasswordInterruption = true
+            return true
+        }
+        defer { removeUIInterruptionMonitor(monitor) }
+        func waitFor(_ predicate: NSPredicate, object: Any? = nil) -> Bool {
+            // XCUI queries and taps wait for app quiescence themselves. The
+            // preceding action may have completed while consuming the remaining
+            // budget, so observe its result before deciding whether to wait more.
+            if predicate.evaluate(with: object) { return true }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            let expectation = XCTNSPredicateExpectation(predicate: predicate, object: object)
+            let result = XCTWaiter.wait(for: [expectation], timeout: remaining)
+            if result == .completed { return true }
+            return result == .timedOut && predicate.evaluate(with: object)
+        }
+        while true {
+            let ready = NSPredicate { _, _ in
+                prompt.exists || library.isSelected || (needsTap && library.isHittable)
+            }
+            guard waitFor(ready) else {
+                capture("Library navigation did not become actionable", app)
+                XCTFail("Library did not become actionable or selected within the navigation budget.")
+                return
+            }
+            if prompt.exists {
+                // Decline only the observed system offer for synthetic credentials.
+                let notNow = prompt.buttons["Not Now"]
+                guard waitFor(NSPredicate(format: "hittable == true"), object: notNow) else {
+                    capture("Password prompt did not become actionable", app)
+                    XCTFail("The observed password prompt did not expose its Not Now action.")
+                    return
+                }
+                notNow.tap()
+                guard waitFor(NSPredicate(format: "exists == false"), object: prompt) else {
+                    capture("Password prompt did not close", app)
+                    XCTFail("The observed password prompt did not close.")
+                    return
+                }
+                // A second tab tap is allowed only after this actual interruption.
+                needsTap = !library.isSelected
+            } else if library.isSelected {
+                return
+            } else if needsTap && library.isHittable {
+                handledPasswordInterruption = false
+                library.tap()
+                // Only an explicitly handled interruption permits another tap;
+                // a genuine navigation failure still uses the original budget.
+                needsTap = handledPasswordInterruption && !library.isSelected
+            }
+        }
+    }
+
     @MainActor private func capture(_ name: String, _ app: XCUIApplication) {
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = name; screenshot.lifetime = .keepAlways; add(screenshot)
         let hierarchy = XCTAttachment(string: app.debugDescription)
         hierarchy.name = name + " accessibility"; hierarchy.lifetime = .keepAlways; add(hierarchy)
+    }
+
+    @MainActor
+    func testConnectDropboxAndImportSelectedFolder() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test-empty-library", "--ui-test-dropbox"]
+        app.launch()
+
+        let manage = app.tabBars.buttons["Manage"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 15))
+        manage.tap()
+        app.buttons["manage-media-sources"].tap()
+        app.buttons["Add NAS"].tap()
+        let connect = app.buttons["add-dropbox-source"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10), app.debugDescription)
+        connect.tap()
+        let key = app.textFields["dropbox-app-key"]
+        XCTAssertTrue(key.waitForExistence(timeout: 10), app.debugDescription)
+        key.tap()
+        key.typeText("fixture-app")
+        app.buttons["dropbox-begin"].tap()
+
+        let browser = app.buttons["dropbox-open-browser"]
+        XCTAssertTrue(browser.waitForExistence(timeout: 10), app.debugDescription)
+        let code = app.secureTextFields["dropbox-approval-code"]
+        code.tap()
+        code.typeText("fixture-code")
+        let verify = app.buttons["dropbox-verify"]
+        if !verify.isHittable { app.swipeUp() }
+        XCTAssertTrue(verify.isHittable, app.debugDescription)
+        verify.tap()
+
+        let folder = app.buttons["Open Media"]
+        XCTAssertTrue(folder.waitForExistence(timeout: 15), app.debugDescription)
+        folder.tap()
+        let useFolder = app.buttons["dropbox-use-folder"]
+        XCTAssertTrue(useFolder.waitForExistence(timeout: 15), app.debugDescription)
+        useFolder.tap()
+
+        let scan = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "2 items · Scanned ")).firstMatch
+        XCTAssertTrue(scan.waitForExistence(timeout: 25), app.debugDescription)
+        let library = app.tabBars.buttons["Library"]
+        library.tap()
+        let film = app.buttons["Film"]
+        XCTAssertTrue(film.waitForExistence(timeout: 10), app.debugDescription)
+        for _ in 0..<3 where !film.isHittable { app.swipeUp() }
+        XCTAssertTrue(film.isHittable, app.debugDescription)
+        film.tap()
+        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
+    func testGoogleDriveFilesSetupOffersScopedPicker() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test-empty-library"]
+        app.launch()
+        let manage = app.tabBars.buttons["Manage"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 15))
+        manage.tap()
+        app.buttons["manage-media-sources"].tap()
+        app.buttons["Add NAS"].tap()
+        let connect = app.buttons["Connect Google Drive via Files"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10))
+        connect.tap()
+        XCTAssertTrue(app.buttons["files-source-folder"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["files-source-files"].exists)
+        XCTAssertFalse(app.buttons["files-source-save"].exists, "An empty selection cannot create a source.")
     }
 
     @MainActor

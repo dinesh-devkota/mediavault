@@ -133,6 +133,8 @@ class Handler(BaseHTTPRequestHandler):
 class TLSFixtureServer(ThreadingHTTPServer):
     """Keep speculative/idle connections out of the listener's accept loop."""
 
+    handshake_log_tag = "webdav-tls"
+
     def __init__(self, address, handler, *, ssl_context, connection_timeout=5, handshake_timeout=20):
         self.ssl_context = ssl_context
         self.connection_timeout = connection_timeout
@@ -161,7 +163,7 @@ class TLSFixtureServer(ThreadingHTTPServer):
         # Only transport state is logged: never HTTP headers or credentials.
         outcome = "complete" if error is None else "failed"
         detail = f"protocol={protocol}" if error is None else f"error_type={type(error).__name__}"
-        print(f"[webdav-tls] peer={address[0]}:{address[1]} stage=handshake "
+        print(f"[{self.handshake_log_tag}] peer={address[0]}:{address[1]} stage=handshake "
               f"result={outcome} elapsed_s={elapsed:.3f} {detail}", flush=True)
 
     def process_request_thread(self, request, client_address):
