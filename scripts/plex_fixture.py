@@ -39,7 +39,7 @@ def media_item(key, title, kind, section, **details):
 
 def video_part(key):
     return [{
-        "id": int(key), "container": "mp4", "videoCodec": "h264", "audioCodec": "aac",
+        "id": int(key), "container": "mp4", "videoCodec": "h264", "duration": 12000,
         "Part": [{"id": int(key), "key": f"/library/parts/{key}/1/file.mp4", "container": "mp4",
                   "size": MOVIE_BYTES.stat().st_size, "Stream": [
                       {"id": 1, "streamType": 3, "codec": "srt", "languageCode": "eng", "language": "English",
@@ -129,11 +129,11 @@ class Handler(BaseHTTPRequestHandler):
         if any(name.lower() == "x-plex-token" for name in query):
             self.send_body(400)
             return
-        if not device:
-            self.send_body(401)
-            return
         if path == "/identity":
             self.send_json({"MediaContainer": {"machineIdentifier": SERVER_ID, "version": "1.42.2"}})
+            return
+        if not device:
+            self.send_body(401)
             return
         pin = re.fullmatch(r"/api/v2/pins/(\d{1,12})", path)
         if pin:

@@ -31,7 +31,7 @@ class PlexFixtureTest(unittest.TestCase):
         cls.origin = cls.server.origin
 
     def request(self, path, *, method="GET", token=None, device="fixture-device", headers=None):
-        request_headers = {"X-Plex-Client-Identifier": device}
+        request_headers = {"X-Plex-Client-Identifier": device} if device else {}
         if token:
             request_headers["X-Plex-Token"] = token
         if headers:
@@ -65,7 +65,7 @@ class PlexFixtureTest(unittest.TestCase):
         servers = json.loads(self.request("/api/v2/resources?includeHttps=1", token=token)[2])
         self.assertEqual(servers[0]["connections"][0]["uri"], self.origin)
         self.assertEqual(servers[0]["clientIdentifier"], SERVER_ID)
-        identity = json.loads(self.request("/identity")[2])["MediaContainer"]
+        identity = json.loads(self.request("/identity", device=None)[2])["MediaContainer"]
         self.assertEqual(identity["machineIdentifier"], SERVER_ID)
         sections = "/library/sections"
         self.assert_status(401, sections, token=token)
