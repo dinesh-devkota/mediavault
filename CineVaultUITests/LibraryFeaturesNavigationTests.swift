@@ -47,7 +47,15 @@ final class LibraryFeaturesNavigationTests: XCTestCase {
         select(cut, app)
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Resume")).firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.staticTexts["Library Feature (2020) - Directors Cut.mp4"].exists, app.debugDescription)
-        capture("Selected edition detail and resume action", app)
+        // Exercise a secondary action after the navigation has settled; an
+        // existence-only capture can occur during the push transition.
+        select(app.buttons["Add to Watchlist"], app)
+        XCTAssertTrue(app.buttons["Remove from Watchlist"].waitForExistence(timeout: 10), app.debugDescription)
+        capture("Selected edition detail with readable secondary actions", app)
+        select(app.buttons["Remove from Watchlist"], app)
+        XCTAssertTrue(app.buttons["Add to Watchlist"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Resume 1:30")).firstMatch.exists,
+                      "Watchlist changes must keep this edition's resume point.")
     }
     @MainActor private func enter(_ text: String, into field: XCUIElement, _ app: XCUIApplication) {
         select(field, app); typeAcknowledged(text, into: field, app); dismissKeyboard(app)

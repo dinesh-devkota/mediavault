@@ -51,7 +51,7 @@ struct MovieDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
-                        .buttonStyle(.bordered)
+                        .detailBorderedAction()
                     Text("MEDIAVAULT  /  \(movie.mediaKind.label.uppercased())")
                         .font(.system(size: 18, weight: .semibold))
                         .tracking(3)
@@ -106,7 +106,7 @@ struct MovieDetailView: View {
                     if versionLibrary.filter({ LibraryCollectionsStore.available($0) && MovieVersions.key($0) == MovieVersions.key(movie) }).count > 1 {
                         NavigationLink { MovieVersionsView(groupKey: MovieVersions.key(movie)) } label: {
                             Label("Choose another version", systemImage: "square.stack")
-                        }.buttonStyle(.bordered).accessibilityIdentifier("detail-choose-version")
+                        }.detailBorderedAction().accessibilityIdentifier("detail-choose-version")
                     }
                     fileDetails
                         .padding(.top, 24)
@@ -151,10 +151,10 @@ struct MovieDetailView: View {
                 Text("File unavailable. Include it again and rescan before playing.")
                     .font(.callout).foregroundStyle(CinemaTheme.secondaryText)
             } else if !PlaybackController.isPlaybackCandidate(movie) {
-                Button("Format information") { unsupported = true }.buttonStyle(.bordered)
+                Button("Format information") { unsupported = true }.detailBorderedAction()
             } else if isPreparing {
                 ProgressView("Checking media…")
-                Button("Cancel loading") { cancelPreparation() }.buttonStyle(.bordered)
+                Button("Cancel loading") { cancelPreparation() }.detailBorderedAction()
             } else if playbackServices.canResume(movie) {
                 Button { play(resume: true) } label: {
                     Label("Resume \(format(playbackServices.resumePosition(movie)))", systemImage: "play.fill")
@@ -166,7 +166,7 @@ struct MovieDetailView: View {
                 Button { play(resume: false) } label: {
                     Label("Start Over", systemImage: "backward.end.fill")
                 }
-                .buttonStyle(.bordered)
+                .detailBorderedAction()
             } else {
                 Button { play(resume: false) } label: {
                     Label("Play", systemImage: "play.fill")
@@ -183,18 +183,18 @@ struct MovieDetailView: View {
                 Label(movie.householdWatched ? "Mark Unwatched" : "Mark Watched",
                       systemImage: movie.householdWatched ? "eye.slash" : "checkmark")
             }
-            .buttonStyle(.bordered)
+            .detailBorderedAction()
             if HouseholdStore.shared.isAdmin { Button { editing = true } label: {
                 Label("Edit", systemImage: "pencil")
             }
-            .buttonStyle(.bordered) }
+            .detailBorderedAction() }
         }
     }
 
     private var personalActions: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button { addingToCollection = true } label: { Label("Add to collection", systemImage: "rectangle.stack.badge.plus") }
-                .buttonStyle(.bordered).accessibilityIdentifier("detail-add-collection")
+                .detailBorderedAction().accessibilityIdentifier("detail-add-collection")
             Button {
                 let wasWatchlisted = movie.householdWatchlisted
                 movie.householdWatchlisted.toggle()
@@ -209,7 +209,7 @@ struct MovieDetailView: View {
                 Label(movie.householdWatchlisted ? "Remove from Watchlist" : "Add to Watchlist",
                       systemImage: movie.householdWatchlisted ? "bookmark.fill" : "bookmark")
             }
-            .buttonStyle(.bordered)
+            .detailBorderedAction()
             if let watchlistError {
                 Text(watchlistError).font(.caption).foregroundStyle(.red)
             }
@@ -300,6 +300,18 @@ struct MovieDetailView: View {
 
 extension PlaybackController: Identifiable {}
 
+private extension View {
+    @ViewBuilder func detailBorderedAction() -> some View {
+        #if os(tvOS)
+        // tvOS fills unfocused bordered buttons with the accent color. An
+        // inherited accent foreground would hide their labels until focused.
+        self.buttonStyle(.bordered).foregroundStyle(.black)
+        #else
+        self.buttonStyle(.bordered)
+        #endif
+    }
+}
+
 private struct NextEpisodeLink: View {
     let episode: Movie
     @Query private var library: [Movie]
@@ -309,7 +321,7 @@ private struct NextEpisodeLink: View {
             NavigationLink(value: next.movie) {
                 Label(next.subtitle, systemImage: "forward.end")
             }
-            .buttonStyle(.bordered)
+            .detailBorderedAction()
             .accessibilityIdentifier("next-episode")
         }
     }
