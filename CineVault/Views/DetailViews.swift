@@ -378,17 +378,19 @@ struct EditMovieView: View {
                     Text(error).foregroundStyle(.red)
                 }
                 #endif
-                Button("Reset to File Name") {
-                    MetadataService.shared.resetToFileName(movie)
-                    Task {
-                        do {
-                            if try MetadataService.shared.hasKey {
-                                try await MetadataService.shared.match(movie)
+                if movie.source?.isPlex != true {
+                    Button("Reset to File Name") {
+                        MetadataService.shared.resetToFileName(movie)
+                        Task {
+                            do {
+                                if try MetadataService.shared.hasKey {
+                                    try await MetadataService.shared.match(movie)
+                                }
+                                try movie.modelContext?.save()
+                                dismiss()
+                            } catch {
+                                message = "Could not reset the movie: \(error.localizedDescription)"
                             }
-                            try movie.modelContext?.save()
-                            dismiss()
-                        } catch {
-                            message = "Could not reset the movie: \(error.localizedDescription)"
                         }
                     }
                 }

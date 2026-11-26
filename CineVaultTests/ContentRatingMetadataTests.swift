@@ -84,6 +84,45 @@ final class ContentRatingMetadataTests: XCTestCase {
         XCTAssertEqual(film.usContentRatingFetched, true)
     }
 
+    func testPlexFilenameResetCannotEraseServerRatingOrEpisodeIdentity() throws {
+        let episode = movie("PlexVideo/203.mp4")
+        let source = try XCTUnwrap(episode.source)
+        source.sourceProtocol = "plex"
+        episode.fileName = "Server Episode"
+        episode.parsedTitle = "Server Episode"
+        episode.setTitle("My episode title")
+        episode.isLocked = true
+        episode.seriesTitle = "Fixture Show"
+        episode.providerSeriesID = "201"
+        episode.seriesTMDBID = 7
+        episode.seasonNumber = 1
+        episode.episodeNumber = 2
+        episode.usContentRating = "TV-MA"
+        episode.usContentRatingFetched = true
+        episode.overview = "Server episode description"
+        episode.providerImageTag = "/library/metadata/203/thumb"
+        episode.playbackPosition = 75
+        let originalSeriesKey = episode.seriesKey
+
+        MetadataService().resetToFileName(episode)
+
+        XCTAssertEqual(episode.title, "My episode title")
+        XCTAssertEqual(episode.parsedTitle, "Server Episode")
+        XCTAssertTrue(episode.isLocked)
+        XCTAssertEqual(episode.tmdbID, 42)
+        XCTAssertEqual(episode.seriesTMDBID, 7)
+        XCTAssertEqual(episode.seriesKey, originalSeriesKey)
+        XCTAssertEqual(episode.episodeInfo?.seriesTitle, "Fixture Show")
+        XCTAssertEqual(episode.episodeInfo?.season, 1)
+        XCTAssertEqual(episode.episodeInfo?.episode, 2)
+        XCTAssertEqual(episode.usContentRating, "TV-MA")
+        XCTAssertEqual(episode.usContentRatingFetched, true)
+        XCTAssertEqual(episode.overview, "Server episode description")
+        XCTAssertEqual(episode.providerImageTag, "/library/metadata/203/thumb")
+        XCTAssertEqual(episode.playbackPosition, 75)
+        XCTAssertTrue(episode.metadataFetched)
+    }
+
     func testFetchMissingBackfillsOldLockedMovieWithoutReplacingLibraryState() async throws {
         let container = try ModelContainer(for: MediaSource.self, Movie.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let movie = movie()
