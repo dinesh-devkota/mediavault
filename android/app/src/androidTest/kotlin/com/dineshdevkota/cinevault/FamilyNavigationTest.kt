@@ -61,6 +61,12 @@ class FamilyNavigationTest {
             visible("Who's watching?")
             assertFalse(container.family.current.unlocked)
             screenshot(settings, "family-profile-picker.png")
+            click("Privacy policy")
+            visible("MediaVault privacy policy")
+            visible("Your library and playback")
+            device.pressBack()
+            visible("Who's watching?")
+            assertFalse(container.family.current.unlocked)
             click("Admin · PIN required")
             field("Six-digit PIN", "999999"); click("Unlock")
             visible("That PIN did not match. Try again.")
@@ -105,6 +111,15 @@ class FamilyNavigationTest {
                 visible("Allowed family film")
                 compose.onAllNodesWithText("PRIVATE CANARY", substring = true).assertCountEquals(0)
                 compose.onAllNodesWithText("UNRATED CANARY", substring = true).assertCountEquals(0)
+                click("Settings")
+                click("Privacy policy")
+                visible("MediaVault privacy policy")
+                device.pressBack()
+                visible("Shared settings are managed by Admin.")
+                assertFalse(container.family.current.admin)
+                assertTrue(container.family.current.unlocked)
+                click("Home")
+                visible("Allowed family film")
                 // Normal activity navigation preserves Home below the protected route. Launching
                 // nested ActivityScenarios creates fresh tasks and destroys the return destination.
                 home.onActivity { SourceEditorActivity.start(it, null) }

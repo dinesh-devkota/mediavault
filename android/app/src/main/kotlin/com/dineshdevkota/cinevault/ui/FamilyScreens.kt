@@ -98,6 +98,7 @@ fun ProfilePicker() {
             }) { Text(entry.name + if (entry.pin != null) " · PIN required" else "") }
         } }
         error?.let { item { Text(it, color = ErrorText) } }
+        item { PrivacyPolicyButton() }
     }
 }
 

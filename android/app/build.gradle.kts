@@ -8,6 +8,31 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+abstract class BundlePrivacyPolicy : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val policyFile: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun bundlePolicy() {
+        policyFile.get().asFile.copyTo(outputDirectory.file("PRIVACY.md").get().asFile, overwrite = true)
+    }
+}
+
+val bundlePrivacyPolicy = tasks.register<BundlePrivacyPolicy>("bundlePrivacyPolicy") {
+    policyFile.set(rootProject.layout.projectDirectory.file("../docs/PRIVACY.md"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/assets/privacyPolicy"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(bundlePrivacyPolicy, BundlePrivacyPolicy::outputDirectory)
+    }
+}
+
 val nfsDevelopmentLibraries = providers.gradleProperty("cinevault.nfsDevelopmentLibs").orNull
 
 val oneDriveClientId = providers.gradleProperty("mediavault.oneDriveClientId").orElse("").get().also {

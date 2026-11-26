@@ -5,6 +5,7 @@ on:
     branches: [main, dinesh-devkota-sonepar-build-cinevault-tvos-app]
     paths:
       - "android/**"
+      - "docs/PRIVACY.md"
       - ".github/workflows/android.yml"
       - "scripts/nas_fixture.py"
       - "scripts/media_library_fixture.py"
@@ -22,6 +23,7 @@ on:
   pull_request:
     paths:
       - "android/**"
+      - "docs/PRIVACY.md"
       - ".github/workflows/android.yml"
       - "scripts/nas_fixture.py"
       - "scripts/media_library_fixture.py"

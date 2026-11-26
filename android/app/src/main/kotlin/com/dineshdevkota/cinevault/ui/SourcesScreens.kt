@@ -172,6 +172,7 @@ fun SettingsTab() {
         Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             HouseholdButton()
             Text("Shared settings are managed by Admin.", color = SecondaryText)
+            PrivacyPolicyButton()
         }
         return
     }
@@ -210,6 +211,7 @@ fun SettingsTab() {
             AdaptiveActions() {
                 OutlinedButton(onClick = { MediaGuideActivity.start(context) }) { Text("Media Guide & Help") }
                 OutlinedButton(onClick = { PlaybackSettingsActivity.start(context) }) { Text("Playback & Subtitles") }
+                PrivacyPolicyButton()
             }
         }
         item { Text("Metadata (themoviedb.org)", style = MaterialTheme.typography.titleLarge) }

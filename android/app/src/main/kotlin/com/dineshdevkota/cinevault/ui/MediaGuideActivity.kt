@@ -173,7 +173,7 @@ private fun MediaGuideScreen() {
 }
 
 @Composable
-private fun GuideSection(title: String, body: String, monospaced: Boolean = false) {
+internal fun GuideSection(title: String?, body: String, monospaced: Boolean = false) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
     Column(
@@ -187,7 +187,7 @@ private fun GuideSection(title: String, body: String, monospaced: Boolean = fals
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
+        title?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
         Text(
             body,
             style = MaterialTheme.typography.bodyMedium,
