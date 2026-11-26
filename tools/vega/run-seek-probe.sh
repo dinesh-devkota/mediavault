@@ -26,12 +26,14 @@ sha256sum "$package" >"$evidence/package-sha256.txt"
 git rev-parse HEAD >"$evidence/source-sha.txt"
 printf '{"sdkPin":"2.0.15159","glAccelerationRequested":false,"standaloneProbe":true,"stockHttpServer":"nginx"}\n' >"$evidence/runtime-mode.json"
 
-appium_pid=''; nginx_pid=''; start_requested=false; virtual_device_verified=false
+appium_pid=''; nginx_pid=''; native_log_pid=''; start_requested=false; virtual_device_verified=false
 cleanup() {
   local original_status=$?
   trap - EXIT
   set +e
   if [[ "$virtual_device_verified" == true ]]; then
+    timeout --kill-after=2s 15s vega device running-apps --device VirtualDevice >"$evidence/running-apps.log" 2>&1
+    [[ -z "$native_log_pid" ]] || kill "$native_log_pid" 2>/dev/null
     timeout --kill-after=2s 15s vega exec vda shell "loggingctl log -v $app_id --since today" 2>&1 |
       tail -c 2097152 >"$evidence/native.log"
   fi
@@ -126,7 +128,12 @@ for attempt in {1..60}; do
   sleep 1
 done
 curl --fail --silent http://127.0.0.1:4723/status >/dev/null
-timeout --kill-after=2s 60s vega run-app "$package" "$app_id.main" -d VirtualDevice >"$evidence/launch.log" 2>&1
+timeout --kill-after=2s 60s vega device install-app --device VirtualDevice -p "$package" >"$evidence/install.log" 2>&1
+# Start following the isolated package before launching it so an immediate exit
+# can still leave useful evidence. Limit the retained stream to two MiB.
+(timeout --kill-after=2s 660s vega exec vda shell "loggingctl log -v $app_id --since today --follow" 2>&1 |
+  head -c 2097152 >"$evidence/native-startup.log") &
+native_log_pid=$!
 probe_status=0
 APPIUM_URL=http://127.0.0.1:4723 PROBE_DEVICE_INFO="$evidence/device.json" PROBE_OUTPUT="$evidence" \
   timeout --kill-after=2s 660s node tools/vega/seek-probe/seek-probe.mjs || probe_status=$?

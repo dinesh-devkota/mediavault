@@ -29,8 +29,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.seek_probe_only && 'vega-seek' || github.event_name == 'workflow_dispatch' && inputs.rendering_probe_only && 'vega-render' || github.event_name == 'workflow_dispatch' && inputs.reuse_run_id != '' && 'vega-graphics' || 'vega' }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.seek_probe_only && 'vega-seek' || github.event_name == 'workflow_dispatch' && inputs.rendering_probe_only && 'vega-render' || github.event_name == 'workflow_dispatch' && inputs.reuse_run_id != '' && 'vega-graphics' || github.event_name == 'pull_request' && 'vega-pr' || 'vega' }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   native-tests:
@@ -91,7 +91,14 @@ jobs:
       - name: Install pinned Amazon SDK
         run: bash tools/vega/install-sdk.sh
       - name: Build and validate application
-        run: bash tools/vega/build.sh '${{ matrix.target }}' Release
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          if [[ "$PACKAGE_TARGET" == x86_64 ]]; then
+            bash tools/vega/build.sh "$PACKAGE_TARGET" Release
+          else
+            bash tools/vega/build.sh "$PACKAGE_TARGET" Release --shared-app-checks-by-x86
+          fi
       - name: Retain package and validation evidence
         if: always()
         uses: actions/upload-artifact@v4

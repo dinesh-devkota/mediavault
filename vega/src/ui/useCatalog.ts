@@ -1,6 +1,6 @@
 import {useMemo} from 'react';
-import {collectionGroups, groupLibrary, visible} from '../domain/library';
-import {HouseholdProfile, MediaItem, PersonalCollection, Source} from '../domain/model';
+import {collectionGroups, groupLibrary, MediaGroup, visible} from '../domain/library';
+import {HouseholdProfile, MediaItem, MediaKind, PersonalCollection, Source} from '../domain/model';
 
 const emptyCollections: PersonalCollection[] = [];
 
@@ -17,4 +17,25 @@ export function useCatalog(items: MediaItem[] | undefined, sources: Source[] | u
   const collections = useMemo(() => unlocked && profile
     ? collectionGroups(available, personalCollections ?? emptyCollections) : [], [available, personalCollections, profile, unlocked]);
   return {available, groups, collections};
+}
+
+interface CatalogFilters {
+  query: string;
+  sections: MediaKind[];
+  genres: string[];
+  watchlist?: string[];
+}
+
+export function useFilteredCatalog(available: MediaItem[], groups: MediaGroup[], filters: CatalogFilters) {
+  const {query, sections, genres, watchlist} = filters;
+  const term = query.trim().toLocaleLowerCase();
+  const filtered = useMemo(() => {
+    if (!term && !sections.length && !genres.length && !watchlist) { return available; }
+    const included = watchlist && new Set(watchlist);
+    return available.filter(item => (!included || included.has(item.id)) && (!sections.length || sections.includes(item.kind))
+      && (!genres.length || genres.some(genre => item.genres.includes(genre)))
+      && (!term || `${item.title} ${item.seriesTitle ?? ''}`.toLocaleLowerCase().includes(term)));
+  }, [available, term, sections, genres, watchlist]);
+  const homeGroups = useMemo(() => filtered === available ? groups : groupLibrary(filtered), [available, filtered, groups]);
+  return {filtered, homeGroups};
 }

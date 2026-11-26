@@ -1,12 +1,15 @@
 /* global globalThis */
 import React, {useLayoutEffect} from 'react';
 import {create, ReactTestRenderer} from 'react-test-renderer';
-import {useCatalog} from '../src/ui/useCatalog';
+import {useCatalog, useFilteredCatalog} from '../src/ui/useCatalog';
 import {itemFromFile} from '../src/domain/library';
-import {HouseholdProfile, LibrarySnapshot, MediaItem, Source} from '../src/domain/model';
+import {HouseholdProfile, LibrarySnapshot, MediaItem, MediaKind, Source} from '../src/domain/model';
 
-type Props = {library?: LibrarySnapshot; profileId?: string; unlocked: boolean};
-type Catalog = ReturnType<typeof useCatalog>;
+type Props = {library?: LibrarySnapshot; profileId?: string; unlocked: boolean; query?: string; sections?: MediaKind[]; genres?: string[]; watchlistOnly?: boolean};
+type Catalog = ReturnType<typeof useCatalog> & ReturnType<typeof useFilteredCatalog>;
+const noSections: MediaKind[] = [];
+const noGenres: string[] = [];
+const noWatchlist: string[] = [];
 const mounted: ReactTestRenderer[] = [];
 const source: Source = {id: 'fixture', name: 'Synthetic NAS', kind: 'webdav', endpoint: 'https://fixture.invalid/', root: 'Media', revision: 1, ignoredFolders: [], ignoredFiles: []};
 const admin: HouseholdProfile = {id: 'admin', name: 'Adult', admin: true, folders: []};
@@ -36,10 +39,15 @@ function freeze<T>(value: T): T {
 async function harness(initial: Props) {
   let catalog!: Catalog;
   function Probe(props: Props) {
+    const personal = props.library?.profileLibraries[props.profileId ?? ''];
     const value = useCatalog(props.library?.items, props.library?.sources,
       props.library?.profiles.find(profile => profile.id === props.profileId), props.unlocked,
-      props.library?.profileLibraries[props.profileId ?? '']?.collections);
-    useLayoutEffect(() => { catalog = value; });
+      personal?.collections);
+    const view = useFilteredCatalog(value.available, value.groups, {
+      query: props.query ?? '', sections: props.sections ?? noSections, genres: props.genres ?? noGenres,
+      watchlist: props.watchlistOnly ? personal?.watchlist ?? noWatchlist : undefined,
+    });
+    useLayoutEffect(() => { catalog = {...value, ...view}; });
     return null;
   }
   let tree!: ReactTestRenderer;
@@ -58,15 +66,17 @@ test('viewing-only updates retain all derived references without retaining stale
   await value.update({library: updated, profileId: child.id, unlocked: true});
   expect(updated.profileLibraries.child!.viewing[first.id]!.position).toBe(5);
   expect(value.value.available).toBe(before.available); expect(value.value.groups).toBe(before.groups); expect(value.value.collections).toBe(before.collections);
+  expect(value.value.filtered).toBe(value.value.available); expect(value.value.homeGroups).toBe(value.value.groups);
+  expect(value.value.filtered).toBe(before.filtered); expect(value.value.homeGroups).toBe(before.homeGroups);
 });
 
 test('lock, missing profile and household switches never retain private items or collection names', async () => {
   const library = freeze(snapshot()), value = await harness({library, profileId: admin.id, unlocked: true});
   expect(value.value.available).toContain(adult); expect(value.value.collections.map(entry => entry.title)).toContain('Adult collection');
   await value.update({library, profileId: admin.id, unlocked: false});
-  expect(value.value).toEqual({available: [], groups: [], collections: []});
+  expect(value.value).toEqual({available: [], groups: [], collections: [], filtered: [], homeGroups: []});
   await value.update({library, profileId: 'removed', unlocked: true});
-  expect(value.value).toEqual({available: [], groups: [], collections: []});
+  expect(value.value).toEqual({available: [], groups: [], collections: [], filtered: [], homeGroups: []});
   await value.update({library, profileId: child.id, unlocked: true});
   expect(value.value.available).toEqual([first, second, sequel, photo, episode]);
   expect(value.value.collections.map(entry => entry.title)).toEqual(['Empty', 'Feature Saga', 'Weekend']);
@@ -130,4 +140,34 @@ test('empty startup has stable empty results and first scan recomputes normally'
   expect(value.value.available).toBe(before.available); expect(value.value.groups).toBe(before.groups); expect(value.value.collections).toBe(before.collections);
   await value.update({library: freeze(snapshot()), profileId: child.id, unlocked: true});
   expect(value.value.available).toEqual([first, second, sequel, photo, episode]);
+});
+
+test('Home keeps a filtered grid across playback updates and applies every filter and profile change', async () => {
+  const original = snapshot();
+  const library = freeze({
+    ...original,
+    items: original.items.map(item => item === first || item === episode ? {...item, genres: ['Adventure']} : item),
+    profileLibraries: {...original.profileLibraries, child: {...original.profileLibraries.child!, watchlist: [first.id, adult.id, episode.id]}},
+  });
+  const props: Props = {library, profileId: child.id, unlocked: true, query: '  FEATURE ', sections: ['movie'], genres: ['Adventure'], watchlistOnly: true};
+  const view = await harness(props), before = view.value;
+  const ids = () => view.value.filtered.map(item => item.id);
+  expect(ids()).toEqual([first.id]);
+  expect(view.value.homeGroups[0]!.items).toEqual(view.value.filtered);
+  const childLibrary = library.profileLibraries.child!;
+  const viewed = freeze({...library, profileLibraries: {...library.profileLibraries, child: {...childLibrary, viewing: {
+    [first.id]: {position: 1, duration: 10, watched: false, updatedAt: 1},
+  }}}});
+  await view.update({...props, library: viewed, query: 'feature'});
+  expect(view.value.filtered).toBe(before.filtered);
+  expect(view.value.homeGroups).toBe(before.homeGroups);
+  await view.update({...props, genres: ['Drama']});
+  expect(ids()).toEqual([]);
+  await view.update({...props, query: 'sHoW', sections: ['episode']});
+  expect(ids()).toEqual([episode.id]);
+  await view.update({...props, library: freeze({...library, profileLibraries: {...library.profileLibraries, child: {...childLibrary, watchlist: []}}})});
+  expect(ids()).toEqual([]);
+  await view.update({...props, unlocked: false});
+  expect(ids()).toEqual([]);
+  expect(view.value.homeGroups).toEqual([]);
 });

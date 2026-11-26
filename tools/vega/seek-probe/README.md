@@ -6,6 +6,8 @@ The shared fixture generator creates the existing 60-second `Controls.mkv` (H.26
 
 Stock nginx serves these two files through a loopback reverse port. Preflight checks require correct HEAD length/type and byte-exact initial, middle, and suffix 206 responses. Access logs contain only numbers: time, fixture (1 MKV / 2 MP4), case (1–4 in the order below), method (1 GET / 2 HEAD), status, body bytes, requested range start/end, and returned range start/end/total. `-1` means an absent range component; a suffix request has no start. Preflight requests have case 0. Requests never log URLs or arbitrary headers.
 
+The runner attaches Appium, launches the installed component once with the Vega CLI, and verifies its static banner before pressing Start. A startup failure retains the device hierarchy and bounded native startup log. The playback matrix begins only after the probe accepts Start.
+
 Each case initializes a fresh native player and attaches a fresh surface:
 
 1. MKV, paused after decoding begins.

@@ -7,6 +7,7 @@ export type NativeVideo = Pick<VideoPlayer, 'initialize' | 'deinitialize' | 'src
   'play' | 'pause' | 'setSurfaceHandle' | 'clearSurfaceHandle' | 'setCaptionViewHandle' | 'clearCaptionViewHandle' | 'addEventListener' | 'removeEventListener'> & {readonly error: VideoPlayer['error'] | null};
 export interface PlaybackState { position: number; duration: number; paused: boolean; started: boolean; ended: boolean; ready: boolean; seekWarning?: string }
 const SEEK_TIMEOUT_MS = 10_000;
+const SEEK_POSITION_RESOLUTION = 0.25;
 interface SessionOptions {
   load: () => Promise<PlaybackResource>;
   releaseResource: (uri: string) => Promise<void>;
@@ -26,7 +27,7 @@ export class PlayerSession {
   private finished = false;
   private sourceSet = false;
   private resumeChecked = false;
-  private pendingSeek?: {target: number; resume: boolean; deadline: number};
+  private pendingSeek?: {target: number; origin: number; requestedAt: number; paused: boolean; resume: boolean};
   private protectedResumePosition?: number;
   private externalSeekOrigin?: {position: number; startedAt: number; paused: boolean};
   private seekWarning?: string;
@@ -47,8 +48,9 @@ export class PlayerSession {
   start(predecessor: Promise<void>): void {
     this.events = Object.fromEntries(['loadedmetadata', 'durationchange', 'canplay', 'play', 'playing', 'pause', 'timeupdate'].map(name => [name, () => this.sample()]));
     this.events.seeking = () => {
-      if (!this.stopped && !this.pendingSeek) {
-        this.externalSeekOrigin = {position: this.video.currentTime, startedAt: Date.now(), paused: this.video.paused};
+      if (!this.stopped && this.sourceSet && !this.pendingSeek && !this.externalSeekOrigin) {
+        // The SDK can deliver seeking after the native clock has already jumped.
+        this.externalSeekOrigin = {position: this.lastPosition ?? this.video.currentTime, startedAt: Date.now(), paused: this.video.paused};
       }
     };
     this.events.seeked = () => this.sample(false, true);
@@ -127,17 +129,22 @@ export class PlayerSession {
     } catch { this.fail('Playback could not continue.'); }
   }
   seek(delta: number): void {
-    if (this.stopped || !this.sourceSet || this.finished || !Number.isFinite(delta)) { return; }
+    if (this.stopped || !this.sourceSet || this.finished || this.pendingSeek || this.externalSeekOrigin || !Number.isFinite(delta)) { return; }
     try {
       const position = this.video.currentTime, duration = this.video.duration;
       if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) { return; }
       const target = Math.max(0, Math.min(duration, position + delta));
+      if (Math.abs(target - position) < SEEK_POSITION_RESOLUTION) { return; }
       this.resumeChecked = true;
-      this.pendingSeek = {target, resume: false, deadline: Date.now() + SEEK_TIMEOUT_MS};
-      this.seekWarning = undefined;
-      this.video.currentTime = target;
+      this.requestSeek(position, target, this.video.paused, false);
       this.sample();
     } catch { this.rejectSeek(); this.sample(); }
+  }
+  private requestSeek(origin: number, target: number, paused: boolean, resume: boolean): void {
+    this.pendingSeek = {origin, target, paused, resume, requestedAt: Date.now()};
+    this.seekWarning = undefined;
+    try { this.video.currentTime = target; }
+    catch { this.rejectSeek(); }
   }
   private rejectSeek(): void {
     const resume = this.pendingSeek?.resume;
@@ -149,33 +156,44 @@ export class PlayerSession {
       : 'That position could not be reached. You can continue from the current position.';
   }
   private canSaveProgress(position: number): boolean {
-    return !this.pendingSeek && !this.video.seeking &&
+    return !this.pendingSeek && !this.externalSeekOrigin && !this.video.seeking &&
       (this.protectedResumePosition === undefined || position >= this.protectedResumePosition);
   }
   private sample(endEvent = false, seekCompleted = false): void {
     if (this.stopped || !this.initialized || !this.sourceSet || this.finished) { return; }
     try {
       if (this.video.error) { this.fail('This file could not be played on this device. Try another version or a compatible server stream.'); return; }
-      const duration = this.video.duration, position = this.video.currentTime;
+      const duration = this.video.duration, position = this.video.currentTime, paused = this.video.paused;
       const validDuration = Number.isFinite(duration) && duration > 0;
       if (!Number.isFinite(position) || position < 0) { return; }
       if (!this.resumeChecked && validDuration) {
         this.resumeChecked = true;
         const saved = this.options.resume;
-        if (saved && !saved.watched && saved.position > 5 && saved.position < duration - 10) {
+        if (saved && !saved.watched && saved.position > 5 && saved.position < duration - 10 &&
+          Math.abs(saved.position - position) >= SEEK_POSITION_RESOLUTION) {
           this.protectedResumePosition = saved.position;
-          this.pendingSeek = {target: saved.position, resume: true, deadline: Date.now() + SEEK_TIMEOUT_MS};
-          try { this.video.currentTime = saved.position; }
-          catch { this.rejectSeek(); }
-          // Read the actual position again on the next sample, never publish the requested target.
-          if (this.pendingSeek) { return; }
+          this.requestSeek(position, saved.position, paused, true);
+          // Native events can complete the seek during the setter. The old sample
+          // cannot publish progress after it, even if the operation already ended.
+          return;
         }
       }
       if (this.pendingSeek) {
-        if (!this.video.seeking && Math.abs(position - this.pendingSeek.target) <= 2) {
+        const pending = this.pendingSeek;
+        pending.paused = pending.paused && paused;
+        const elapsed = Math.max(0, Date.now() - pending.requestedAt);
+        const distance = pending.target - pending.origin;
+        const displacement = position - pending.origin;
+        const naturalAdvance = pending.paused ? 0 : elapsed / 1000;
+        // A nearby target can already be within the normal landing tolerance,
+        // or be reached by ordinary playback after native rejected the jump.
+        const halfDistance = Math.abs(distance) / 2;
+        const landed = Math.abs(position - pending.target) <= Math.min(2, halfDistance) &&
+          (distance > 0 ? displacement > naturalAdvance + Math.min(SEEK_POSITION_RESOLUTION, halfDistance) : displacement < 0);
+        if (!this.video.seeking && landed) {
           this.lastPosition = position; this.pendingSeek = undefined;
           this.protectedResumePosition = undefined; this.seekWarning = undefined;
-        } else if ((seekCompleted && !this.video.seeking) || Date.now() >= this.pendingSeek.deadline) {
+        } else if ((seekCompleted && !this.video.seeking) || elapsed >= SEEK_TIMEOUT_MS) {
           // SDK 2.3 can emit seeked even when the native engine rejects the seek.
           // A missing event is bounded too; keep showing native state after either failure.
           this.rejectSeek();
@@ -186,24 +204,28 @@ export class PlayerSession {
         // discontinuity beyond that elapsed playback before replacing a saved
         // resume checkpoint; the SDK does not expose its requested seek target.
         const origin = this.externalSeekOrigin;
+        origin.paused = origin.paused && paused;
         const elapsed = Math.max(0, Date.now() - origin.startedAt);
         if (seekCompleted && !this.video.seeking) {
           const displacement = position - origin.position;
           const naturalAdvance = origin.paused ? 0 : elapsed / 1000;
           if (Number.isFinite(origin.position) && (displacement < -2 || displacement > naturalAdvance + 2)) {
             this.protectedResumePosition = undefined; this.seekWarning = undefined;
-            this.lastPosition = position; // A seek jump alone does not prove playback.
           } else {
             this.seekWarning = 'A new seek position could not be confirmed. You can continue playing.';
           }
+          this.lastPosition = position;
           this.externalSeekOrigin = undefined;
         } else if (elapsed >= SEEK_TIMEOUT_MS) {
           this.seekWarning = 'A new seek position could not be confirmed. You can continue playing.';
+          this.lastPosition = position;
           this.externalSeekOrigin = undefined;
         }
+      } else if (seekCompleted) {
+        // An unpaired or duplicate seeked signal is not playback clock evidence.
+        this.lastPosition = position;
       }
-      const paused = this.video.paused;
-      if (!this.pendingSeek && !paused && !this.video.seeking && this.lastPosition !== undefined && position > this.lastPosition) {
+      if (!this.pendingSeek && !this.externalSeekOrigin && !paused && !this.video.seeking && this.lastPosition !== undefined && position > this.lastPosition) {
         this.started = true; if (this.startupTimer !== undefined) { clearTimeout(this.startupTimer); }
         if (this.protectedResumePosition !== undefined && position >= this.protectedResumePosition) {
           this.protectedResumePosition = undefined; this.seekWarning = undefined;

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
 import test from 'node:test';
 import {activateKeyboardClear} from './keyboard-clear.mjs';
+import {keyboardVisibilityReader, simulatorVisibilityRpc, waitForKeyboardDismissal} from './keyboard-observation.mjs';
 
 const elementKey = 'element-6066-11e4-a52e-4f735466cecf';
 // Observed Silverstone geometry, with just the keys on the expected route.
@@ -81,5 +83,100 @@ for (const [name, options, message, expectedArrows] of [
     assert.equal(events.includes(96), false);
     assert(api.now() <= 25_000);
     assertNoEditorAccess(requests);
+  });
+}
+
+test('window visibility preserves an unsupported or malformed RPC as unknown', async () => {
+  const responses = [
+    {result: null},
+    {result: {isVisible: false}},
+    {result: {visiblePortions: []}, error: {code: -1}},
+    {result: {visiblePortions: [{x: 10, y: 20, width: 100, height: 50}]}},
+    {result: {visiblePortions: []}},
+  ];
+  let calls = 0;
+  const readVisibility = keyboardVisibilityReader(async (id, timeout) => {
+    assert.equal(id, 87);
+    assert.equal(timeout, 2000);
+    return responses[calls++];
+  });
+  assert.deepEqual(await readVisibility('wrong-window'), {displayed: null, outcome: 'invalid-id'});
+  for (let i = 0; i < 3; i++) {
+    assert.deepEqual(await readVisibility('87'), {displayed: null, outcome: 'unknown'});
+  }
+  assert.deepEqual(await readVisibility('87'), {displayed: true, outcome: 'visible'});
+  assert.deepEqual(await readVisibility('87'), {displayed: false, outcome: 'hidden'});
+});
+
+test('a timed-out direct visibility request does not block a later observation', {timeout: 5000}, async () => {
+  const ids = [];
+  const server = createServer(async (request, response) => {
+    assert.equal(request.url, '/jsonrpc');
+    assert.equal(request.method, 'POST');
+    const chunks = [];
+    for await (const chunk of request) { chunks.push(chunk); }
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    ids.push(body.params.id);
+    assert.deepEqual(body, {jsonrpc: '2.0', id: '0', method: 'visibilityOf', params: {id: 87}});
+    if (ids.length === 1) { return; } // Native service accepts the request but gives no response.
+    response.writeHead(200, {'Content-Type': 'application/json'});
+    response.end(JSON.stringify({jsonrpc: '2.0', id: ids.length === 2 ? '0' : 'different', result: {visiblePortions: []}}));
+  });
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  try {
+    const read = keyboardVisibilityReader(simulatorVisibilityRpc(String(server.address().port)));
+    assert.deepEqual(await read('87', 250), {displayed: null, outcome: 'timeout'});
+    assert.deepEqual(await read('87'), {displayed: false, outcome: 'hidden'});
+    assert.deepEqual(await read('87'), {displayed: null, outcome: 'unknown'});
+    assert.deepEqual(ids, [87, 87, 87]);
+  } finally {
+    await new Promise(done => {
+      server.close(done);
+      server.closeAllConnections();
+    });
+  }
+});
+
+function observeDismissal(visibility, done, timeoutMs = 1000) {
+  let elapsed = 0;
+  const windowIds = [], doneCalls = [], observations = [];
+  const result = waitForKeyboardDismissal({
+    windowId: '87', timeoutMs,
+    now: () => elapsed, pause: async delay => { elapsed += delay; },
+    readVisibility: async (id, budgetMs) => {
+      assert(budgetMs > 0 && budgetMs <= timeoutMs);
+      windowIds.push(id);
+      const displayed = visibility.shift();
+      return {displayed, outcome: displayed === false ? 'hidden' : displayed === true ? 'visible' : 'unknown'};
+    },
+    isDonePresent: async budgetMs => {
+      assert(budgetMs > 0 && budgetMs <= timeoutMs);
+      doneCalls.push(elapsed);
+      return done.shift();
+    },
+    onObservation: value => observations.push(value),
+  });
+  return {result, windowIds, doneCalls, observations, elapsed: () => elapsed};
+}
+
+test('dismissal keeps the original window and waits for both positive hidden and Done absent', async () => {
+  const {result, windowIds, doneCalls, observations} = observeDismissal([null, true, false, false], [true, false]);
+  await result;
+  assert.deepEqual(windowIds, ['87', '87', '87', '87']);
+  assert.deepEqual(doneCalls, [500, 750]);
+  assert.deepEqual(observations.map(value => [value.visibility, value.done]),
+    [['unknown', 'unobserved'], ['visible', 'unobserved'], ['hidden', 'present'], ['hidden', 'absent']]);
+});
+
+for (const [description, visible, done, expected] of [
+  ['unknown native visibility even if Done would be absent', [null], [false], /visibility: unknown, Done: unobserved/],
+  ['still present Done with explicitly hidden window', Array(4).fill(false), Array(4).fill(true), /visibility: hidden, Done: present/],
+  ['unknown Done state with explicitly hidden window', Array(4).fill(false), [], /visibility: hidden, Done: unknown/],
+]) {
+  test(`dismissal rejects ${description} at its deadline`, async () => {
+    const {result, windowIds, elapsed} = observeDismissal(visible, done);
+    await assert.rejects(result, expected);
+    assert.deepEqual(windowIds, ['87', '87', '87', '87']);
+    assert.equal(elapsed(), 1000);
   });
 }

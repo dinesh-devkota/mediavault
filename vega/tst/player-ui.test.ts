@@ -8,6 +8,7 @@ import {runInNewContext} from 'node:vm';
 import {JsxEmit, ModuleKind, ScriptTarget, transpileModule} from 'typescript';
 import {PlayerSession} from '../src/ui/PlayerSession';
 import {SubtitleSelection} from '../src/ui/PlaybackTracks';
+import {subtitleLanguageName} from '../src/domain/subtitles';
 
 // Run the actual component with React, replacing only the native view/decoder
 // boundary. Native focus acknowledgement remains a separate device assertion.
@@ -15,20 +16,27 @@ test('loading controls gain preference only when enabled and raw media keys neve
   (globalThis as typeof globalThis & {IS_REACT_ACT_ENVIRONMENT: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
   jest.useFakeTimers();
   const events = new Map<string, () => void>();
+  const english = {id: 'fixture-en', label: '', language: 'en', mode: 'showing'};
+  const spanish = {id: 'fixture-es', label: '', language: 'es', mode: 'hidden'};
+  const tracks = {0: english, 1: spanish, length: 2, addEventListener: () => {}, removeEventListener: () => {}};
   const video = {src: '', currentTime: 0, duration: NaN, paused: false, seeking: false, ended: false, error: null,
     defaultSeekIntervalInSec: 0, initialize: jest.fn(async () => {}), deinitialize: jest.fn(async () => {}),
     play: jest.fn(async () => {}), pause: jest.fn(), setSurfaceHandle: jest.fn(), clearSurfaceHandle: jest.fn(),
     setCaptionViewHandle: jest.fn(), clearCaptionViewHandle: jest.fn(),
-    textTracks: {length: 0, addEventListener: () => {}, removeEventListener: () => {}}, audioTracks: {length: 0},
+    textTracks: tracks, audioTracks: {length: 0},
     addEventListener: (name: string, listener: () => void) => events.set(name, listener), removeEventListener: (name: string) => events.delete(name)};
   let remote!: (event: {eventType: string; eventKeyAction: number}) => void;
+  let back: (() => boolean) | undefined;
   const dependencies: Record<string, unknown> = {
     react: React,
-    'react-native': {View: 'View', Text: 'Text', StyleSheet: {create: (value: unknown) => value, absoluteFill: {}},
-      AppState: {addEventListener: () => ({remove: () => {}})}},
+    'react-native': {View: 'View', Text: 'Text', ScrollView: 'ScrollView', StyleSheet: {create: (value: unknown) => value, absoluteFill: {}},
+      AppState: {addEventListener: () => ({remove: () => {}})},
+      BackHandler: {addEventListener: (_event: string, listener: () => boolean) => {
+        back = listener; return {remove: () => { back = undefined; }};
+      }}},
     '@amazon-devices/react-native-kepler': {useTVEventHandler: (listener: typeof remote) => { remote = listener; }},
     '@amazon-devices/react-native-w3cmedia': {VideoPlayer: function () { return video; }, KeplerVideoSurfaceView: 'VideoSurface', KeplerCaptionsView: 'Captions'},
-    './Controls': {Action: 'Action', colors: {}, shared: {}}, './PlayerSession': {PlayerSession}, './PlaybackTracks': {SubtitleSelection},
+    '../domain/subtitles': {subtitleLanguageName}, './Controls': {Action: 'Action', colors: {}, shared: {}}, './PlayerSession': {PlayerSession}, './PlaybackTracks': {SubtitleSelection},
   };
   const output: Record<string, any> = {};
   runInNewContext(transpileModule(readFileSync(join(__dirname, '../src/ui/Player.tsx'), 'utf8'), {
@@ -66,6 +74,24 @@ test('loading controls gain preference only when enabled and raw media keys neve
     expect(video.currentTime).toBe(20);
     await React.act(async () => { action('Pause').props.onPress(); });
     expect(video.pause).toHaveBeenCalledTimes(pauses + 1);
+    expect(action('Spanish')).toBeUndefined();
+    await React.act(async () => { action('Subtitles · English').props.onPress(); });
+    expect(action('English').props.selected).toBe(true);
+    const chooseSpanish = action('Spanish').props.onPress as () => void;
+    // Reordered decoder notifications must not change the choice's track ID.
+    [tracks[0], tracks[1]] = [tracks[1], tracks[0]];
+    await React.act(async () => { chooseSpanish(); });
+    expect(spanish.mode).toBe('showing');
+    expect(english.mode).toBe('disabled');
+    expect(action('Subtitles · Spanish').props.preferred).toBe(true);
+    await React.act(async () => { action('Subtitles · Spanish').props.onPress(); });
+    await React.act(async () => { expect(back?.()).toBe(true); });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(spanish.mode).toBe('showing');
+    await React.act(async () => { action('Subtitles · Spanish').props.onPress(); });
+    await React.act(async () => { action('Off').props.onPress(); });
+    expect(spanish.mode).toBe('disabled');
+    expect(action('Subtitles · Off').props.preferred).toBe(true);
   } finally {
     await React.act(async () => { tree?.unmount(); });
     jest.useRealTimers();

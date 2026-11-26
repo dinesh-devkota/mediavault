@@ -77,11 +77,13 @@ After text acknowledgement, the harness waits for Done and a positively
 visible Silverstone keyboard window, retains that window's ID, then sends
 exactly one Back key (158). Temporary publisher absence cannot skip Back.
 Closure requires valid native visibility for that same window to become false
-and Done to disappear, within the existing bounded wait. The pinned driver's
-`visibilityOf` RPC is used directly because its displayed endpoint converts a
-missing result to false; unsupported, stale, or malformed responses remain
-unknown and cannot satisfy closure. The harness requires the same form field to
-remain and verifies that non-secret text stays unchanged. Password and PIN
+and the Silverstone Done control to disappear within 30 seconds. The driver's
+displayed endpoint converts a missing result to false. The fixture runner makes
+the read-only `visibilityOf` query on a separate loopback VDA forward with a
+two-second request deadline so a stalled read cannot occupy Appium's session
+queue. Unsupported, stale, malformed, or timed-out replies remain unknown.
+The harness requires the same form field to remain and verifies that
+non-secret text stays unchanged. Password and PIN
 values are never read back. [Amazon's Vega 2.0 release notes](https://developer.amazon.com/docs/vega/2.0/vega-release-notes#textinput-done-and-back-behavior-will-match-stock-react-native)
 document Back as keyboard dismissal; these controlled fields store edits through
 `onChangeText`, so dismissal does not depend on a submit callback. This does not
@@ -89,9 +91,9 @@ claim that the system Done key passed its focus check.
 
 The fixture retains a bounded `input-focus-diagnostic.json` trace for name and
 address dismissal and the first three username-reveal navigation keys. It
-records timestamps, keyboard window visibility, scoped native focus checks and
-field bounds, with no text, descriptions, raw hierarchy or images. Observation
-duration is recorded; progress after instrumentation alone is not a product fix.
+records timestamps, the original window ID, scoped Done observations and request
+durations from the validation itself. It makes no extra UI queries and retains
+no editor text, descriptions, raw hierarchy or images.
 
 The harness still uses bounded D-pad navigation to reveal off-screen controls
 and requires actual native focus before selecting application buttons. Text

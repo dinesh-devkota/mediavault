@@ -1,9 +1,9 @@
-import React, {useEffect, useRef, useState} from 'react';
-import {AppState, StyleSheet, Text, View} from 'react-native';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {AppState, BackHandler, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {useTVEventHandler} from '@amazon-devices/react-native-kepler';
 import {AudioTrack, AudioTrackList, KeplerCaptionsView, KeplerVideoSurfaceView, TextTrack, TextTrackList, VideoPlayer, VTTCue} from '@amazon-devices/react-native-w3cmedia';
 import {MediaItem, PlaybackResource, ViewingState} from '../domain/model';
-import {SubtitleCue} from '../domain/subtitles';
+import {SubtitleCue, subtitleLanguageName} from '../domain/subtitles';
 import {Action, colors, shared} from './Controls';
 import {PlayerSession} from './PlayerSession';
 import {SubtitleSelection} from './PlaybackTracks';
@@ -13,6 +13,8 @@ export interface LoadedSubtitle { label: string; language: string; cues: Subtitl
 const textAt = (list: TextTrackList, index: number): TextTrack | undefined => (list as TextTrackList & {[key: number]: TextTrack | undefined})[index];
 const textChoices = (list: TextTrackList): (TextTrack | undefined)[] => Array.from({length: list.length}, (_, index) => textAt(list, index));
 const audioAt = (list: AudioTrackList, index: number): AudioTrack | undefined => (list as AudioTrackList & {[key: number]: AudioTrack | undefined})[index];
+interface SubtitleChoice { id: string; label: string; selected: boolean }
+
 let previousPlayerRelease: Promise<void> = Promise.resolve();
 export function Player({item, resume, load, releaseResource, subtitles, onProgress, onClose, next, onNext, autoNext, onAutoNext}: {
   item: MediaItem; resume?: ViewingState; load: () => Promise<PlaybackResource>;
@@ -29,7 +31,9 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   const [paused, setPaused] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [trackLabels, setTrackLabels] = useState<string[]>([]);
+  const [trackChoices, setTrackChoices] = useState<SubtitleChoice[]>([]);
+  const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
+  const [returnToSubtitles, setReturnToSubtitles] = useState(false);
   const [audioLabels, setAudioLabels] = useState<string[]>([]);
   const [countdown, setCountdown] = useState<number>();
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -50,19 +54,49 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
     // commands here too would apply the same physical press twice.
   });
   useEffect(() => {
-    if (paused || status || error || seekWarning || countdown !== undefined) { setControlsVisible(true); return; }
+    if (paused || status || error || seekWarning || subtitleMenuOpen || countdown !== undefined) { setControlsVisible(true); return; }
     const timer = setTimeout(() => setControlsVisible(false), 6000);
     return () => clearTimeout(timer);
-  }, [paused, status, error, seekWarning, countdown, interaction]);
+  }, [paused, status, error, seekWarning, subtitleMenuOpen, countdown, interaction]);
+  const closeSubtitleMenu = useCallback(() => {
+    setSubtitleMenuOpen(false); setReturnToSubtitles(true);
+    setInteraction(value => value + 1);
+  }, []);
+  useEffect(() => {
+    if (!subtitleMenuOpen) { return; }
+    const handler = BackHandler.addEventListener('hardwareBackPress', () => { closeSubtitleMenu(); return true; });
+    return () => handler.remove();
+  }, [closeSubtitleMenu, subtitleMenuOpen]);
+  const chooseSubtitle = (id: string | null): void => {
+    if (!player) { return; }
+    const choices = textChoices(player.textTracks);
+    if (id !== null && !choices.some(track => track?.id === id && track.mode != null)) { return; }
+    subtitleSelection.current.select(choices, id);
+    const showing = new Set(choices.filter(track => track?.mode === 'showing').map(track => track!.id));
+    setTrackChoices(current => current.map(option => ({...option, selected: showing.has(option.id)})));
+    closeSubtitleMenu();
+  };
   useEffect(() => {
     const configuration = startConfiguration.current;
     const video = new VideoPlayer();
     const tracks = (): void => {
-      subtitleSelection.current.reconcile(textChoices(video.textTracks));
-      const text = Array.from({length: video.textTracks.length}, (_, i) => textAt(video.textTracks, i)?.label || textAt(video.textTracks, i)?.language || `Subtitles ${i + 1}`);
-      const audio = Array.from({length: video.audioTracks.length}, (_, i) => audioAt(video.audioTracks, i)?.label || audioAt(video.audioTracks, i)?.language || `Audio ${i + 1}`);
-      setTrackLabels(current => JSON.stringify(current) === JSON.stringify(text) ? current : text);
-      setAudioLabels(current => JSON.stringify(current) === JSON.stringify(audio) ? current : audio);
+      const nativeTracks = textChoices(video.textTracks);
+      subtitleSelection.current.reconcile(nativeTracks);
+      const text = nativeTracks.flatMap((track, index): SubtitleChoice[] => {
+        const mode = track?.mode;
+        if (!track || mode == null) { return []; }
+        const language = track.language ?? '';
+        const label = track.label?.trim();
+        const title = label && label.toLowerCase() !== language.toLowerCase() ? label : subtitleLanguageName(language);
+        return [{id: track.id, label: title || `Track ${index + 1}`, selected: mode === 'showing'}];
+      });
+      const audio = Array.from({length: video.audioTracks.length}, (_, i) => {
+        const track = audioAt(video.audioTracks, i);
+        return track?.label || track?.language || `Audio ${i + 1}`;
+      });
+      setTrackChoices(current => current.length === text.length && current.every((option, i) =>
+        option.id === text[i]!.id && option.label === text[i]!.label && option.selected === text[i]!.selected) ? current : text);
+      setAudioLabels(current => current.length === audio.length && current.every((label, i) => label === audio[i]) ? current : audio);
     };
     const session = new PlayerSession(video, {
       ...configuration,
@@ -90,7 +124,7 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
       },
       progress: (current, total, ended) => callbacks.current.onProgress(current, total, ended),
       ended: () => { if (callbacks.current.next && callbacks.current.autoNext) { setCountdown(10); } },
-      failed: message => { setError(message); setReady(false); setTrackLabels([]); setAudioLabels([]); },
+      failed: message => { setError(message); setReady(false); setTrackChoices([]); setSubtitleMenuOpen(false); setAudioLabels([]); },
     });
     const trackChanges = (): void => { if (session.active) { tracks(); } };
     video.textTracks.addEventListener('addtrack', trackChanges);
@@ -111,6 +145,18 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
     const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
     return () => clearTimeout(timer);
   }, [countdown]);
+  const subtitleOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const choice of trackChoices) { counts.set(choice.label, (counts.get(choice.label) ?? 0) + 1); }
+    const labels = new Map<string, number>();
+    return trackChoices.map(choice => {
+      if (counts.get(choice.label) === 1) { return choice; }
+      const index = (labels.get(choice.label) ?? 0) + 1;
+      labels.set(choice.label, index);
+      return {...choice, label: `${choice.label} (${index})`};
+    });
+  }, [trackChoices]);
+  const selectedSubtitle = subtitleOptions.find(choice => choice.selected);
   const time = (seconds: number): string => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}` : '0:00';
   return <View style={styles.page}>
     {binding && <>
@@ -127,13 +173,20 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
       <Text style={shared.text} testID="player-position">{time(position)} / {time(duration)}</Text>
       <View style={shared.row}>
         <Action label="Back" preferred={!ready || !!error} onPress={onClose}/>
-        <Action label={paused ? 'Play' : 'Pause'} preferred={ready && !error} disabled={!ready || !!error} onPress={togglePlayback}/>
+        <Action label={paused ? 'Play' : 'Pause'} preferred={ready && !error && !subtitleMenuOpen && (!returnToSubtitles || !trackChoices.length)} disabled={!ready || !!error} onPress={togglePlayback}/>
         <Action label="Back 10 seconds" disabled={!ready || !!error} onPress={() => seek(-10)}/>
         <Action label="Forward 30 seconds" disabled={!ready || !!error} onPress={() => seek(30)}/>
+        {!!trackChoices.length && <Action testID="player-subtitles" label={`Subtitles · ${selectedSubtitle?.label ?? 'Off'}`}
+          preferred={returnToSubtitles && !subtitleMenuOpen} onPress={() => { setReturnToSubtitles(false); setSubtitleMenuOpen(true); }}/>}
       </View>
-      {!!trackLabels.length && <View style={shared.row}>
-        <Action label="Subtitles off" onPress={() => { if (player) { subtitleSelection.current.select(textChoices(player.textTracks), null); } }}/>
-        {trackLabels.map((label, index) => <Action key={index} label={label} onPress={() => { const track = player && textAt(player.textTracks, index); if (player && track) { subtitleSelection.current.select(textChoices(player.textTracks), track.id); } }}/>)}</View>}
+      {subtitleMenuOpen && <ScrollView style={styles.trackMenu} testID="subtitle-menu">
+        <View style={shared.row}>
+          <Action label="Off" testID="subtitle-off" selected={!selectedSubtitle} preferred={!selectedSubtitle} onPress={() => chooseSubtitle(null)}/>
+          {subtitleOptions.map(choice => <Action key={choice.id} label={choice.label} testID={`subtitle-track-${choice.id}`}
+            selected={choice.selected} preferred={choice.id === selectedSubtitle?.id} onPress={() => chooseSubtitle(choice.id)}/>)}
+          <Action label="Done" testID="subtitle-done" onPress={closeSubtitleMenu}/>
+        </View>
+      </ScrollView>}
       {audioLabels.length > 1 && <View style={shared.row}>{audioLabels.map((label, index) => <Action key={index} label={label} onPress={() => { if (player) { for (let i = 0; i < player.audioTracks.length; i++) { const track = audioAt(player.audioTracks, i); if (track) { track.enabled = i === index; } } } }}/>)}</View>}
       {item.kind === 'episode' && <Action label={autoNext ? 'Auto-play next episode: On' : 'Auto-play next episode: Off'} selected={autoNext} onPress={() => { onAutoNext(!autoNext); if (autoNext) { setCountdown(undefined); } }}/ >}
       {next && countdown === undefined && status === 'Finished' && <Action label={`Play next: ${next.title}`} onPress={onNext}/>}
@@ -143,4 +196,4 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   </View>;
 }
 const styles = StyleSheet.create({page: {flex: 1, backgroundColor: '#000'}, heading: {position: 'absolute', top: 20, left: 40, right: 40, padding: 14, backgroundColor: '#000b'},
-  fileName: {fontSize: 18, color: colors.secondary}, controls: {position: 'absolute', left: 40, right: 40, bottom: 20, padding: 20, backgroundColor: '#10131ae8'}});
+  trackMenu: {maxHeight: 240, marginVertical: 8}, fileName: {fontSize: 18, color: colors.secondary}, controls: {position: 'absolute', left: 40, right: 40, bottom: 20, padding: 20, backgroundColor: '#10131ae8'}});

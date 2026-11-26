@@ -369,17 +369,50 @@ opened Xvfb successfully. Full VVD compatibility and elapsed-time savings still
 need the optimized cloud trial. Parallel job scheduling and SDK-state caching are
 deferred; the current job graph, cold devices and complete checks are retained.
 
-Cloud continuation requested November26: the current coding chat runs on the
-owner's Windows computer. Existing GitHub Actions jobs continue independently if
-it shuts down. A cloud coding task has NOT started: `codex cloud exec` with the
-listed runnable Default environment returned "no cloud environments are available
-for this workspace". The older saved CineVault environment reports non-runnable.
-The app's current handoff tool cannot move this chat to cloud. Browser fallback
-was unsigned and its tab disappeared before sign-in. Do not claim autonomous
-coding will continue with this PC off. The owner can start a Cloud chat using a
-usable environment, connect this repository, and continue from this pushed
-verification branch and handoff. A detailed prepared continuation prompt is local
-only at `.artifacts/cloud-continuation-prompt.txt`; it contains no owner credentials.
+Cloud continuation is active in the Linux cloud checkout on
+`codex/mediavault-vega-keyboard-visibility`, starting from `a3d38a4`.
+The earlier Windows handoff attempt could not start a cloud task automatically.
+No owner installation or private NAS is involved in the current validation.
+
+Optimized hosted run `45775231496` at `ee07b52` passed all production
+architectures, native regressions, fixture packaging, production startup and
+stages 01–05 with the reduced virtual-device dependency list. Stage 06 observed
+one 10-second forward seek to 11.245s. Native rejected it with 50004, emitted
+seeked anyway, and the paused clock stayed near 1s. The fixture logged the
+initial full GET and no seek-time byte-range request. Those observations do
+not identify the fault in the native stack, request handling, or container.
+Stages 07–09 remain pending. The standalone run `45775008538` verified fixture
+packet equality and host HTTP ranges, but the probe stayed on the launcher
+and no stock media case ran.
+
+The current verification branch checks the native clock before saving a seek,
+bounds keyboard-window observation without weakening same-window or field
+checks, and uses one verified foreground launch before its standalone MKV/MP4
+probe. Vega's subtitle menu announces and displays the active track, names
+local languages and variants, and keeps Off and explicit track selection stable
+when native tracks arrive or reorder. Local synthetic validation at Node
+22.23.5 passed all 82 app/SDK tests, 23 harness tests and 20 Python package
+contracts, plus typecheck and lint (0 errors, 50 existing warnings).
+
+The catalog review found the rendered Home and collection grids still repeated
+filtering and grouping on viewing-only updates. Both now reuse memoized
+derivations with tests for invalidation when authorization, library contents or
+filters change. On a separate 10,000-item Node fixture, repeated filtered Home
+derivation measured 53.683ms before and 0.008ms after memoization. Actual
+virtual-device frame rate and hardware performance remain separate checks.
+The Release matrix now runs its architecture-independent TypeScript, lint and
+Jest checks once, on x86_64, while every native package retains its own SDK
+doctor, native compilation and package content checks. Superseded PR runs may
+cancel without canceling manual diagnostics. The next native step is the
+corrected standalone seek diagnostic, followed by full simulator acceptance
+of any verified playback remedy. No release job is authorized.
+
+Dropbox PR #30 merged into development at `312b9ade` after all exact synthetic
+checks passed. OneDrive iPhone PR #24 merged into the iPhone feature parent at
+`03b00e929d33114c5a1760c063c9296aaf2fb3dd` after its exact iPhone and Apple
+TV checks passed. The iPhone parent still has its separate development
+reconciliation. The blocked Fire/Vega drafts must pass their current gates
+before any development merge.
 
 ### Earlier Fire validation and investigations
 

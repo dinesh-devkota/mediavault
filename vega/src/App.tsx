@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {AppState, BackHandler, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {TVFocusGuideView} from '@amazon-devices/react-native-kepler';
 import {platformServices} from './native/platform';
@@ -16,10 +16,11 @@ import {GridFocusAnchor} from './ui/GridFocus';
 import {PhotoViewer} from './ui/PhotoViewer';
 import {Player} from './ui/Player';
 import {SourceEditor} from './ui/SourceEditor';
-import {useCatalog} from './ui/useCatalog';
+import {useCatalog, useFilteredCatalog} from './ui/useCatalog';
 
 type Page = 'home' | 'sections' | 'search' | 'sources' | 'source' | 'add-source' | 'ignored' | 'collections' | 'collection' | 'collection-settings' | 'membership' | 'group' | 'season' | 'detail' | 'photo' | 'player' | 'profiles' | 'unlock' | 'add-profile' | 'filters' | 'add-to-collection';
 interface Route { page: Page; id?: string; folder?: string; season?: number; posterFocus?: GridFocusAnchor }
+const emptyPersonal = emptyProfileLibrary();
 const newID = (): string => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
 const sectionLabels: Record<MediaKind, string> = {movie: 'Movies', documentary: 'Documentaries', episode: 'TV shows', music: 'Music', photo: 'Photos'};
 
@@ -62,10 +63,15 @@ const MediaVaultApp = () => {
   const scanAbort = useRef<AbortController | undefined>(undefined);
   const profile = library?.profiles.find(value => value.id === profileId);
   const storedPersonal = library?.profileLibraries[profileId ?? ''];
-  const personal = storedPersonal ?? emptyProfileLibrary();
+  const personal = storedPersonal ?? emptyPersonal;
   const {available, groups, collections: collectionList} = useCatalog(library?.items, library?.sources, profile, unlocked, storedPersonal?.collections);
+  const {filtered, homeGroups} = useFilteredCatalog(available, groups, {
+    query, sections, genres, watchlist: watchlistOnly ? personal.watchlist : undefined,
+  });
   const canManage = unlocked && profile?.admin === true;
   const collection = collectionList.find(value => value.id === route.id || value.personalId === route.id);
+  const collectionItems = route.page === 'collection' ? collection?.items : undefined;
+  const collectionGridGroups = useMemo(() => collectionItems ? groupLibrary(collectionItems) : [], [collectionItems]);
   const group = groups.find(value => value.id === route.id);
   const item = available.find(value => value.id === route.id);
   const source = canManage ? library?.sources.find(value => value.id === route.id) : undefined;
@@ -234,8 +240,6 @@ const MediaVaultApp = () => {
     {selectingHome && <><Action label="Collections" compact onPress={() => navigate({page: 'collections'})}/>
       <Action label="Done selecting" compact onPress={() => { setSelecting(false); setSelected(new Set()); }}/></>}
     {unlocked && <Action label={profile?.name ?? 'Profiles'} onPress={lock}/>}</View></View>;
-  const filtered = available.filter(value => (!watchlistOnly || personal.watchlist.includes(value.id)) && (!sections.length || sections.includes(value.kind)) && (!genres.length || genres.some(genre => value.genres.includes(genre)))
-    && (!query.trim() || `${value.title} ${value.seriesTitle ?? ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
   return <TVFocusGuideView style={shared.page} key={session}>
     {header}
     {busy && <Text style={shared.subtitle} aria-live="polite">{busy}</Text>}
@@ -253,7 +257,7 @@ const MediaVaultApp = () => {
         <Action label="Select titles" compact onPress={() => { setSelecting(true); setSelected(new Set()); }}/>
       </View>}
       {!library.sources.length && canManage && <View style={shared.panel}><Text style={shared.heading}>Your media, together</Text><Text style={shared.subtitle}>Add a NAS, WebDAV folder, or Jellyfin server to get started.</Text><Action label="Add source" preferred onPress={() => navigate({page: 'add-source', id: newID()})}/></View>}
-      {(library.sources.length > 0 || !canManage) && <LibraryGrid groups={groupLibrary(filtered)} open={openGroup} loadImage={loadImage} session={session} selecting={selecting} selected={selected} viewing={personal.viewing} restoreFocus={route.posterFocus}/>}
+      {(library.sources.length > 0 || !canManage) && <LibraryGrid groups={homeGroups} open={openGroup} loadImage={loadImage} session={session} selecting={selecting} selected={selected} viewing={personal.viewing} restoreFocus={route.posterFocus}/>}
     </>}
     {route.page === 'sections' && unlocked && <ScrollView><Text style={shared.heading}>Choose a section</Text>
       <Action label="All media" selected={!sections.length && !watchlistOnly} onPress={() => { setSections([]); setWatchlistOnly(false); back(); }}/>
@@ -299,7 +303,7 @@ const MediaVaultApp = () => {
         {collection.personalId && <><Action label="Manage titles" compact onPress={() => navigate({page: 'membership', id: collection.personalId})}/>
           <Action label="Manage collection" compact onPress={() => { setName(collection.title); navigate({page: 'collection-settings', id: collection.personalId}); }}/></>}
       </View>
-      <LibraryGrid groups={groupLibrary(collection.items)} open={openGroup} loadImage={loadImage} session={session} viewing={personal.viewing} restoreFocus={route.posterFocus}/></>}
+      <LibraryGrid groups={collectionGridGroups} open={openGroup} loadImage={loadImage} session={session} viewing={personal.viewing} restoreFocus={route.posterFocus}/></>}
     {route.page === 'collection-settings' && collection?.personalId && <ScrollView><Text style={shared.heading}>Manage collection</Text>
       <Field label="Collection name" value={name} onChange={setName}/><View style={shared.row}><Action label="Save name" onPress={() => {
         const proposed = name.trim(); if (!proposed || proposed.length > 80 || personal.collections.some(value => value.id !== collection.personalId && value.name.toLowerCase() === proposed.toLowerCase())) { setError('Choose a unique name between 1 and 80 characters.'); return; }

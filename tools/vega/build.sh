@@ -3,17 +3,32 @@ set -euo pipefail
 
 target="${1:-aarch64}"
 configuration="${2:-Release}"
+app_checks="${3:---verify-app}"
 case "$target" in armv7|aarch64|x86_64) ;; *) echo 'Choose armv7, aarch64 or x86_64.' >&2; exit 2;; esac
 case "$configuration" in Debug|Release) ;; *) echo 'Choose Debug or Release.' >&2; exit 2;; esac
+case "$app_checks" in
+  --verify-app) ;;
+  --shared-app-checks-by-x86)
+    if [[ "$configuration" != Release || "$target" == x86_64 || "${GITHUB_ACTIONS:-}" != true ]]; then
+      echo 'Shared checks can be delegated only by the hosted ARM Release matrix jobs.' >&2
+      exit 2
+    fi
+    ;;
+  *) echo 'Choose --verify-app or --shared-app-checks-by-x86.' >&2; exit 2 ;;
+esac
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$HOME/vega/env"
 cd "$repo/vega"
 python3 "$repo/tools/vega/stage-fixture.py" --check-production
 npm ci
 vega project doctor
-npm run typecheck
-npm run lint
-npm run test:domain
+# These checks read one locked TypeScript tree and have no architecture inputs.
+# All matrix jobs still verify their SDK and native/JS package contents.
+if [[ "$app_checks" == --verify-app ]]; then
+  npm run typecheck
+  npm run lint
+  npm run test:domain
+fi
 
 # Build the separate native package before the application's autolink step.
 (cd native && vega build -t "$target" -b "$configuration" --cmakeFlags=-DMEDIAVAULT_VVD_FIXTURE=OFF)

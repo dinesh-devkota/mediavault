@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {activateKeyboardClear} from './keyboard-clear.mjs';
+import {keyboardApp, keyboardDone, keyboardVisibilityReader, simulatorVisibilityRpc, waitForKeyboardDismissal}
+  from './keyboard-observation.mjs';
 
 // Real Appium/Vega automation, using Amazon's documented W3C endpoints and JSON-RPC D-pad API.
 // https://developer.amazon.com/docs/vega/2.0/appium-sessions
@@ -26,17 +28,17 @@ let startupProbe = startupCheckOnly ? {outcome: 'not-completed'} : null;
 const results = [];
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const elementKey = 'element-6066-11e4-a52e-4f735466cecf';
-async function command(method, path, body) {
+async function command(method, path, body, timeoutMs = 45_000) {
   const response = await fetch(server + path, {method, headers: {'Content-Type': 'application/json'},
-    body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(45_000)});
+    body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs)});
   const payload = await response.json();
   if (!response.ok || payload.value?.error) { throw new Error(payload.value?.message ?? `Appium command failed (${response.status}).`); }
   return payload.value;
 }
-const call = (method, path, body) => command(method, `/session/${session}${path}`, body);
+const call = (method, path, body, timeoutMs) => command(method, `/session/${session}${path}`, body, timeoutMs);
 const literal = value => { assert(!value.includes("'"), 'Test selectors use fixed synthetic values.'); return `'${value}'`; };
 const byID = id => `//*[@test_id=${literal(id)}]`;
-const exists = async xpath => (await call('POST', '/elements', {using: 'xpath', value: xpath})).length > 0;
+const exists = async (xpath, timeoutMs) => (await call('POST', '/elements', {using: 'xpath', value: xpath}, timeoutMs)).length > 0;
 const homeToolbar = ['library-section', 'library-search'];
 const posterGroups = '//*[starts-with(@test_id,"media-group-")]';
 async function homePresent() {
@@ -71,19 +73,14 @@ async function nativeFocused(xpath) {
   const value = await call('GET', `/element/${matches[0][elementKey]}/attribute/UiObject:focused`);
   return value === 'true';
 }
-async function nativeDisplayed(id) {
-  // Same RPC as the pinned driver's displayed endpoint. That endpoint converts
-  // a missing result to false; retain unknown here so stale/unsupported queries
-  // cannot prove keyboard closure. executeRpc returns the full RPC envelope.
-  try {
-    const response = await call('POST', '/execute/sync', {script: 'jsonrpc: visibilityOf', args: [[{id: Number(id)}]]});
-    if (response?.error || !Array.isArray(response?.result?.visiblePortions)) { return null; }
-    return response.result.visiblePortions.length > 0;
-  } catch { return null; }
-}
-const keyboardApp = "//app[@appName='com.amazon.silverstone']";
+const keyboardRpcPort = process.env.MEDIA_VAULT_E2E_KEYBOARD_RPC_PORT;
+assert(!keyboardRpcPort || fixtureBuild, 'Direct native visibility is reserved for the disposable simulator fixture.');
+const readKeyboardVisibility = keyboardVisibilityReader(keyboardRpcPort
+  ? simulatorVisibilityRpc(keyboardRpcPort)
+  : (id, timeoutMs) => call('POST', '/execute/sync', {script: 'jsonrpc: visibilityOf', args: [[{id}]]}, timeoutMs));
+const nativeDisplayed = async id => (await readKeyboardVisibility(id)).displayed;
 async function displayedKeyboardWindow() {
-  if (!await exists(keyboardApp + byID('key_Done'))) { return null; }
+  if (!await exists(keyboardDone)) { return null; }
   const windows = await call('POST', '/elements', {using: 'xpath', value: keyboardApp + '//window'});
   for (const window of windows) {
     const id = window[elementKey];
@@ -94,53 +91,9 @@ async function displayedKeyboardWindow() {
 const inputFocusTrace = [];
 async function traceInputFocus(phase, target, detail = {}) {
   if (!fixtureBuild || inputFocusTrace.length >= 16) { return; }
-  const sample = {phase, target, ...detail, startedAt: new Date().toISOString()};
-  inputFocusTrace.push(sample);
-  // Read-only, bounded diagnostics for address dismissal -> username reveal.
-  // Never request text, descriptions, raw hierarchy or images here. Samples
-  // are sequential observations, not an atomic snapshot; retain their duration.
-  const app = `//app[@appName=${literal(packageId)}]`;
-  const ime = "//app[@appName='com.amazon.silverstone']";
-  const find = xpath => call('POST', '/elements', {using: 'xpath', value: xpath});
-  const safe = async read => { try { return await read(); } catch { return null; } };
-  try {
-    sample.donePresent = await exists(byID('key_Done'));
-    sample.doneObservedAt = new Date().toISOString();
-    const windows = await find(ime + '//window');
-    sample.imeWindowCount = windows.length;
-    sample.imeWindows = [];
-    for (const match of windows.slice(0, 2)) {
-      const id = match[elementKey];
-      // The pinned driver maps the documented displayed endpoint to native
-      // visibilityOf. No UiObject:visible attribute exists. Unsupported window
-      // queries remain null, never evidence that the keyboard closed.
-      // https://developer.amazon.com/docs/vega/2.0/appium-commands#is_displayed
-      sample.imeWindows.push({id, displayed: await nativeDisplayed(id)});
-    }
-    sample.focus = {};
-    for (const [scope, path] of [['app', app], ['ime', ime]]) {
-      const candidates = await find(path + "//*[@focused='true']");
-      const objects = [];
-      for (const match of candidates.slice(0, 4)) {
-        const id = match[elementKey];
-        const nativeFocused = await safe(async () =>
-          await call('GET', `/element/${id}/attribute/UiObject:focused`) === 'true');
-        objects.push({id, nativeFocused});
-      }
-      // Candidates come from publisher state; native RPC independently checks
-      // each. No claim that this enumerates every natively focused object.
-      sample.focus[scope] = {serializedCount: candidates.length, objects};
-    }
-    const targets = await find(app + byID(target));
-    sample.targetCount = targets.length;
-    sample.targetBounds = [];
-    for (const match of targets.slice(0, 2)) {
-      const id = match[elementKey];
-      const rect = await safe(() => call('GET', `/element/${id}/rect`));
-      sample.targetBounds.push({id, rect: rect && {x: rect.x, y: rect.y, width: rect.width, height: rect.height}});
-    }
-  } catch { sample.observationFailed = true; }
-  sample.finishedAt = new Date().toISOString();
+  // Record the observations the journey already made. Extra native reads
+  // around Back previously stalled the Appium queue and delayed validation.
+  inputFocusTrace.push({phase, target, ...detail, observedAt: new Date().toISOString()});
   await writeFile(resolve(output, 'input-focus-diagnostic.json'), JSON.stringify(inputFocusTrace, null, 2))
     .catch(() => console.log('[Vega journey] Input focus diagnostics unavailable; assertions unchanged.'));
 }
@@ -155,7 +108,7 @@ async function assertNoFatalOverlay() {
 }
 async function dismissFixtureWarning() {
   await assertNoFatalOverlay();
-  if (!fixtureBuild || await exists(byID('key_Done'))) { return false; }
+  if (!fixtureBuild || await exists(keyboardDone)) { return false; }
   const app = `//app[@appName=${literal(packageId)}]`;
   // findObjects returns UI object IDs. The nested <text> XML node has no ID;
   // match its owning text control rather than the serialization-only node.
@@ -185,7 +138,7 @@ async function focusVisible(xpath, openingField = false) {
     if (observe) { await traceInputFocus('after-reveal-key', 'source-username', {code, sequence: tracedKeys, keyStartedAt, keyFinishedAt}); }
   }
   if (openingField) {
-    await waitFor(async () => !await exists(byID('key_Done')),
+    await waitFor(async () => !await exists(keyboardDone),
       'The previous keyboard must close before opening another field.', Math.max(1, deadline - Date.now()));
     if (traceReveal) { await traceInputFocus('reveal-after-done-absence', 'source-username', {absenceObservedAt: new Date().toISOString()}); }
   }
@@ -204,7 +157,7 @@ async function focusVisible(xpath, openingField = false) {
           // A TextInput can open the system keyboard as soon as it receives
           // focus. The keyboard then owns focus, so the field need not retain
           // it. Only field opening accepts this transition; buttons stay strict.
-          await waitFor(async () => await nativeFocused(xpath) || (openingField && await exists(byID('key_Done'))),
+          await waitFor(async () => await nativeFocused(xpath) || (openingField && await exists(keyboardDone)),
             `The remote could not focus the target control: ${xpath}`, Math.max(1, Math.min(1000, deadline - Date.now())));
         } catch (error) {
           if (await dismissFixtureWarning()) { continue; }
@@ -245,8 +198,8 @@ async function enter(id, value, previous = '') {
   // Navigate to the outer TV field, then edit/read its actual native editor.
   // Focusing the inner editor directly may open IME and immediately lose focus.
   await focusVisible(byID(id), true);
-  if (!await exists(byID('key_Done'))) { await key(96); }
-  await element(byID('key_Done'));
+  if (!await exists(keyboardDone)) { await key(96); }
+  await element(keyboardDone);
   const target = await element(editorPath);
   const secret = /password|pin/.test(id);
   const replacementTrace = [];
@@ -319,17 +272,20 @@ async function enter(id, value, previous = '') {
   await key(158);
   const keyFinishedAt = new Date().toISOString();
   if (traceDismissal) {
-    await traceInputFocus('after-back', id, {code: 158, keyStartedAt, keyFinishedAt, activeKeyboardWindow,
-      activeWindowDisplayed: await nativeDisplayed(activeKeyboardWindow)});
+    await traceInputFocus('after-back', id, {code: 158, keyStartedAt, keyFinishedAt, activeKeyboardWindow});
   }
-  // Latch the window that was positively visible before Back. Its validated
-  // native visibility must become false; a missing publisher entry or unknown
-  // native response alone cannot satisfy closure.
-  await waitFor(async () => await nativeDisplayed(activeKeyboardWindow) === false && !await exists(byID('key_Done')),
-    'The same system keyboard window did not become hidden after Back.');
-  if (traceDismissal) {
-    await traceInputFocus('after-keyboard-hidden', id, {activeKeyboardWindow, activeWindowDisplayed: false,
-      closureObservedAt: new Date().toISOString()});
+  const observations = [];
+  try {
+    await waitForKeyboardDismissal({
+      windowId: activeKeyboardWindow,
+      readVisibility: readKeyboardVisibility,
+      isDonePresent: timeoutMs => exists(keyboardDone, timeoutMs),
+      onObservation: observation => {
+        if (traceDismissal && observations.length < 8) { observations.push(observation); }
+      },
+    });
+  } finally {
+    if (traceDismissal) { await traceInputFocus('keyboard-closure-observations', id, {activeKeyboardWindow, observations}); }
   }
   assert(await exists(byID(id)), `Dismissing the keyboard must keep the same form field: ${id}`);
   if (!/password|pin/.test(id)) {
@@ -497,7 +453,7 @@ try {
       'Cold start must give the empty library Add source action native focus.');
     await capture('01-cold-start-focus');
     await key(96); await element(byID('source-name'));
-    assert.equal(await exists(byID('key_Done')), false, 'Opening the source form must not start text entry.');
+    assert.equal(await exists(keyboardDone), false, 'Opening the source form must not start text entry.');
     await key(158);
     await waitFor(async () => await homePresent() && !await exists(byID('source-name')),
       'Back from the unused source form must return to the Home toolbar.');
@@ -623,8 +579,14 @@ try {
     await click('action-play'); await click('action-auto-play-next-episode-off');
     await waitFor(() => exists(byID('action-stop-after-this-episode')), 'Episode completion must offer a cancellable countdown.', 40_000);
     await click('action-stop-after-this-episode'); await element(byID('action-play-next-fixture-show'));
-    await element(byID('action-en')); await element(byID('action-es'));
-    assert.equal(await exists(byID('action-de')), false, 'An oversized subtitle must be skipped while valid language choices remain available.');
+    await click('player-subtitles');
+    const subtitleChoice = label => `//*[starts-with(@test_id,'subtitle-track-') and @description='${label}']`;
+    await element(subtitleChoice('English'));
+    assert.equal(await exists(subtitleChoice('German')), false, 'An oversized subtitle must be skipped while valid language choices remain available.');
+    await clickXPath(subtitleChoice('Spanish'));
+    await element(byID('player-subtitles') + "[@description='Subtitles · Spanish']");
+    await click('player-subtitles'); await click('subtitle-off');
+    await element(byID('player-subtitles') + "[@description='Subtitles · Off']");
     await sleep(11000); assert.match(await text('player-file-name'), /S01E01/, 'Stopping the countdown must leave the current episode.');
     await click('action-play-next-fixture-show');
     await waitFor(async () => (await call('GET', '/source')).includes('Fixture Show.S01E02.mp4'), 'Manual Play Next must open episode two.');

@@ -22,9 +22,14 @@ printf '{"glAccelerationRequested":%s,"sdkDefaultGraphics":%s}\n' "$graphics_ena
 bash tools/vega/check-package.sh "$package" production x86_64 >"$evidence/production-package-validation.json"
 bash tools/vega/check-package.sh "$fixture_package" fixture x86_64 >"$evidence/fixture-package-validation.json"
 nas_pid=''; appium_pid=''; fixture_log_pid=''; virtual_device_verified=false
+keyboard_rpc_port=48383
+keyboard_rpc_forwarded=false
 cleanup() {
   [[ -z "$fixture_log_pid" ]] || kill "$fixture_log_pid" 2>/dev/null || true
   if [[ "$virtual_device_verified" == true ]]; then
+    if [[ "$keyboard_rpc_forwarded" == true ]]; then
+      timeout --kill-after=2s 5s vega exec vda forward --remove "tcp:$keyboard_rpc_port" >/dev/null 2>&1 || true
+    fi
     # LoggingCtl resolves access from already-installed apps. Query after the
     # journeys (before stopping the disposable device), including stored logs
     # from this fresh boot. A pre-install stream cannot see either new package.
@@ -107,4 +112,9 @@ export MEDIA_VAULT_E2E_PACKAGE_ID=com.dineshdevkota.mediavault.vvdfixture
 export MEDIA_VAULT_E2E_STARTUP_CHECK_ONLY=0
 export MEDIA_VAULT_E2E_NAS_ENDPOINT=smb://127.0.0.1:1445/MEDIALIBRARY
 export MEDIA_VAULT_E2E_OUTPUT="$evidence/fixture"
+# The pinned Vega driver connects to Automation Toolkit on the device's
+# TCP 8383. Keep read-only keyboard visibility independent of its queue.
+vega exec vda forward "tcp:$keyboard_rpc_port" tcp:8383
+keyboard_rpc_forwarded=true
+export MEDIA_VAULT_E2E_KEYBOARD_RPC_PORT="$keyboard_rpc_port"
 node vega/e2e/library-journey.mjs

@@ -8,7 +8,7 @@ export function Action({label, onPress, preferred = false, disabled = false, sel
 }) {
   const [focused, setFocused] = useState(false);
   return <Pressable role="button" aria-label={label} accessibilityHint={hint ?? (label === 'Back' ? 'Returns to the previous screen.' : undefined)} testID={testID ?? 'action-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} hasTVPreferredFocus={preferred}
-    disabled={disabled} onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+    accessibilityState={selected ? {selected: true} : undefined} disabled={disabled} onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
     style={[styles.action, compact && styles.compactAction, selected && styles.selected, focused && styles.focused, disabled && styles.disabled]}>
     <Text style={[styles.actionText, destructive && {color: colors.danger}, focused && {color: colors.background}]}>{label}</Text>
   </Pressable>;

@@ -14,6 +14,7 @@ test('an oversized and a malformed sidecar do not discard valid sibling language
   });
   const result = await loadMatchingSubtitles(item, [path('de'), path('en'), path('fr'), path('es'), 'Shows/Fixture Show.S01E010.en.srt', 'Other/Fixture Show.S01E01.en.srt'], read, () => {});
   expect(result.map(track => track.language)).toEqual(['en', 'es']);
+  expect(result.map(track => track.label)).toEqual(['English', 'Spanish']);
   expect(result.map(track => track.cues[0]!.text)).toEqual(['English subtitle', 'Spanish subtitle']);
   expect(read.mock.calls.map(call => call[0])).toEqual(['de', 'en', 'fr', 'es'].map(path));
   expect(read).toHaveBeenCalledWith(path('en'), 2 * 1024 * 1024);
@@ -36,4 +37,10 @@ test.each([false, true])('a profile change while reading invalid=%s aborts befor
   });
   await expect(loadMatchingSubtitles(item, ['en', 'es'].map(path), read, () => { if (!active) { throw cancelled; } })).rejects.toBe(cancelled);
   expect(read).toHaveBeenCalledTimes(1);
+});
+
+test('subtitles name regional language, forced and reduced-hearing variants', async () => {
+  const result = await loadMatchingSubtitles(item,
+    [path('pt-br.forced'), path('es.sdh'), path('xho')], async () => subtitle('Caption'), () => {});
+  expect(result.map(track => track.label)).toEqual(['Portuguese (BR) · Forced', 'Spanish · SDH', 'XHO']);
 });

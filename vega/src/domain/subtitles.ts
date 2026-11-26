@@ -4,6 +4,21 @@ import {InvalidTextFileError, utf8Length} from './metadata';
 
 export interface SubtitleCue { start: number; end: number; text: string }
 export interface SubtitleFile { path: string; language?: string; forced: boolean; hearingImpaired: boolean }
+const languageNames: Record<string, string> = {
+  ar: 'Arabic', de: 'German', deu: 'German', en: 'English', eng: 'English',
+  es: 'Spanish', spa: 'Spanish', fr: 'French', fra: 'French', fre: 'French',
+  hi: 'Hindi', it: 'Italian', jpn: 'Japanese', ja: 'Japanese', ko: 'Korean',
+  pt: 'Portuguese', por: 'Portuguese', ru: 'Russian', uk: 'Ukrainian',
+  zh: 'Chinese', zho: 'Chinese', chi: 'Chinese',
+};
+
+export function subtitleLanguageName(code: string): string {
+  const [language, region] = code.toLowerCase().split('-');
+  const name = language ? languageNames[language] : undefined;
+  if (name) { return region ? `${name} (${region.toUpperCase()})` : name; }
+  return code.toUpperCase();
+}
+
 export function matchingSubtitles(item: MediaItem, paths: string[]): SubtitleFile[] {
   const mediaStem = stem(baseName(item.path)).toLowerCase();
   return paths.filter(path => parentPath(path) === parentPath(item.path) && /\.(srt|vtt)$/i.test(path))
@@ -45,7 +60,11 @@ export async function loadMatchingSubtitles(item: MediaItem, paths: string[], re
     try {
       const value = await readText(match.path, 2 * 1024 * 1024); assertActive();
       const cues = parseSubtitles(value);
-      if (cues.length) { result.push({label: match.language ?? 'External subtitles', language: match.language ?? '', cues}); }
+      if (cues.length) {
+        const name = match.language ? subtitleLanguageName(match.language) : 'Subtitle file';
+        const labels = [name, ...(match.forced ? ['Forced'] : []), ...(match.hearingImpaired ? ['SDH'] : [])];
+        result.push({label: labels.join(' · '), language: match.language ?? '', cues});
+      }
     } catch (reason) {
       // A confirmed bad file can be skipped; permission, transport and profile changes cannot.
       assertActive();

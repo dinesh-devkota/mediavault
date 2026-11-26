@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
-import {StyleSheet, Text, View} from 'react-native';
-import {KeplerVideoSurfaceView, VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
+import {Pressable, StyleSheet, Text, View} from 'react-native';
+import type {VideoPlayer} from '@amazon-devices/react-native-w3cmedia';
 
 type Mode = 'paused' | 'playing';
 type Container = 'mkv' | 'mp4';
@@ -10,7 +10,8 @@ interface CaseResult {
   events: Array<{name: string; elapsedMs: number; position: number}>; failures: string[];
 }
 interface Report { diagnosticOnly: true; outcome: 'incomplete' | 'passed' | 'failed'; cases: CaseResult[]; infrastructureError?: string }
-interface Binding { id: string; video: VideoPlayer; attached: boolean; handle?: string }
+type Media = typeof import('@amazon-devices/react-native-w3cmedia');
+interface Binding { id: string; video: VideoPlayer; Surface: Media['KeplerVideoSurfaceView']; attached: boolean; handle?: string }
 const cases: Array<{container: Container; mode: Mode}> = [
   {container: 'mkv', mode: 'paused'}, {container: 'mkv', mode: 'playing'},
   {container: 'mp4', mode: 'paused'}, {container: 'mp4', mode: 'playing'},
@@ -25,10 +26,13 @@ async function bounded<T>(work: Promise<T>, ms: number, label: string): Promise<
 
 export function App() {
   const [binding, setBinding] = useState<Binding>();
-  const [status, setStatus] = useState('Preparing four isolated playback cases');
+  const [started, setStarted] = useState(false);
+  const [status, setStatus] = useState('Waiting to start the isolated comparison');
   const [report, setReport] = useState<Report>({diagnosticOnly: true, outcome: 'incomplete', cases: []});
   useEffect(() => {
+    if (!started) { return; }
     let active = true;
+    setStatus('Loading the native media module');
     const results: CaseResult[] = [];
     const publish = (outcome: Report['outcome'], infrastructureError?: string): void => {
       if (active) { setReport({diagnosticOnly: true, outcome, cases: [...results], ...(infrastructureError ? {infrastructureError} : {})}); }
@@ -39,9 +43,9 @@ export function App() {
       do { checkActive(); if (check()) { return; } await delay(100); } while (Date.now() < deadline);
       throw new Error(label);
     }
-    async function runCase(container: Container, mode: Mode): Promise<void> {
-      const id = `${container}-${mode}`, started = Date.now(), video = new VideoPlayer();
-      const view: Binding = {id, video, attached: false};
+    async function runCase(media: Media, container: Container, mode: Mode): Promise<void> {
+      const id = `${container}-${mode}`, started = Date.now(), video = new media.VideoPlayer();
+      const view: Binding = {id, video, Surface: media.KeplerVideoSurfaceView, attached: false};
       const result: CaseResult = {id, container, mode, passed: false, samples: [], events: [], failures: []};
       let initialized = false;
       const sample = (phase: string): void => {
@@ -124,20 +128,26 @@ export function App() {
     }
     (async () => {
       try {
-        for (const test of cases) { checkActive(); await runCase(test.container, test.mode); }
+        // Prove the probe can mount before loading any native media code.
+        const media = await import('@amazon-devices/react-native-w3cmedia');
+        for (const test of cases) { checkActive(); await runCase(media, test.container, test.mode); }
         const outcome = results.every(value => value.passed) ? 'passed' : 'failed';
         publish(outcome); if (active) { setStatus('Complete'); }
       } catch (reason) { publish('failed', String(reason)); if (active) { setStatus('Complete'); } }
     })();
     return () => { active = false; };
-  }, []);
+  }, [started]);
+  const Surface = binding?.Surface;
   return <View style={styles.root}>
-    {binding && <KeplerVideoSurfaceView key={binding.id} scalingmode="fit" style={styles.video}
+    {binding && Surface && <Surface key={binding.id} scalingmode="fit" style={styles.video}
       onSurfaceViewCreated={handle => { binding.handle = handle; binding.video.setSurfaceHandle(handle); binding.attached = true; }}
       onSurfaceViewDestroyed={handle => { binding.attached = false; try { binding.video.clearSurfaceHandle(handle); } catch (_) { /* Already released. */ } }}/ >}
     <Text style={styles.banner} testID="probe-banner">VIRTUAL DEVICE SEEK PROBE - synthetic media only</Text>
     <View style={styles.panel}>
       <Text style={styles.heading}>Direct W3C seek: stock HTTP, fresh player per case</Text>
+      {!started && <Pressable testID="probe-start" role="button" aria-label="Start comparison" hasTVPreferredFocus onPress={() => setStarted(true)} style={styles.start}>
+        <Text style={styles.status}>Start comparison</Text>
+      </Pressable>}
       <Text style={styles.status} testID="probe-status">{status}</Text>
       {report.cases.map(value => <Text key={value.id} style={styles.status}>{value.id}: {value.passed ? 'PASS' : 'FAIL'} ({value.failures.length} failures)</Text>)}
       <Text testID="probe-report" style={styles.machine} numberOfLines={1}>{JSON.stringify(report)}</Text>
@@ -148,4 +158,5 @@ const styles = StyleSheet.create({root: {flex: 1, backgroundColor: '#10131a'},
   video: {position: 'absolute', top: 45, right: 30, width: 320, height: 180},
   banner: {backgroundColor: '#ffd58a', color: '#231900', padding: 8, fontSize: 18, textAlign: 'center'},
   panel: {margin: 24, marginTop: 200}, heading: {fontSize: 26, color: '#f5f5f7', marginBottom: 10},
+  start: {alignSelf: 'flex-start', padding: 12, backgroundColor: '#314665'},
   status: {fontSize: 20, color: '#f5f5f7', marginVertical: 4}, machine: {fontSize: 12, color: '#b6c2d2', marginTop: 12}});

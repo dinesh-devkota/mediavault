@@ -101,6 +101,53 @@ test('rejected paused seek acknowledges the native position without ending playb
   expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 32, seekWarning: undefined}));
 });
 
+test('a nearby clamped target is unconfirmed when native rejected it and playback merely reached it', async () => {
+  const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
+  value.raw.position = 98.8; value.emit('timeupdate');
+  value.raw.acceptSeek = false; session.seek(30);
+  expect(value.seeks).toEqual([100]);
+  await jest.advanceTimersByTimeAsync(1600);
+  value.raw.position = 99.9; value.emit('seeked');
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({
+    position: 99.9, seekWarning: expect.stringContaining('could not be reached'),
+  }));
+  expect(value.options.failed).not.toHaveBeenCalled();
+});
+
+test('an ineffective boundary press leaves a failed resume checkpoint protected', async () => {
+  const value = make(); value.raw.acceptSeek = false;
+  const session = value.create({resume: {position: 25, duration: 100, watched: false, updatedAt: 1}});
+  session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush(); value.emit('seeked');
+  session.seek(-10);
+  expect(value.seeks).toEqual([25]);
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({seekWarning: expect.stringContaining('saved position')}));
+  value.raw.position = 1; value.emit('timeupdate'); await jest.advanceTimersByTimeAsync(5000); await session.stop();
+  expect(value.options.progress).not.toHaveBeenCalled();
+});
+
+test('an unsettled app seek keeps later screen presses from replacing its native operation', async () => {
+  const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
+  value.raw.position = 1; value.emit('timeupdate');
+  value.raw.acceptSeek = false; value.raw.seeking = true;
+  session.seek(30); session.seek(-10);
+  expect(value.seeks).toEqual([31]);
+  value.raw.position = 31; value.raw.seeking = false; value.emit('seeked');
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 31, seekWarning: undefined}));
+  value.raw.acceptSeek = true; session.seek(-10);
+  expect(value.seeks).toEqual([31, 21]);
+});
+
+test('delayed and repeated SDK seeking events retain the pre-jump origin and defer progress writes', async () => {
+  const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
+  value.raw.position = 1; value.emit('timeupdate'); session.toggle();
+  value.raw.position = 11; value.emit('seeking'); value.emit('seeking');
+  await jest.advanceTimersByTimeAsync(5000);
+  expect(value.options.progress).not.toHaveBeenCalled();
+  value.emit('seeked');
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 11, paused: true, seekWarning: undefined}));
+  expect(value.options.progress).toHaveBeenLastCalledWith(11, 100, false);
+});
+
 test('missing seek completion is bounded and a later valid seek recovers without reinitializing', async () => {
   const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
   value.raw.position = 1; value.emit('timeupdate'); session.toggle();
