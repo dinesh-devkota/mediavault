@@ -306,15 +306,46 @@ async function enter(id, value, previous = '') {
   }
 }
 async function text(id) { return call('GET', `/element/${await element(byID(id))}/text`); }
+const sourcesHeading = "//*[@role='text' and text='Your sources']";
+async function requirePlaybackHome(message, section) {
+  const sectionAction = section === undefined ? null : byID('library-section') + `[@description=${literal(section)}]`;
+  await waitFor(async () => await homePresent() && await exists(byID('action-sources'))
+    && !await exists(sourcesHeading) && !await exists(byID('action-add-source')) && !await exists(byID('source-name'))
+    && (!sectionAction || await exists(sectionAction)), message);
+}
 async function addSource(name, address) {
-  await click('action-sources'); await click('action-add-source'); await click('action-nas-smb');
+  await requirePlaybackHome(`Home must be active before opening Sources to add ${name}.`);
+  await click('action-sources'); await element(sourcesHeading);
+  await click('action-add-source'); await click('action-nas-smb');
   await enter('source-name', name); await enter('source-address', address);
   await enter('source-username', 'cinevault'); await enter('source-password', 'fixture-only');
   await click('source-connect'); await click('source-save');
+  const scanStatus = byID(`source-scan-${name}`);
   await waitFor(async () => {
-    const page = await call('GET', '/source'); return page.includes('Last scan:') && !page.includes('Last scan: Never');
-  }, 'The first scan must complete without pressing Scan again.', 120_000);
-  await click('action-back');
+    if (!await exists(sourcesHeading) || await exists(byID('source-name'))) { return false; }
+    const matches = await call('POST', '/elements', {using: 'xpath', value: scanStatus});
+    if (matches.length !== 1) { return false; }
+    const status = await call('GET', `/element/${matches[0][elementKey]}/text`);
+    return typeof status === 'string' && /^SMB · Last scan: (?!Never\s*$)\S/.test(status)
+      && !await exists(byID('action-stop-scan'));
+  }, `The new ${name} source must finish its first scan on Sources without pressing Scan again.`, 120_000);
+  // Back leaves the verified Sources route without retargeting a focusable header button.
+  await key(158);
+  await requirePlaybackHome(`Back from the finished ${name} scan must return to Home and close Sources.`);
+  console.log(`[Vega journey] Verified the ${name} scan and return to Home`);
+}
+async function playFixtureDetail(title, filename) {
+  const detailMatches = async () => await exists(byID('detail-title')) && await exists(byID('detail-file-name'))
+    && await text('detail-title') === title && await text('detail-file-name') === filename;
+  await waitFor(detailMatches, `The exact ${filename} detail must be open before selecting Play.`);
+  const play = await focusVisible(byID('action-play'));
+  assert(await detailMatches(), `Focusing Play must keep the exact ${filename} detail active.`);
+  assert.equal(await call('GET', `/element/${play}/enabled`), true, `Play must be enabled for ${filename}.`);
+  assert.equal(await call('GET', `/element/${play}/attribute/UiObject:focused`), 'true',
+    `Play for ${filename} must own native focus immediately before Select.`);
+  console.log(`[Vega journey] Selecting focused Play for ${filename}`);
+  await key(96);
+  assert.equal(await text('player-file-name'), filename, `Select must open the real player for ${filename}.`);
 }
 async function assertNoPlayerError() {
   if (await exists(byID('player-error'))) { throw new Error(await text('player-error')); }
@@ -571,8 +602,8 @@ try {
   });
   await step('06-mp4-remote-playback', async () => {
     await addSource('Formats NAS', endpoint.replace(/MEDIALIBRARY$/, 'FORMATPLAYBACK'));
-    await clickXPath('//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Seek Controls.mp4")]'); await click('action-play');
-    assert.equal(await text('player-file-name'), 'Seek Controls.mp4');
+    await clickXPath('//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Seek Controls.mp4")]');
+    await playFixtureDetail('Seek Controls', 'Seek Controls.mp4');
     await waitFor(async () => await position() >= 1, 'The real MP4 decoder must advance.', 40_000);
     await waitFor(() => nativeFocused(byID('action-pause')),
       'The ready player must give Pause native focus before any helper assigns it.');
@@ -708,9 +739,16 @@ try {
   });
   await step('07-continuous-television', async () => {
     await addSource('Playback NAS', endpoint.replace(/MEDIALIBRARY$/, 'MEDIAPLAYBACK'));
-    await click('library-section'); await click('action-tv-shows'); await click('media-group-show:fixture show|'); await click('action-season-1');
+    await click('library-section'); await element("//*[@role='text' and text='Choose a section']");
+    await click('action-tv-shows'); await requirePlaybackHome('The TV shows section must reopen Home.', 'TV shows');
+    await click('media-group-show:fixture show|');
+    await waitFor(async () => await exists("//*[@role='text' and text='Fixture Show']")
+      && await exists("//*[@role='text' and text='Choose a season']"), 'The exact Fixture Show must open its season picker.');
+    await click('action-season-1');
+    await element("//*[@role='text' and text='Fixture Show · Season 1']");
     await clickXPath('//*[starts-with(@test_id,"item-open-") and contains(@test_id,"Fixture Show.S01E01.mp4")]');
-    await click('action-play'); await click('action-auto-play-next-episode-off');
+    await playFixtureDetail('Fixture Show', 'Fixture Show.S01E01.mp4');
+    await click('action-auto-play-next-episode-off');
     await waitFor(() => exists(byID('action-stop-after-this-episode')), 'Episode completion must offer a cancellable countdown.', 40_000);
     await click('action-stop-after-this-episode'); await element(byID('action-play-next-fixture-show'));
     await click('player-subtitles');
