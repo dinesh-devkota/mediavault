@@ -292,14 +292,13 @@ subsequent photo navigation fix completed the signed preview as recorded below.
   covered scoped Files access and the WebDAV and Plex journeys. The synthetic
   Plex fixture uses bounded worker-thread TLS, with an idle-connection regression.
   [Google Drive #7](https://github.com/dinesh-devkota/mediavault/pull/7)
-- Emby #17 `c967ca4` includes merged Android NFS and restores the reconnect
-  prompt for an expired Emby token. Its previous `274e4f8` passed 121 Android TV,
-  20 Android phone, and 272 Apple TV cases. Its iPhone run passed 268 of 269,
-  including native Emby direct and HLS seeking. The only failure was a TLS
-  timeout in the synthetic OneDrive device-code fixture. The new fixture uses
-  bounded worker handshakes and a trusted HTTPS regression with an idle TCP peer.
-  The refreshed Android candidate passed 283 local cases with three optional
-  live-server skips, and all 28 Python fixture tests passed.
+- Emby #17 merged at `61e90aa` with the exact tested `c967ca4` tree. It restores
+  an owner reconnect prompt on Android for expired Emby credentials. All six
+  hosted workflows passed, including 122 Android TV, 20 Android phone, 272
+  Apple TV, 269 iPhone, and 84 Swift Core cases, plus both unsigned Apple builds.
+  Native Emby direct and HLS seek passed on the Apple simulators. The repaired
+  synthetic OneDrive device-code sign-in and playback test also passed, together
+  with its idle TLS peer regression.
   [Emby #17](https://github.com/dinesh-devkota/mediavault/pull/17)
 - Fire TV and Vega #20 `f8a5247` includes merged NFS, Apple previews, and Drive.
   The prior `36b8a08` passed production startup, all ten Vega runtime cases,
