@@ -22,6 +22,9 @@ import com.dineshdevkota.cinevault.family.*
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.nfs.NFS
+import com.dineshdevkota.cinevault.core.ScanExclusions
+import com.dineshdevkota.cinevault.webdav.DavAddress
 import com.dineshdevkota.cinevault.plex.PLEX
 import com.dineshdevkota.cinevault.smb.NasBrowser
 import com.dineshdevkota.cinevault.smb.SmbService
@@ -270,7 +273,8 @@ private fun ProfileEditor(original: HouseholdProfile, onClose: () -> Unit) {
                 }
             } }
             sources.forEach { source -> item(key = source.id) { PermissionFolderPicker(source) { folder ->
-                val grant = FolderAccess(source.id, folder, caseSensitive = source.sourceType in setOf("webdav", JELLYFIN, PLEX, ONEDRIVE, GOOGLE_DRIVE_DOCUMENTS))
+                val grant = FolderAccess(source.id, folder, caseSensitive =
+                    source.sourceType in setOf("webdav", JELLYFIN, PLEX, ONEDRIVE, GOOGLE_DRIVE_DOCUMENTS, NFS))
                 if (grant !in draft.folders) draft = draft.copy(folders = draft.folders + grant)
             } } }
             item { RatingSelector("US movies", FamilyPolicy.movieRatings, draft.movieLimit) { draft = draft.copy(movieLimit = it) } }
@@ -330,6 +334,7 @@ private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> U
         return
     }
     val container = LocalContext.current.container
+    if (source.sourceType == NFS && container.nfs == null) return
     var expanded by remember { mutableStateOf(false) }
     var path by remember(source.id) { mutableStateOf(source.rootPath.replace('\\', '/').trim('/')) }
     var folders by remember { mutableStateOf(emptyList<String>()) }
@@ -344,6 +349,8 @@ private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> U
             val config = withContext(Dispatchers.IO) { source.config(container.secrets) }
             folders = when {
                 source.sourceType == ONEDRIVE -> container.oneDrive.childFolders(config, path)
+                source.sourceType == NFS -> checkNotNull(container.nfs).browse(config, path)
+                    .filter { it.isDirectory }.map { it.name }
                 config.isDropbox -> container.smb.browseDropbox(config, path, container.family::requireAdmin)
                     .filter { it.isDirectory }.map { it.name }
                 else -> NasBrowser().listFolders(config.copy(rootPath = path))
@@ -358,7 +365,12 @@ private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> U
         if (expanded) {
             Text("${source.name} / ${path.ifBlank { "Share root" }}", color = SecondaryText)
             if (path != source.rootPath.replace('\\', '/').trim('/')) OutlinedButton(onClick = { path = path.substringBeforeLast('/', "") }) { Text("Up one folder") }
-            Button(enabled = ready && !loading, onClick = { onSelect(path); expanded = false }) { Text("Allow this folder and its subfolders") }
+            val grantable = source.sourceType != NFS || path.isEmpty() ||
+                (DavAddress.contains(path, "") && ScanExclusions.normalizeFolder(path) == path)
+            Button(enabled = ready && !loading && grantable, onClick = { onSelect(path); expanded = false }) {
+                Text("Allow this folder and its subfolders")
+            }
+            if (ready && !grantable) Text("Choose a different folder for household access.", color = SecondaryText)
             if (loading) Text("Loading folders…", color = SecondaryText)
             folders.forEach { folder -> OutlinedButton(enabled = !loading, onClick = { path = listOf(path, folder).filter(String::isNotEmpty).joinToString("/") }) { Text("$folder ▸") } }
             if (ready && folders.isEmpty()) Text("No subfolders.", color = SecondaryText)

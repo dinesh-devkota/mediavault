@@ -1,0 +1,170 @@
+name: NFS probe
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/nfs-probe.yml
+      - scripts/nfs_readonly_probe.c
+      - scripts/tests/test_nfs_readonly_probe.py
+      - scripts/build_android_nfs.py
+      - android/native-nfs/**
+      - android/app/build.gradle.kts
+      - android/app/src/main/kotlin/com/dineshdevkota/cinevault/nfs/**
+      - android/app/src/main/kotlin/com/dineshdevkota/cinevault/ui/NfsSetupActivity.kt
+      - android/app/src/nfsDevelopmentTest/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  loopback:
+    name: Read-only NFSv3 loopback
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build libnfs 5.0.3 for the fixture
+        run: |
+          archive="$RUNNER_TEMP/libnfs-5.0.3.tar.gz"
+          curl --fail --silent --show-error --location \
+            https://codeload.github.com/sahlberg/libnfs/tar.gz/refs/tags/libnfs-5.0.3 -o "$archive"
+          printf "%s  %s\n" d945cb4f4c8f82ee1f3640893a168810f794a28e1010bb007ec5add345e9df3e "$archive" | sha256sum --check
+          mkdir "$RUNNER_TEMP/libnfs-source"
+          tar -xzf "$archive" --strip-components=1 -C "$RUNNER_TEMP/libnfs-source"
+          cmake -S "$RUNNER_TEMP/libnfs-source" -B "$RUNNER_TEMP/libnfs-build" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_BUILD_TYPE=Release '-DCMAKE_C_FLAGS=-include sys/uio.h'
+          cmake --build "$RUNNER_TEMP/libnfs-build" --parallel 2
+      - name: Build and exercise the read-only probe
+        run: |
+          cc -Wall -Wextra -Werror scripts/nfs_readonly_probe.c \
+            -I"$RUNNER_TEMP/libnfs-source/include" -L"$RUNNER_TEMP/libnfs-build/lib" \
+            -Wl,-rpath,"$RUNNER_TEMP/libnfs-build/lib" -lnfs -o "$RUNNER_TEMP/nfs_readonly_probe"
+          NFS_PROBE="$RUNNER_TEMP/nfs_readonly_probe" \
+            python3 -m unittest discover -v -s scripts/tests -p test_nfs_readonly_probe.py
+
+
+  android-tv:
+    name: Android TV NFS setup and native playback
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Cross-build the separate JNI and libnfs libraries
+        run: |
+          if [ ! -f "$ANDROID_HOME/ndk/28.2.13676358/source.properties" ]; then
+            sdk_manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            test -x "$sdk_manager"
+            "$sdk_manager" --sdk_root="$ANDROID_HOME" "ndk;28.2.13676358"
+          fi
+          python3 scripts/build_android_nfs.py --ndk "$ANDROID_HOME/ndk/28.2.13676358" \
+            --output "$RUNNER_TEMP/android-nfs" --abi x86_64 --abi arm64-v8a
+      - name: Enable KVM for the Android TV emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle --timeout=5
+          test -r /dev/kvm
+          test -w /dev/kvm
+      - name: Start synthetic NFS exports on the host loopback
+        run: |
+          python3 scripts/tests/test_nfs_readonly_probe.py --serve-port 15491 \
+            >"$RUNNER_TEMP/nfs-fixture.log" 2>&1 &
+          echo "$!" >"$RUNNER_TEMP/nfs-fixture.pid"
+          sudo -n -- "$(command -v python3)" scripts/tests/test_nfs_readonly_probe.py \
+            --serve-port 15586 --serve-portmapper 111 --library-media \
+            >"$RUNNER_TEMP/nfs-media-fixture.log" 2>&1 &
+          echo "$!" >"$RUNNER_TEMP/nfs-media-fixture.pid"
+          python3 - <<'PYCODE'
+          import os
+          from pathlib import Path
+          import socket
+          import time
+
+          logs = Path(os.environ["RUNNER_TEMP"])
+          for attempt in range(20):
+              try:
+                  for port in (15491, 15586, 111):
+                      with socket.create_connection(("127.0.0.1", port), timeout=1):
+                          pass
+                  if "NFS portmapper listening on loopback port 111" in (logs / "nfs-media-fixture.log").read_text():
+                      break
+              except OSError:
+                  pass
+              time.sleep(1)
+          else:
+              raise SystemExit("The synthetic NFS fixtures did not start.")
+          PYCODE
+      - name: Exercise native reads, remote setup and seeking in the emulator
+        uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
+        with:
+          api-level: 36
+          target: android-tv
+          arch: x86_64
+          profile: tv_1080p
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: >-
+            cd android && ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest
+            -Pcinevault.nfsDevelopmentLibs="$RUNNER_TEMP/android-nfs/jniLibs"
+            -Pandroid.testInstrumentationRunnerArguments.class=com.dineshdevkota.cinevault.nfs.NfsProviderInstrumentedTest,com.dineshdevkota.cinevault.nfs.NfsMediaInstrumentedTest,com.dineshdevkota.cinevault.nfs.NfsSetupNavigationTest
+            -Pandroid.testInstrumentationRunnerArguments.nfsFixtureHost=10.0.2.2
+            -Pandroid.testInstrumentationRunnerArguments.nfsFixturePort=15491
+            -Pandroid.testInstrumentationRunnerArguments.nfsMediaFixturePort=15586
+            -Pandroid.testInstrumentationRunnerArguments.nfsAppFixture=true
+      - name: Require all named Android TV NFS cases
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          reports = Path("android/app/build/outputs/androidTest-results").rglob("TEST-*.xml")
+          expected = {
+              "mountedExportListsAndReadsNestedFiles",
+              "refusesTraversalSymlinksCaseChangesAndShortResponses",
+              "scopedNativeExportScansAndRendersASeekableMovie",
+              "ownerConnectsChoosesAScopedFolderImportsAndRemovesNativeMedia",
+          }
+          cases = [
+              testcase for report in reports for testcase in ET.parse(report).getroot().iter("testcase")
+              if testcase.get("classname", "").startswith("com.dineshdevkota.cinevault.nfs.")
+          ]
+          observed = {case.get("name") for case in cases}
+          failed = sum(any(case.find(tag) is not None for tag in ("failure", "error", "skipped")) for case in cases)
+          print(f"Android TV NFS fixture: {len(cases)} tests observed, {failed} failed or skipped.")
+          if len(cases) != len(expected) or observed != expected or failed:
+              raise SystemExit(f"Every Android TV NFS fixture must pass. Missing: {sorted(expected - observed)}")
+          PYCODE
+          if grep -H "^NFS fixture protocol error:" "$RUNNER_TEMP/nfs-fixture.log" "$RUNNER_TEMP/nfs-media-fixture.log"; then
+            exit 1
+          fi
+      - name: Retain NFS fixture failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-tv-nfs-fixture-failure
+          retention-days: 5
+          if-no-files-found: ignore
+          path: |
+            android/app/build/outputs/androidTest-results
+            android/app/build/reports/androidTests/connected/debug
+            ${{ runner.temp }}/nfs-fixture.log
+            ${{ runner.temp }}/nfs-media-fixture.log
+      - name: Stop the fixtures
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/nfs-fixture.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/nfs-fixture.pid")" 2>/dev/null || true
+          fi
+          if [ -f "$RUNNER_TEMP/nfs-media-fixture.pid" ]; then
+            sudo -n kill "$(cat "$RUNNER_TEMP/nfs-media-fixture.pid")" 2>/dev/null || true
+          fi

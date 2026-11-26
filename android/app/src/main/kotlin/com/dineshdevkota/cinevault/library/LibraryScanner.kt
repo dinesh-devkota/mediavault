@@ -14,6 +14,8 @@ import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SecretBox
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.importJellyfinLibrary
+import com.dineshdevkota.cinevault.nfs.NFS
+import com.dineshdevkota.cinevault.nfs.NfsDevelopment
 import com.dineshdevkota.cinevault.plex.PLEX
 import com.dineshdevkota.cinevault.plex.PlexException
 import com.dineshdevkota.cinevault.plex.importPlexLibrary
@@ -69,12 +71,18 @@ class LibraryScanner(
             statusFlow.value = "Could not load NAS sources: ${e.message}"
             return
         }
-        for (source in sources) scan(source.id)
+        for (source in sources) {
+            if (source.sourceType != NFS || NfsDevelopment.available) scan(source.id)
+        }
     }
 
     private suspend fun scanLocked(sourceId: String) {
         // Re-read after waiting for the lock: the source may have been edited or deleted meanwhile.
         val source = database.sources().get(sourceId) ?: return
+        if (source.sourceType == NFS && !NfsDevelopment.available) {
+            statusFlow.value = "Could not scan ${source.name}. NFS is unavailable in this build."
+            return
+        }
         statusFlow.value = "Scanning ${source.name}…"
         var partialAdded = 0
         try {
@@ -105,7 +113,7 @@ class LibraryScanner(
                     }
                 }
                 foundPaths.addAll(allowed.map { it.path })
-                val discovered = if (config.isDropbox) progress.found else foundPaths.size
+                val discovered = if (config.isDropbox || config.sourceType == NFS) progress.found else foundPaths.size
                 statusFlow.value = "Scanning ${source.name}: $discovered items in ${progress.folders} folders…"
             }
             val files = scanned.filter { MediaFile.shouldIndex(displayPath(config, it), it.size) &&

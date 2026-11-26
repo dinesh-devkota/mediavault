@@ -17,6 +17,7 @@ import com.dineshdevkota.cinevault.core.MediaKind
 import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.core.TitleMatcher
 import com.dineshdevkota.cinevault.core.WatchRules
+import com.dineshdevkota.cinevault.nfs.NFS
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -44,7 +45,7 @@ data class SourceEntity(
 ) {
     fun includesFile(filePath: String): Boolean {
         if (sourceType == GOOGLE_DRIVE_DOCUMENTS) return DriveDocumentPath.fileID(filePath) != null
-        if (sourceType == "webdav" || sourceType == ONEDRIVE) {
+        if (sourceType == "webdav" || sourceType == ONEDRIVE || sourceType == NFS) {
             return com.dineshdevkota.cinevault.webdav.DavAddress.contains(filePath, rootPath) &&
                 !ScanExclusions.isFileExcluded(filePath, rootPath, ignoredFolders, ignoredFiles, caseSensitive = true)
         }
@@ -62,7 +63,7 @@ data class SourceEntity(
         share = share,
         rootPath = rootPath,
         username = username,
-        password = if (username.isEmpty() || sourceType == ONEDRIVE) "" else secrets.decrypt(encryptedPassword),
+        password = if (username.isEmpty() || sourceType == ONEDRIVE || sourceType == NFS) "" else secrets.decrypt(encryptedPassword),
         ignoredFolders = ignoredFolders,
         ignoredFiles = ignoredFiles,
         sourceType = sourceType, allowInsecureHttp = allowInsecureHttp,

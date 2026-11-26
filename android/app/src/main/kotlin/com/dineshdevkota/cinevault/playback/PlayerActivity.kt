@@ -442,8 +442,11 @@ class PlayerActivity : ComponentActivity() {
         }
         val files = if (jellyfin != null) jellyfinDataSources(jellyfin.connection, jellyfin.playback, authorize = authorizeProviderRead)
         else DataSource.Factory { SmbDataSource(authorize = {
-            val active = this.target?.movie
-            check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
+            if (target.config?.sourceType == com.dineshdevkota.cinevault.nfs.NFS) authorizeProviderRead()
+            else {
+                val active = this.target?.movie
+                check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
+            }
         }) {
             check(container.family.isCurrent(householdSession) && container.family.permits(target.movie)) { "Your household session has locked." }
             target.plex?.let { PlexRemoteHandle(it.client, it.part, authorizeProviderRead) } ?: run {
@@ -1003,6 +1006,10 @@ class PlayerActivity : ComponentActivity() {
             }
             if (config.sourceType == ONEDRIVE) return Uri.Builder().scheme(ONEDRIVE).authority(config.id)
                 .apply { path.split('/').forEach(::appendPath) }.build()
+            if (config.sourceType == com.dineshdevkota.cinevault.nfs.NFS) {
+                return Uri.Builder().scheme("nfs").authority("media")
+                    .apply { path.split('/').forEach(::appendPath) }.build()
+            }
             if (config.isDropbox) {
                 return Uri.Builder().scheme("dropbox").authority("media")
                     .apply { path.split('/').forEach(::appendPath) }.build()

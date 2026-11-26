@@ -170,9 +170,12 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   Hosted emulator checks use a disposable HTTPS fixture. Signed-in QA on a real
   Plex server and provider transcoding remain open.
   [Plex](https://github.com/dinesh-devkota/mediavault/pull/5)
-- NFS has loopback tests and an opt-in Android debug bridge for four ABIs.
-  The app source, both TV playback journeys, tvOS packaging and distribution
-  licensing review remain open.
+- NFS has a local, opt-in Android debug source with owner-only export browsing,
+  setup, reconnect and removal. Its native fixture covers import, exact subtitle
+  selection, photo and range reads, and household authorization. A complete
+  Android emulator journey, Apple TV app integration, and release distribution
+  licensing remain open. The Android release package excludes the native
+  libraries.
   [NFS](https://github.com/dinesh-devkota/mediavault/pull/8)
 - OneDrive, Dropbox and Google Drive have separate provider clients and tests.
   The Android OneDrive draft includes encrypted refresh records, scoped catalog
