@@ -78,7 +78,12 @@ Production startup probes in runs `45726677998` and `45728952472` confirmed the
 exact unsupported-storage state, hidden library and enabled Retry. The fixture
 app opened NAS setup and accepted text. Test automation now reads the real input
 editor, navigates with the remote, and dismisses only the observed SDK Debug
-warning overlay. No complete library journey has passed yet.
+warning overlay. Exact hosted run `45793850904` passed all synthetic library,
+subtitle, playback and household journeys on the virtual device. Its MP4
+fixture verified four seeks while paused, resume, and native captions.
+The pinned MKV playback path decodes but reports native error 50004 when
+seeking. The app preserves the verified playback position on rejection.
+[Hosted simulator evidence](https://github.com/dinesh-devkota/mediavault/actions/runs/45793850904)
 
 The player waits for the native video surface before opening a
 stream, reads real player state when optional events are absent, and explicitly

@@ -243,13 +243,22 @@ and licensing review.
 [Emby #17](https://github.com/dinesh-devkota/mediavault/pull/17)
 · [NFS #8](https://github.com/dinesh-devkota/mediavault/pull/8)
 
-Apple privacy draft `e5269e7` bundles the policy for offline access on Apple TV
-and iPhone and checks the exact shipped resources in both unsigned builds.
-Distribution requires an active Apple Developer team, signed archives, current
+Apple privacy PR #14 merged into development at `2157a415` after both
+simulators opened the bundled policy from the locked profile picker. Both
+unsigned Apple releases verified the manifest and the bundled policy.
+Distribution requires an active Apple Developer team, signed archives,
 App Store Connect metadata, provider rights, and review access to test media.
 The names visible in the apps are MediaVault. Renaming the existing GitHub
 repository requires a connection with Administration write permission.
 [Apple readiness #14](https://github.com/dinesh-devkota/mediavault/pull/14)
+
+Post-merge validation of `1f819609` found an iPhone WebDAV poster test that
+timed out before touching the visible tile and a legacy Apple TV preview
+which reached the secure-storage error screen when built unsigned.
+The reliability draft keeps the real Film-and-Play check, moves the full
+Apple TV development fixture job to the supported macOS runner, and shares
+one ad hoc signed preview and OCR script between both preview workflows.
+[Apple simulator reliability #31](https://github.com/dinesh-devkota/mediavault/pull/31)
 
 ## tvOS submission readiness
 

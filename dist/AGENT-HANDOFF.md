@@ -426,7 +426,12 @@ the wrong-PIN/recovery step. The viewer PIN editor now opens only after
 choosing Add profile PIN. Removing it clears the draft. The household
 journey checks that remote focus leaves the editor closed, selects only the
 intended source grant, then checks allowed and restricted content.
-Device-backed keystore testing remains separate.
+Exact hosted run `45793850904` at `d4fbefd` passed production startup,
+all three architecture builds, the native tests, fixture packaging, and
+every synthetic journey through household filtering and incorrect PIN
+rejection/unlock. Artifact `15105640097` includes the video and subtitle
+journeys and the selected household grant. Device-backed keystore testing
+remains separate.
 
 The current verification branch checks the native clock before saving a seek,
 bounds keyboard-window observation without weakening same-window or field
@@ -447,9 +452,9 @@ virtual-device frame rate and hardware performance remain separate checks.
 The Release matrix now runs its architecture-independent TypeScript, lint and
 Jest checks once, on x86_64, while every native package retains its own SDK
 doctor, native compilation and package content checks. Superseded PR runs may
-cancel without canceling manual diagnostics. The next native step is the
-full simulator acceptance of the clock-confirmation remedy, with separate MP4
-seek and MKV behavior checks. No release job is authorized.
+cancel without canceling manual diagnostics. The hosted app verified the clock-confirmation remedy with separate MP4
+seek and MKV recovery cases. The integrated Fire/Vega pull request still
+runs its own branch checks. No release job is authorized.
 
 Dropbox PR #30 merged into development at `312b9ade` after all exact synthetic
 checks passed. OneDrive iPhone PR #24 merged into the iPhone feature parent at
