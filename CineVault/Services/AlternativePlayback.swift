@@ -222,13 +222,16 @@ struct AlternativePlayerView: View {
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(controller.movie.title).font(.headline).lineLimit(2)
-                    if let episode = controller.movie.episodeInfo { Text("\(episode.seriesTitle) · Season \(episode.season) · Episode \(episode.episode)").font(.caption) }
+                    Text(controller.movie.title).font(.headline).lineLimit(2).foregroundStyle(.white)
+                    if let episode = controller.movie.episodeInfo {
+                        Text("\(episode.seriesTitle) · Season \(episode.season) · Episode \(episode.episode)")
+                            .font(.caption).foregroundStyle(.white.opacity(0.75))
+                    }
                     HStack {
                         Text(Self.time(playback.position)).monospacedDigit().accessibilityIdentifier("alternative-position")
                         ProgressView(value: min(playback.position, playback.duration), total: max(1, playback.duration))
                         Text(Self.time(playback.duration)).monospacedDigit()
-                    }
+                    }.foregroundStyle(.white)
                     #if os(iOS)
                     Slider(value: $seekValue, in: 0...max(1, playback.duration), onEditingChanged: { editing in
                         scrubbing = editing; revealControls()

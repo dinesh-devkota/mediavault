@@ -48,6 +48,22 @@ rejecting a deadline and after a waiter timeout; it adds no extra wait budget.
 That narrow test correction remains under hosted validation. Evidence is under
 `.artifacts/apple-phone-8a15415` in the original worktree.
 
+Fire duplicate run `45726677750` at `c538b89` also exposed an MKV UI-test race:
+after revealing controls, three accessibility preflight queries consumed the
+real five-second visibility window before the Pause tap. Its recording confirms
+the controls appeared and then hid normally. The test now reveals and immediately
+taps the desired playing control; paused-state, actual seeking, option persistence,
+and all touch-target checks remain. Production controls and their timeout are
+unchanged. Evidence is in `.artifacts/apple-phone-c538` and the full test log in
+`.artifacts/apple-phone-c538-full`. The follow-up needs hosted verification.
+
+The same recording exposed a real light-mode contrast issue: the fallback player's
+title and time labels inherited dark text on its black overlay. Both Apple
+platforms now explicitly use white metadata/time text, with lower emphasis for
+the episode caption. Button tint, disabled styling, Dynamic Type, and the hide
+timer retain their existing behavior. The phone journey checks the title while
+paused and its existing subtitle/control screenshot provides visual evidence.
+
 Earlier actual defects are corrected: TCP send completion, VLC parser timeout
 units, pending-pause acknowledgement, synchronous stream revocation, nested
 version navigation, phone collection sizing, focused button contrast and the
