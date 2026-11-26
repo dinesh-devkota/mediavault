@@ -82,7 +82,7 @@ final class JellyfinClientTests: XCTestCase {
         #EXT-X-STREAM-INF:BANDWIDTH=800000
         /Videos/movie/hls/child.m3u8?Api_Key=strip&PlaySessionId=play
         """.utf8)
-        let rewritten = try JellyfinHLSPlaylist.rewrite(manifest) { reference in
+        let rewritten = try MediaHLSPlaylist.rewrite(manifest) { reference in
             let resolved = try client.hlsResource(reference, relativeTo: base, itemID: "movie")
             XCTAssertFalse(resolved.absoluteString.lowercased().contains("api_key"))
             return "/opaque/" + resolved.lastPathComponent

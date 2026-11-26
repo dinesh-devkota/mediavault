@@ -203,7 +203,7 @@ struct TVShowBrowserView: View {
                         NavigationLink(value: episode) {
                             TVShowArtwork(title: number == Int.max ? episode.title : "E\(number) · \(episode.title)",
                                 subtitle: episode.householdWatched ? "Watched" : episode.isInProgress ? "In progress" : "Episode",
-                                path: episode.backdropPath, localMovie: episode, localPath: episode.localBackdropPath, wide: true, focused: focusedItem == key)
+                                path: episode.backdropPath, localMovie: episode, localPath: episode.localBackdropPath, embyMovie: episode, wide: true, focused: focusedItem == key)
                         }
                         .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: key).id(key)
                     }
@@ -233,7 +233,7 @@ struct TVShowBrowserView: View {
                         } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
                                 path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }),
-                                localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedItem == show.id)
+                                localPath: show.episodes.compactMap(\.localPosterPath).first, embyMovie: show.firstEpisode, embySeries: true, focused: focusedItem == show.id)
                         }
                         .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: show.id).id(show.id)
                     }
@@ -321,7 +321,7 @@ struct CollectionPosterRow: View {
                                         TVShowDestination(episodes: show.episodes, initialShowID: show.id)
                                     } label: {
                                         TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
-                                            path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedItem == item.id)
+                                            path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, embyMovie: show.firstEpisode, embySeries: true, focused: focusedItem == item.id)
                                     }
                                     .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: item.id)
                                 }
@@ -351,7 +351,7 @@ struct TVShowRow: View {
                             TVShowDestination(episodes: episodes, initialShowID: show.id)
                         } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
-                                path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedShow == show.id)
+                                path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, embyMovie: show.firstEpisode, embySeries: true, focused: focusedShow == show.id)
                         }
                         .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedShow, equals: show.id)
                     }
@@ -372,6 +372,8 @@ struct TVShowArtwork: View {
     let path: String?
     var localMovie: Movie? = nil
     var localPath: String? = nil
+    var embyMovie: Movie? = nil
+    var embySeries = false
     var wide = false
     var focused = false
     var compact = false
@@ -388,6 +390,8 @@ struct TVShowArtwork: View {
                 .foregroundStyle(CinemaTheme.secondaryText)
                 if let localMovie, let localPath {
                     LocalArtworkView(movie: localMovie, path: localPath, wide: wide)
+                } else if let embyMovie, embyMovie.source?.isEmby == true {
+                    EmbyArtwork(movie: embyMovie, series: embySeries, width: wide ? 780 : 342)
                 } else {
                     AsyncImage(url: TMDB.imageURL(path, size: wide ? "w780" : "w342")) { image in
                         image.resizable().aspectRatio(contentMode: .fill)

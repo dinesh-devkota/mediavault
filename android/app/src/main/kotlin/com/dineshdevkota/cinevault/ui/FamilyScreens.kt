@@ -21,6 +21,7 @@ import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.family.*
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
+import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.nfs.NFS
 import com.dineshdevkota.cinevault.core.ScanExclusions
@@ -273,8 +274,9 @@ private fun ProfileEditor(original: HouseholdProfile, onClose: () -> Unit) {
                 }
             } }
             sources.forEach { source -> item(key = source.id) { PermissionFolderPicker(source) { folder ->
-                val grant = FolderAccess(source.id, folder, caseSensitive =
-                    source.sourceType in setOf("webdav", JELLYFIN, PLEX, ONEDRIVE, GOOGLE_DRIVE_DOCUMENTS, NFS))
+                val grant = FolderAccess(source.id, folder,
+                    caseSensitive = source.sourceType in setOf("webdav", JELLYFIN, PLEX, ONEDRIVE, GOOGLE_DRIVE_DOCUMENTS, NFS, EMBY),
+                )
                 if (grant !in draft.folders) draft = draft.copy(folders = draft.folders + grant)
             } } }
             item { RatingSelector("US movies", FamilyPolicy.movieRatings, draft.movieLimit) { draft = draft.copy(movieLimit = it) } }
@@ -328,8 +330,12 @@ private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> U
         OutlinedButton(onClick = { onSelect("") }) { Text("Allow Google Drive selection · ${source.name}") }
         return
     }
-    if (source.sourceType == JELLYFIN || source.sourceType == PLEX) {
-        val provider = if (source.sourceType == PLEX) "Plex" else "Jellyfin"
+    if (source.sourceType in setOf(JELLYFIN, PLEX, EMBY)) {
+        val provider = when (source.sourceType) {
+            PLEX -> "Plex"
+            EMBY -> "Emby"
+            else -> "Jellyfin"
+        }
         OutlinedButton(onClick = { onSelect("") }) { Text("Allow $provider library · ${source.name}") }
         return
     }

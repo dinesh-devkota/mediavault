@@ -504,7 +504,7 @@ private struct SearchResultsView: View {
                 let key = "show:\(result.id)"
                 NavigationLink(value: SearchShowSelection(result.show)) {
                     TVShowArtwork(title: result.show.title, subtitle: result.subtitle,
-                        path: result.show.posterPath, localMovie: result.show.episodes.first(where: { $0.localPosterPath != nil }), localPath: result.show.episodes.compactMap(\.localPosterPath).first, focused: focusedResult == key)
+                        path: result.show.posterPath, localMovie: result.show.episodes.first(where: { $0.localPosterPath != nil }), localPath: result.show.episodes.compactMap(\.localPosterPath).first, embyMovie: result.show.firstEpisode, embySeries: true, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -516,7 +516,7 @@ private struct SearchResultsView: View {
                 let key = "episode:\(result.id)"
                 NavigationLink(value: result.movie) {
                     TVShowArtwork(title: result.movie.title, subtitle: result.subtitle,
-                        path: result.movie.backdropPath, localMovie: result.movie, localPath: result.movie.localBackdropPath, wide: true, focused: focusedResult == key)
+                        path: result.movie.backdropPath, localMovie: result.movie, localPath: result.movie.localBackdropPath, embyMovie: result.movie, wide: true, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -758,6 +758,8 @@ struct PosterView: View {
                 }
                 if let path = movie.localPosterPath {
                     LocalArtworkView(movie: movie, path: path)
+                } else if movie.source?.isEmby == true {
+                    EmbyArtwork(movie: movie, width: 342)
                 } else if let tag = movie.providerImageTag, let source = movie.source, source.isJellyfin || source.isPlex {
                     ProviderPosterArtwork(movie: movie, tag: tag)
                 } else {

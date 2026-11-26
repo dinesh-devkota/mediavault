@@ -1,7 +1,7 @@
 """Loopback Microsoft device-code and Graph contract fixture for iPhone tests."""
 
 import argparse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from itertools import count
 import json
 from pathlib import Path
@@ -9,6 +9,8 @@ import re
 import ssl
 from threading import Lock
 from urllib.parse import parse_qs, urlsplit
+
+from webdav_fixture import TLSFixtureServer
 
 
 PORT = 18897
@@ -140,14 +142,17 @@ class Handler(BaseHTTPRequestHandler):
         ])
 
 
+class OneDriveFixtureServer(TLSFixtureServer):
+    handshake_log_tag = "onedrive-tls"
+
+
 def main():
     arguments = argparse.ArgumentParser(description=__doc__)
     arguments.add_argument("certificates", type=Path, help="Disposable WebDAV fixture certificate directory")
     options = arguments.parse_args()
     tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     tls.load_cert_chain(options.certificates / "fixture.pem", options.certificates / "fixture-key.pem")
-    with ThreadingHTTPServer(("127.0.0.1", PORT), Handler) as server:
-        server.socket = tls.wrap_socket(server.socket, server_side=True)
+    with OneDriveFixtureServer(("127.0.0.1", PORT), Handler, ssl_context=tls) as server:
         server.serve_forever()
 
 

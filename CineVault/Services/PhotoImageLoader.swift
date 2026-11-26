@@ -62,6 +62,7 @@ actor PhotoImageLoader {
     private let household: HouseholdStore
     private let fileSize: (SourceConfig, String) async throws -> Int64
     private let read: (SourceConfig, String, Int64, Int) async throws -> Data
+    private let readEmby: (SourceConfig, String, Int) async throws -> Data
     private var cache: [CacheKey: CachedImage] = [:]
     private var cacheOrder: [CacheKey] = []
     private var cacheCost = 0
@@ -88,12 +89,17 @@ actor PhotoImageLoader {
 
     init(fileSize: ((SourceConfig, String) async throws -> Int64)? = nil,
          read: ((SourceConfig, String, Int64, Int) async throws -> Data)? = nil,
+         readEmby: ((SourceConfig, String, Int) async throws -> Data)? = nil,
          onQueued: @escaping () -> Void = {}, household: HouseholdStore = .shared) {
         self.household = household
         slots = PhotoLoadSlots(onQueued: onQueued)
         let service = SMBService(timeout: 15)
         self.fileSize = fileSize ?? { try await service.fileSize($0, path: $1) }
         self.read = read ?? { try await service.read($0, path: $1, offset: $2, length: $3) }
+        self.readEmby = readEmby ?? { config, id, width in
+            let connection = try EmbySourceConnection(config: config)
+            return try await connection.client.primaryImage(connection.account, itemID: id, width: width)
+        }
     }
 
     private func cachedImage(for key: CacheKey) -> UIImage? {
@@ -118,8 +124,8 @@ actor PhotoImageLoader {
         let session = household.sessionToken
         func checkAccess() throws {
             guard household.sessionIsCurrent(session),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths,
-                                       entireSourceOnly: config.isPlex) else { throw PhotoLoadingError.unavailable }
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths || config.isPlex,
+                                       entireSourceOnly: config.isPlex || config.isEmby) else { throw PhotoLoadingError.unavailable }
         }
         try checkAccess()
         try Task.checkCancellation()
@@ -155,6 +161,11 @@ actor PhotoImageLoader {
                 let connection = try JellyfinSourceConnection(config: config)
                 let id = try JellyfinSourceConnection.itemID(for: path)
                 bytes = try await connection.client.readPrimaryImage(itemID: id, tag: artworkTag, maxPixels: pixels, account: connection.account)
+                try Task.checkCancellation()
+                try checkAccess()
+            } else if config.isEmby {
+                let item = try EmbySourceConnection.photoID(for: path)
+                bytes = try await readEmby(config, item, min(1920, max(pixels, 64)))
                 try Task.checkCancellation()
                 try checkAccess()
             } else {

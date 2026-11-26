@@ -103,7 +103,7 @@ enum Keychain {
 
     static func get(_ account: String) throws -> String? {
         #if DEBUG
-        if HouseholdPreview.isEnabled {
+        if HouseholdPreview.isEnabled || HouseholdPreview.isEmbyEntry {
             previewLock.lock(); defer { previewLock.unlock() }; return previewValues[account]
         }
         #endif
@@ -111,7 +111,7 @@ enum Keychain {
     }
     static func set(_ value: String, for account: String) throws {
         #if DEBUG
-        if HouseholdPreview.isEnabled {
+        if HouseholdPreview.isEnabled || HouseholdPreview.isEmbyEntry {
             previewLock.lock(); defer { previewLock.unlock() }
             previewValues[account] = value.isEmpty ? nil : value; return
         }
@@ -120,7 +120,7 @@ enum Keychain {
     }
     static func delete(_ account: String) throws {
         #if DEBUG
-        if HouseholdPreview.isEnabled {
+        if HouseholdPreview.isEnabled || HouseholdPreview.isEmbyEntry {
             previewLock.lock(); defer { previewLock.unlock() }; previewValues.removeValue(forKey: account); return
         }
         #endif

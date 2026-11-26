@@ -177,6 +177,7 @@ jobs:
                       "JellyfinAndroidIntegrationTest", "JellyfinSetupNavigationTest",
                       "OneDriveMediaIntegrationTest", "OneDriveSetupNavigationTest", "OneDriveAccountStoreInstrumentedTest",
                       "DropboxSetupNavigationTest",
+                      "EmbyAndroidIntegrationTest", "EmbySetupNavigationTest",
                       "WatchlistMigrationTest", "WatchlistNavigationTest", "NasBrowserIntegrationTest",
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",

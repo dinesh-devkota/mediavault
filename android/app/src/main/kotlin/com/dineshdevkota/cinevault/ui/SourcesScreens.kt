@@ -42,6 +42,7 @@ import com.dineshdevkota.cinevault.cloud.DROPBOX
 import com.dineshdevkota.cinevault.core.NasAddress
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.nfs.NFS
 import com.dineshdevkota.cinevault.plex.PLEX
@@ -78,6 +79,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
                 OutlinedButton(onClick = { DropboxSetupActivity.start(context) }) { Text("Connect Dropbox") }
                 if (driveAvailable) OutlinedButton(onClick = { GoogleDriveSetupActivity.start(context) }) { Text("Add Google Drive") }
                 if (container.nfs != null) OutlinedButton(onClick = { NfsSetupActivity.start(context) }) { Text("Connect NFS") }
+                OutlinedButton(onClick = { EmbySetupActivity.start(context) }) { Text("Connect Emby") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
                     enabled = !scanning && sources.any { it.sourceType != NFS || container.nfs != null },
@@ -113,6 +115,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
                         DROPBOX -> DropboxSetupActivity.start(context, source.id)
                         GOOGLE_DRIVE_DOCUMENTS -> GoogleDriveSetupActivity.start(context, source.id)
                         NFS -> NfsSetupActivity.start(context, source.id)
+                        EMBY -> EmbySetupActivity.start(context, source.id)
                         else -> SourceEditorActivity.start(context, source.id)
                     }
                 },
@@ -153,7 +156,7 @@ private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, avail
 
 fun sourceUrl(source: SourceEntity): String {
     if (source.sourceType == DROPBOX) return "Dropbox / ${source.rootPath}"
-    if (source.sourceType == JELLYFIN || source.sourceType == PLEX) return source.host
+    if (source.sourceType == JELLYFIN || source.sourceType == PLEX || source.sourceType == EMBY) return source.host
     if (source.sourceType == ONEDRIVE) return "OneDrive · ${source.username}"
     if (source.sourceType == GOOGLE_DRIVE_DOCUMENTS) return "Google Drive · Android file picker"
     if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")

@@ -187,6 +187,7 @@ jobs:
               "testWebDAVAuthenticationScanPlaybackAndSeek",
               "testSignInImportDirectPlayAndSeekOverHTTPS",
               "testNegotiatesAuthenticatedHLSWhenDirectPlayIsUnavailable",
+              "testEmbyImportsRendersAndSeeksDirectAndHLSOverHTTPS",
               "testCommonContainersDecodeAndSeekOverGuardedSMB",
               "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey",
               "testCreateEditCollectionAndChooseAlternateVersion",

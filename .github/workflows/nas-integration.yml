@@ -154,12 +154,16 @@ jobs:
               tests = set(passed(json.load(source)["testNodes"]))
           required = {"testCreateEditCollectionAndChooseAlternateVersion",
                       "testMKVRemotePlaybackSeekingSubtitlesAndAudioKeepSession",
-                      "testPrivacyPolicyIsReadableFromTheLockedProfilePicker"}
+                      "testPrivacyPolicyIsReadableFromTheLockedProfilePicker",
+                      "testRemoteOpensEmbySetupAndRequiresAServerBeforeSignIn"}
           if os.environ["UI_ONLY"] != "true":
               required |= {"testCommonContainersDecodeAndSeekOverGuardedSMB",
                            "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey",
                            "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek",
-                           "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot"}
+                           "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot",
+                           "testPlayerRangeReturnsBytesAndSuppressesAResponseAfterAccessChanges",
+                           "testRelayHidesUpstreamReferencesAndStopsDeliveringAfterRevocation",
+                           "testEmbyImportsRendersAndSeeksDirectAndHLSOverHTTPS"}
           missing = sorted(required - tests)
           if missing:
               sys.exit("Required Apple TV fixture cases did not pass: " + ", ".join(missing))
