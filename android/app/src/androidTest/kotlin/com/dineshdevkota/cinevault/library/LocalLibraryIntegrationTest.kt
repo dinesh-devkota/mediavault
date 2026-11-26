@@ -58,18 +58,29 @@ class LocalLibraryIntegrationTest {
 
             val episodeSource = source.copy(id = "episode-source")
             var episodeBytes = "<episodedetails><title>Pilot</title><mpaa>TV-MA</mpaa></episodedetails>".toByteArray()
+            var parentBytes = "<tvshow><title>Show</title><mpaa>TV-G</mpaa></tvshow>".toByteArray()
+            var seasonBytes: ByteArray? = null
             var episodePresent = true
+            var episodeOffline = false
             var parentOffline = false
             val episodeImporter = LocalMetadataImporter(db, SecretBox(), list = { config ->
                 when (config.rootPath) {
-                    "Show/Season 01" -> if (episodePresent) listOf(com.dineshdevkota.cinevault.smb.NasEntry("Show.S01E01.nfo", false)) else emptyList()
+                    "Show/Season 01" -> buildList {
+                        if (episodePresent) add(com.dineshdevkota.cinevault.smb.NasEntry("Show.S01E01.nfo", false))
+                        if (seasonBytes != null) add(com.dineshdevkota.cinevault.smb.NasEntry("season.nfo", false))
+                    }
                     "Show" -> listOf(com.dineshdevkota.cinevault.smb.NasEntry("tvshow.nfo", false))
                     else -> emptyList()
                 }
             }, open = { _, path ->
                 val parent = path.endsWith("tvshow.nfo")
                 if (parent && parentOffline) throw java.io.IOException("Synthetic unavailable parent metadata")
-                val content = if (parent) "<tvshow><title>Show</title><mpaa>TV-G</mpaa></tvshow>".toByteArray() else episodeBytes
+                if (path.endsWith("Show.S01E01.nfo") && episodeOffline) throw java.io.IOException("Synthetic unavailable episode metadata")
+                val content = when {
+                    parent -> parentBytes
+                    path.endsWith("season.nfo") -> requireNotNull(seasonBytes)
+                    else -> episodeBytes
+                }
                 object : com.dineshdevkota.cinevault.smb.RemoteHandle {
                     override val length = content.size.toLong()
                     override fun stream(position: Long) = content.inputStream().apply { skip(position) }
@@ -90,6 +101,36 @@ class LocalLibraryIntegrationTest {
             assertNull("A separate parent read error must not mask confirmed invalid episode metadata", db.movies().get("episode")!!.ageCertification)
             parentOffline = false; episodePresent = false; episodeImporter.importSource(episodeSource.id)
             assertEquals("Confirmed absence can inherit the valid parent rating", "TV-G", db.movies().get("episode")!!.ageCertification)
+
+            for (invalidSidecar in listOf("show", "season")) {
+                episodePresent = true; episodeOffline = false; parentOffline = false
+                episodeBytes = "<episodedetails><title>Saved pilot</title><plot>Saved plot</plot><genre>Drama</genre><mpaa>TV-G</mpaa></episodedetails>".toByteArray()
+                parentBytes = "<tvshow><title>Saved show</title><uniqueid type='tmdb'>44</uniqueid><mpaa>TV-G</mpaa></tvshow>".toByteArray()
+                seasonBytes = "<season><season>1</season></season>".toByteArray()
+                db.movies().update(db.movies().get("episode")!!.copy(isLocked = false))
+                episodeImporter.importSource(episodeSource.id)
+                val saved = db.movies().get("episode")!!
+                assertTrue(FamilyPolicy.allows(child, saved))
+
+                episodeOffline = true; parentOffline = true
+                episodeImporter.importSource(episodeSource.id)
+                assertEquals("Transport failures alone preserve the previous complete import", saved, db.movies().get("episode"))
+
+                parentOffline = false
+                if (invalidSidecar == "show") parentBytes = "<tvshow>".toByteArray() else seasonBytes = "<season>".toByteArray()
+                episodeImporter.importSource(episodeSource.id)
+                val invalid = db.movies().get("episode")!!
+                assertNull("Malformed $invalidSidecar metadata wins over an unavailable episode sidecar", invalid.ageCertification)
+                assertTrue(invalid.certificationFetched)
+                assertFalse(FamilyPolicy.allows(child, invalid))
+                assertEquals(saved.title, invalid.title); assertEquals(saved.overview, invalid.overview)
+                assertEquals(saved.genres, invalid.genres); assertEquals(saved.seriesTitle, invalid.seriesTitle)
+                assertEquals(saved.seriesTmdbId, invalid.seriesTmdbId)
+
+                val manual = saved.copy(isLocked = true, title = "Adult corrected title")
+                db.movies().update(manual); episodeImporter.importSource(episodeSource.id)
+                assertEquals("An adult's manual correction takes precedence", manual, db.movies().get("episode"))
+            }
         } finally { db.close() }
     }
 
