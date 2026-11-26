@@ -111,6 +111,7 @@ jobs:
           xcodebuild "${TEST_ARGS[@]}" test-without-building | tee "$RUNNER_TEMP/tvos-test-output.log" | tail -n 200
           if [[ "$UI_ONLY" != "true" ]]; then
             grep -F "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek]' passed" "$RUNNER_TEMP/tvos-test-output.log"
+            grep -F "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot]' passed" "$RUNNER_TEMP/tvos-test-output.log"
           fi
       - name: Report simulator test results
         if: always()

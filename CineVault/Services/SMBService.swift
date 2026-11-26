@@ -61,11 +61,13 @@ actor SMBService {
 
     private let timeout: TimeInterval?
     private let connect: (SMB2Manager, String) async throws -> Void
+    private let cloudHousehold: HouseholdStore
     private let makeCloud: (CloudFileProvider, SourceConfig) throws -> CloudFileTransport
     private var managers: [SourceConfig: SMB2Manager] = [:]
     private var generations: [UUID: UInt64] = [:]
 
     init(timeout: TimeInterval? = nil,
+         cloudHousehold: HouseholdStore = .shared,
          cloudTransport: @escaping (CloudFileProvider, SourceConfig) throws -> CloudFileTransport = { provider, config in
              switch provider {
              case .oneDrive: return try OneDriveFileSource.transport(config)
@@ -76,6 +78,7 @@ actor SMBService {
              try await manager.connectShare(name: share)
          }) {
         self.timeout = timeout
+        self.cloudHousehold = cloudHousehold
         self.makeCloud = cloudTransport
         self.connect = connect
     }
@@ -345,22 +348,22 @@ actor SMBService {
             throw WebDAVError.invalidPath
         }
         if let provider = config.cloudFileProvider {
-            return try await withCloud(config, provider: provider, path: path) { transport, check in
+            return try await withCloud(config, provider: provider, path: path, allowFolderRoot: true) { transport, check in
                 try await transport.list(path, check: check)
             }
         }
         return try await withWebDAV(config) { try await $0.list(path) }
     }
 
-    private func withCloud<T>(_ config: SourceConfig, provider: CloudFileProvider, path: String,
+    private func withCloud<T>(_ config: SourceConfig, provider: CloudFileProvider, path: String, allowFolderRoot: Bool = false,
                               operation: (CloudFileTransport, @escaping CloudFileTransport.Permission) async throws -> T) async throws -> T {
         let generation = generations[config.id, default: 0]
-        let household = HouseholdStore.shared
+        let household = cloudHousehold
         let session = household.sessionToken
         let check: CloudFileTransport.Permission = {
             try Task.checkCancellation()
             guard household.sessionIsCurrent(session),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: true) else {
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: true, allowFolderRoot: allowFolderRoot) else {
                 throw HouseholdError.denied
             }
         }
@@ -375,7 +378,7 @@ actor SMBService {
     private func scanExactPaths(_ config: SourceConfig, videosOnly: Bool = false, onProgress: MediaScanReporter) async throws -> [RemoteFile] {
         let generation = generations[config.id, default: 0]
         let isCloud = config.cloudFileProvider != nil
-        let household = HouseholdStore.shared
+        let household = cloudHousehold
         let session = household.sessionToken
         func check() throws {
             try Task.checkCancellation()
