@@ -24,6 +24,8 @@ targets:
     platform: tvOS
     sources:
       - path: CineVault
+      - path: docs/PRIVACY.md
+        buildPhase: resources
     dependencies:
       - package: CineVaultCore
       - package: VLCKit

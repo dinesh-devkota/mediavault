@@ -28,6 +28,8 @@ targets:
           - Assets.xcassets
           - Info.plist
       - path: CineVaultiOS/Assets.xcassets
+      - path: docs/PRIVACY.md
+        buildPhase: resources
     dependencies:
       - package: CineVaultCore
       - package: VLCKit

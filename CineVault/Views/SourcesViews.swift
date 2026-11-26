@@ -468,9 +468,7 @@ struct SettingsView: View {
                 Text("Play movies, shows, music and photos from your connected sources. Format support varies by device.")
                     .font(.caption)
                 NavigationLink("Playback library & license") { PlaybackAcknowledgementsView() }
-                #if os(iOS)
-                PhonePrivacyPolicyLink()
-                #endif
+                NavigationLink("Privacy policy") { MediaPrivacyPolicyView() }
                 Text("This product uses the TMDB API but is not endorsed or certified by TMDB.").font(.caption)
             }
         }

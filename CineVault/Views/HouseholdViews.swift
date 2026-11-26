@@ -64,9 +64,11 @@ struct HouseholdPickerView: View {
                     Text("Profiles and permissions stay on this device. Admin manages access in Settings.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                #if os(iOS)
-                PhonePrivacyPolicyLink().font(.caption)
-                #endif
+                NavigationLink("Privacy policy") { MediaPrivacyPolicyView() }
+                    .accessibilityIdentifier("household-privacy-policy")
+                    #if os(iOS)
+                    .font(.caption)
+                    #endif
             }
             #if os(iOS)
             .padding()
@@ -374,9 +376,7 @@ struct HouseholdViewerSettings: View {
                 Text("Admin manages NAS sources, subtitles, metadata and household permissions.").foregroundStyle(.secondary)
                 Button("Enter Admin") { household.lock() }
                 NavigationLink("Media Guide & Help") { MediaGuideView() }
-                #if os(iOS)
-                PhonePrivacyPolicyLink()
-                #endif
+                NavigationLink("Privacy policy") { MediaPrivacyPolicyView() }
             }
         }.navigationTitle("Your profile")
     }
