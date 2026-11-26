@@ -167,16 +167,32 @@ adaptations for API 22. Local checks passed 101 core and 146 app unit cases, wit
 two pre-existing Jellyfin cases requiring their loopback fixture; instrumentation
 compilation and debug lint passed. The Fire matrix now requires 19 cases per API
 22/25/28: the original 13, three Plex transport/catalog/storage checks, and three
-metadata-rating/reset regressions. Hosted execution of that expanded matrix is pending.
+metadata-rating/reset regressions. At `3d78667`, hosted run `45742006243` passed
+19/19 on each of API 22, 25 and 28, with no failures or skips. Fire phone
+`45742006199` passed 12/12. Shared base `96df268` passed Android TV 110/110 and
+phone 12/12. Modern Fire TV runtime is still running; its separate build job hit
+Maven Central HTTP 429 while resolving a test dependency after Kotlin compilation.
+Retry only that failed build job when the containing workflow allows it.
 
 Vega run `45738633627` at `1dad04d` passed every package and native check, but
 notification suppression did not fix focus. Everyone, the scroll container, and
 Add source all stayed unfocused while Back retained focus. Paired screenshots
 alternated between stale Home and current Sources and still omitted rounded
-backgrounds. The next diagnostic compares the exact same verified production and
-fixture packages with the SDK's default graphics acceleration. No library journey
-has passed. Evidence is in `.artifacts/vega-ui-45738633627`; fixture credentials
+backgrounds. Comparison `45742000030` verified both original package ZIP digests,
+booted with SDK-default graphics on Mesa llvmpipe, and reproduced the same focus
+failure and byte-identical screenshot pair. This does not establish behavior on
+a physical GPU. Evidence is in `.artifacts/vega-ui-45738633627` and
+`.artifacts/vega-ui-45742000030`. No library journey has passed; fixture credentials
 and runtime diagnostics do not establish physical-device secure storage.
+
+An independent audit found that the app's long-lived, whole-screen focus guide
+uses `autoFocus` while its route children change; the SDK template does not.
+The current diagnostic candidate removes only that property, retaining the guide,
+session key and all strict focus assertions. SDK 2.0.15159 typecheck, lint (zero
+errors) and all 42 app tests pass. It is not yet a proven runtime fix. If the
+real journeys pass, separately verify cold-start D-pad focus and return navigation
+before adopting a permanent initial-focus policy. If it fails, use a minimal
+official-template reproduction rather than more speculative focus/time-out changes.
 
 Latest verified checkpoint: Fire `5c88fe8` passed Android TV 110/110 (run
 `45735053621`). Android phone 7/7 and Fire compatibility 13/13 on each API

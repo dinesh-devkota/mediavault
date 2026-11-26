@@ -225,7 +225,7 @@ const MediaVaultApp = () => {
     {unlocked && <Action label={profile?.name ?? 'Profiles'} onPress={lock}/>}</View></View>;
   const filtered = available.filter(value => (!watchlistOnly || personal.watchlist.includes(value.id)) && (!sections.length || sections.includes(value.kind)) && (!genres.length || genres.some(genre => value.genres.includes(genre)))
     && (!query.trim() || `${value.title} ${value.seriesTitle ?? ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
-  return <TVFocusGuideView style={shared.page} key={session} autoFocus>
+  return <TVFocusGuideView style={shared.page} key={session}>
     {header}
     {busy && <Text style={shared.subtitle} aria-live="polite">{busy}</Text>}
     {error && <Text style={shared.error} aria-live="polite">{error}</Text>}
