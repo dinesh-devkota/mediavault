@@ -71,7 +71,7 @@ final class HouseholdRemoteTests: XCTestCase {
     @MainActor
     func testOwnerReachesPlexLinkSetupAndCanBackOut() {
         continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["--ui-preview-household"]; app.launch()
+        let app = XCUIApplication(); app.launchArguments = ["--ui-preview-household", "--ui-preview-plex-entry"]; app.launch()
         select(app.buttons["household-profile-Admin"], app)
         let field = app.secureTextFields["household-unlock-pin"]
         select(field, app)
