@@ -154,7 +154,7 @@ jobs:
       - name: Install native Linux virtual-device dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl tar jq build-essential ffmpeg openssl unzip xz-utils lz4 xvfb libgtk-3-0 libgbm1 libnss3 libxkbcommon0 libpulse0 libsdl2-2.0-0
+          sudo apt-get install -y --no-install-recommends curl tar jq build-essential python3 ca-certificates ffmpeg openssl unzip xz-utils lz4 xvfb libgtk-3-0 libgbm1 libnss3 libxkbcommon0 libpulse0 libsdl2-2.0-0 libdecor-0-plugin-1-gtk librsvg2-common
           python -m pip install -r scripts/nas-test-requirements.txt
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -415,7 +415,7 @@ jobs:
         working-directory: .comparison-source
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl tar jq build-essential ffmpeg openssl unzip xz-utils lz4 xvfb libgtk-3-0 libgbm1 libnss3 libxkbcommon0 libpulse0 libsdl2-2.0-0 mesa-utils libgl1-mesa-dri libegl-mesa0
+          sudo apt-get install -y --no-install-recommends curl tar jq build-essential python3 ca-certificates ffmpeg openssl unzip xz-utils lz4 xvfb libgtk-3-0 libgbm1 libnss3 libxkbcommon0 libpulse0 libsdl2-2.0-0 libdecor-0-plugin-1-gtk librsvg2-common mesa-utils libgl1-mesa-dri libegl-mesa0
           python -m pip install -r scripts/nas-test-requirements.txt
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules

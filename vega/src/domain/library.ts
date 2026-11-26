@@ -86,7 +86,8 @@ export interface CollectionGroup extends MediaGroup { personalId?: string; count
 export function collectionGroups(visibleItems: MediaItem[], personal: PersonalCollection[]): CollectionGroup[] {
   const eligible = visibleItems.filter(item => item.kind !== 'photo');
   const groups: CollectionGroup[] = personal.map(collection => {
-    const items = eligible.filter(item => collection.itemIds.includes(item.id));
+    const membership = new Set(collection.itemIds);
+    const items = eligible.filter(item => membership.has(item.id));
     return {id: 'personal:' + collection.id, personalId: collection.id, title: collection.name, items, count: groupLibrary(items).length};
   });
   const series = new Map<string, MediaItem[]>();

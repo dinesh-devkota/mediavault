@@ -201,7 +201,7 @@ ignored season visible. `643cb35` suspends child focus restoration while removin
 content and bounds the handoff. Its full Android TV workflow passed
 (`45722101734`), retaining the real ignored-folder/navigation regression.
 
-## Amazon Fire TV work — November 25, 2026
+## Amazon Fire TV work — November 26, 2026
 
 Remote PR20 head `b98f180` is green across Android/Fire OS: modern TV 120/120
 (run `45748429035`), phone 16/16 (`45748429096`), and API 22/25/28 22/22 each
@@ -236,6 +236,23 @@ The underlying native rejection is still unresolved; removing duplication does
 not establish a fix. Fixture-only bounded numeric relay diagnostics are being
 prepared without paths, tokens, credentials or media content. Stages07-09 continuous
 TV and household/PIN remain unvisited. Evidence: `.artifacts/vega-ui-45768740001`.
+
+Follow-up `fafb05b` implements the player fixes; `b058e51` adds separate native
+remote/on-screen seek assertions and bounded fixture-only video/audio relay traces.
+Run `45774417317` passed all three release packages, fixture packaging and native
+regressions; its native app journey is running. Local native verification covered
+80 cases (five local build guards needed the existing SDK library path and then
+passed); all 69 app/SDK tests and 17 harness contracts passed before optimization.
+The trace is absent from the compiled production host binary and logs at most
+128 fixed-label/numeric records, never paths, tokens, headers or content.
+
+Standalone diagnostic `b7985b8`, run `45775008538`, compares four fresh W3C players:
+MKV/MP4, paused/playing, via stock nginx rather than MediaVault's relay. The MP4
+copies every coded video/audio packet from the unchanged synthetic MKV generator.
+Local SDK build, separate package identity, packet comparisons and exact HTTP
+range bytes passed. Native comparison is running. The new manual-only workflow
+mode skips normal app jobs; a failed diagnostic remains failed and does not count
+as application acceptance. No owner device, NAS or credentials are used.
 
 Earlier `3e4b813`, run `45765161506`, established that FlatList's `library-grid`
 ID is absent from the native publisher. Home/lock predicates now use actual
@@ -319,11 +336,32 @@ Production secure storage cannot be validated by this simulator. No physical
 Vega device is available; do not ask the owner again. Complete media playback,
 continuous viewing and household UI journeys remain unverified on Vega.
 
-Owner follow-up: after finishing the feature fixes and validation, optimize app
-performance, release size and build times using measurements. Read-only measured reviews
-are in `.artifacts/build-optimization-review.md` and the runtime review; implementation
-is deliberately deferred until the current feature checks finish. Preserve test
-coverage and keep protected credentials/private source out of shared build caches.
+The optimization follow-up retains the catalog/group/collection derivations with
+standard React useMemo and replaces repeated collection membership searches with
+Sets. Source, profile, folder/rating, lock and rescan changes still invalidate the
+results immediately; existing resource/session authorization remains independent.
+All 76 app/SDK tests pass, including seven real React lifecycle regressions;
+typecheck passes and lint remains zero errors/50 existing warnings. The current
+immutable update paths were audited. No persistence format or codec change is made.
+
+Synthetic desktop Node22/V8 measurements at 10,000 metadata-rich items and
+20 collections of 250 members: full collection recomputation 49.700 -> 11.828ms;
+whole parent derivation 60.330 -> 23.432ms. A separate React viewing-update benchmark
+(with Sets on both sides) measures 23.181 -> 1.715ms. These isolated measurements
+are not physical TV/Hermes/FPS results and their measured boundaries differ.
+The preserved baseline SHA256 remains
+`ceae9ce031ca3d4ec9493cfed2257ebbb103389bcd79fe4ab44bf990b04d707b`.
+Reports and separate before/after results are in `.artifacts/runtime-catalog-optimization-review.md`.
+
+Runtime build setup now installs required Linux packages without optional
+recommendations, explicitly retaining the two GUI recommendations, Python and CA
+certificates. The measured candidate omits 31,228,552 archive bytes, mostly an
+unrelated speech language model. All existing explicit packages and required Mesa
+OpenGL dependencies remain; the graphics comparison retains its extra explicit
+Mesa/EGL tools. Disposable Ubuntu checks generated all four media fixtures and
+opened Xvfb successfully. Full VVD compatibility and elapsed-time savings still
+need the optimized cloud trial. Parallel job scheduling and SDK-state caching are
+deferred; the current job graph, cold devices and complete checks are retained.
 
 ### Earlier Fire validation and investigations
 

@@ -3,7 +3,7 @@ import {AppState, BackHandler, ScrollView, StyleSheet, Text, View} from 'react-n
 import {TVFocusGuideView} from '@amazon-devices/react-native-kepler';
 import {platformServices} from './native/platform';
 import {BUILD_CONFIG} from './generated/buildConfig';
-import {collectionGroups, createCollection, groupLibrary, MediaGroup, nextEpisode, progressState, versionLabel, visible} from './domain/library';
+import {createCollection, groupLibrary, MediaGroup, nextEpisode, progressState, versionLabel, visible} from './domain/library';
 import {emptyProfileLibrary, HouseholdProfile, LibrarySnapshot, MediaItem, MediaKind, PlaybackResource, ProfileLibrary, Source} from './domain/model';
 import {contains, parentPath} from './domain/paths';
 import {loadMatchingSubtitles} from './domain/subtitles';
@@ -16,6 +16,7 @@ import {GridFocusAnchor} from './ui/GridFocus';
 import {PhotoViewer} from './ui/PhotoViewer';
 import {Player} from './ui/Player';
 import {SourceEditor} from './ui/SourceEditor';
+import {useCatalog} from './ui/useCatalog';
 
 type Page = 'home' | 'sections' | 'search' | 'sources' | 'source' | 'add-source' | 'ignored' | 'collections' | 'collection' | 'collection-settings' | 'membership' | 'group' | 'season' | 'detail' | 'photo' | 'player' | 'profiles' | 'unlock' | 'add-profile' | 'filters' | 'add-to-collection';
 interface Route { page: Page; id?: string; folder?: string; season?: number; posterFocus?: GridFocusAnchor }
@@ -60,12 +61,11 @@ const MediaVaultApp = () => {
   const [folderEntries, setFolderEntries] = useState<Array<{path: string; name: string; directory: boolean}>>([]);
   const scanAbort = useRef<AbortController | undefined>(undefined);
   const profile = library?.profiles.find(value => value.id === profileId);
-  const personal = library?.profileLibraries[profileId ?? ''] ?? emptyProfileLibrary();
-  const available = library?.items.filter(item => visible(item, library.sources.find(source => source.id === item.sourceId), profile, unlocked)) ?? [];
+  const storedPersonal = library?.profileLibraries[profileId ?? ''];
+  const personal = storedPersonal ?? emptyProfileLibrary();
+  const {available, groups, collections: collectionList} = useCatalog(library?.items, library?.sources, profile, unlocked, storedPersonal?.collections);
   const canManage = unlocked && profile?.admin === true;
-  const collectionList = unlocked ? collectionGroups(available, personal.collections) : [];
   const collection = collectionList.find(value => value.id === route.id || value.personalId === route.id);
-  const groups = groupLibrary(available);
   const group = groups.find(value => value.id === route.id);
   const item = available.find(value => value.id === route.id);
   const source = canManage ? library?.sources.find(value => value.id === route.id) : undefined;
