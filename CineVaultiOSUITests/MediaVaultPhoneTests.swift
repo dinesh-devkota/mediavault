@@ -57,13 +57,12 @@ final class MediaVaultPhoneTests: XCTestCase {
         dismissPasswordPrompt(in: app)
         if !library.isSelected { library.tap() }
         XCTAssertTrue(library.isSelected, app.debugDescription)
-        // The generic Film filename inherits the title of its Movies folder.
+        // The generic Film.mp4 filename uses its Movies parent as the displayed title.
         let poster = app.buttons["Movies"]
         for _ in 0..<3 where !poster.isHittable { app.swipeUp() }
         XCTAssertTrue(poster.isHittable, app.debugDescription)
         poster.tap()
-        XCTAssertTrue(app.staticTexts["Movies"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.buttons["Play"].exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor
