@@ -1,5 +1,6 @@
 package com.dineshdevkota.cinevault.playback
 
+import android.net.Uri
 import android.util.Base64
 import android.content.Context
 import androidx.room.Room
@@ -69,7 +70,7 @@ class SmbPlaybackTest {
         val smb = SmbService()
         try {
             val movie = smb.scanVideos(config).single()
-            verifyPlayback(config, movie.path) { smb.open(config, movie.path) }
+            Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, movie.path)) { smb.open(config, movie.path) }
         } finally {
             smb.reset(config.id)
         }
@@ -96,7 +97,7 @@ class SmbPlaybackTest {
         assertEquals("https://10.0.2.2:15443/dav/Movies/Film.mp4", PlayerActivity.filePlaybackUri(config, movie.path).toString())
         val captions = provider.subtitles(config, movie.path, "en")
         assertEquals(1, captions.files.size)
-        verifyPlayback(config, movie.path) { provider.service.open(config, movie.path) }
+        Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, movie.path)) { provider.service.open(config, movie.path) }
     }
 
     @Test
@@ -177,7 +178,7 @@ class SmbPlaybackTest {
             assertEquals("Media/Films/film.en.srt", captions.files.single().match.path)
             assertTrue(captions.files.single().bytes.decodeToString().contains("Dropbox fixture caption."))
             assertTrue(loader.load(photo.id).width > 0)
-            verifyPlayback(config, movie.filePath, authorize) { media.open(config, movie.filePath, authorize) }
+            Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, movie.filePath), authorize) { media.open(config, movie.filePath, authorize) }
             media.open(config, movie.filePath, authorize).use { handle ->
                 handle.stream(8_000).use { stream ->
                     assertTrue(stream.read() >= 0)
@@ -212,9 +213,10 @@ class SmbPlaybackTest {
             .followRedirects(false).followSslRedirects(false)
     }
 
-    private suspend fun verifyPlayback(
-        config: SourceConfig, path: String, authorize: () -> Unit = {}, openFile: () -> RemoteHandle,
-    ) {
+}
+
+internal object Media3FixturePlayback {
+    suspend fun verify(uri: Uri, authorize: () -> Unit = {}, openFile: () -> RemoteHandle) {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             var player: ExoPlayer? = null
             var view: PlayerView? = null
@@ -241,7 +243,7 @@ class SmbPlaybackTest {
                     }
                     // An actual attached SurfaceView exercises decoding/rendering on the emulator.
                     activity.setContentView(view)
-                    exo.setMediaItem(MediaItem.fromUri(PlayerActivity.filePlaybackUri(config, path)))
+                    exo.setMediaItem(MediaItem.fromUri(uri))
                     exo.prepare()
                     exo.play()
                 }

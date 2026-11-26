@@ -19,12 +19,15 @@ trap 'kill "$DROPBOX_PID" 2>/dev/null || true' EXIT
 DROPBOX_CERTIFICATE=$(openssl base64 -A -in "$DROPBOX_FIXTURE/fixture.cer")
 APP_ID="com.dineshdevkota.cinevault"
 PHONE_TEST="$APP_ID.AndroidPhoneNavigationTest"
+PLEX_CASES="$APP_ID.plex.PlexTlsIntegrationTest"
 DROPBOX_MEDIA="$APP_ID.playback.SmbPlaybackTest#dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate"
+PLEX_CERTIFICATE=$(base64 -w0 "$RUNNER_TEMP/phone-plex/fixture.cer")
 cd android
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
-  "-Pandroid.testInstrumentationRunnerArguments.class=$PHONE_TEST,$DROPBOX_MEDIA" \
+  "-Pandroid.testInstrumentationRunnerArguments.class=$PHONE_TEST,$PLEX_CASES,$DROPBOX_MEDIA" \
   "-Pandroid.testInstrumentationRunnerArguments.dropboxCertificate=$DROPBOX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
+  -Pandroid.testInstrumentationRunnerArguments.plexCertificate="$PLEX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.phoneUiFixture=true
 python3 - <<'PY'
 from pathlib import Path
@@ -35,11 +38,13 @@ cases = [case for report in reports for case in ElementTree.parse(report).getroo
 expected = {
     "handheldLauncherOpensSourceFormAndShowsAddressValidation",
     "touchSetupImportsMovieAndPlaysAndSeeksWithNativeControls",
+    "touchNavigationOpensPlexLinking",
+    "ownerConnectsOverTlsAndReadsCatalogAndMediaRange",
     "dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate",
 }
 if len(cases) != len(expected) or {case.get("name") for case in cases} != expected:
     raise SystemExit("All required phone runtime journeys must execute on exactly one emulator.")
 if any(case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")):
     raise SystemExit("Phone runtime journeys failed or skipped.")
-print(f"Android phone: {len(cases)} touch and Dropbox runtime journeys passed.")
+print(f"Android phone: {len(cases)} touch, Plex, and Dropbox runtime journeys passed.")
 PY

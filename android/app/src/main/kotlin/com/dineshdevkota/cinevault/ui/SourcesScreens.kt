@@ -37,6 +37,7 @@ import com.dineshdevkota.cinevault.core.NasAddress
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.plex.PLEX
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -61,6 +62,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
             AdaptiveActions() {
                 Button(onClick = { NasSetupActivity.start(context) }) { Text("Add NAS Source") }
                 OutlinedButton(onClick = { JellyfinSetupActivity.start(context) }) { Text("Connect Jellyfin") }
+                OutlinedButton(onClick = { PlexSetupActivity.start(context) }) { Text("Connect Plex") }
                 OutlinedButton(onClick = { DropboxSetupActivity.start(context) }) { Text("Connect Dropbox") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
@@ -91,6 +93,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
                 onEdit = {
                     when (source.sourceType) {
                         JELLYFIN -> JellyfinSetupActivity.start(context, source.id)
+                        PLEX -> PlexSetupActivity.start(context, source.id)
                         DROPBOX -> DropboxSetupActivity.start(context, source.id)
                         else -> SourceEditorActivity.start(context, source.id)
                     }
@@ -131,7 +134,7 @@ private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onSca
 
 fun sourceUrl(source: SourceEntity): String {
     if (source.sourceType == DROPBOX) return "Dropbox / ${source.rootPath}"
-    if (source.sourceType == JELLYFIN) return source.host
+    if (source.sourceType == JELLYFIN || source.sourceType == PLEX) return source.host
     if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
     return "smb://" + listOf(address.authority, source.share, source.rootPath).filter { it.isNotEmpty() }.joinToString("/")

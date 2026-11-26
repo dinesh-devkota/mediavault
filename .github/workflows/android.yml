@@ -13,6 +13,9 @@ on:
       - "scripts/test_jellyfin_fixture.py"
       - "scripts/dropbox_fixture.py"
       - "scripts/start_dropbox_fixture.sh"
+      - "scripts/start_plex_fixture.sh"
+      - "scripts/plex_fixture.py"
+      - "scripts/tests/test_plex_fixture.py"
       - "CineVaultTests/Fixtures/**"
   pull_request:
     paths:
@@ -26,6 +29,9 @@ on:
       - "scripts/test_jellyfin_fixture.py"
       - "scripts/dropbox_fixture.py"
       - "scripts/start_dropbox_fixture.sh"
+      - "scripts/start_plex_fixture.sh"
+      - "scripts/plex_fixture.py"
+      - "scripts/tests/test_plex_fixture.py"
       - "CineVaultTests/Fixtures/**"
   workflow_dispatch:
 
@@ -99,7 +105,7 @@ jobs:
             echo '::error title=Android emulator acceleration::The runner cannot read and write /dev/kvm after udev settled.'
             exit 1
           fi
-      - name: Start the synthetic SMB, WebDAV and Dropbox fixtures
+      - name: Start the synthetic SMB, WebDAV, Plex, and Dropbox fixtures
         run: |
           set -euo pipefail
           python -m pip install -r scripts/nas-test-requirements.txt
@@ -118,6 +124,8 @@ jobs:
           else:
               raise SystemExit("SMB fixture did not start")
           PY
+      - name: Verify Plex fixture contract
+        run: python3 -m unittest discover -s scripts/tests -p test_plex_fixture.py -v
       - name: Test on Android TV
         uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
         with:
@@ -153,6 +161,7 @@ jobs:
                   detail = detail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
                   print(f"::error title=Android runtime test::{case.get('classname')}.{case.get('name')}: {detail}")
               elif case.find("skipped") is None and (case.get("classname", "").endswith(".JellyfinAndroidIntegrationTest")
+                   or case.get("classname", "").endswith(".PlexTlsIntegrationTest")
                    or case.get("name", "").startswith("dropbox")):
                   print(f"{case.get('classname')}.{case.get('name')} passed")
           required = {"TVNavigationTest", "SecretBoxInstrumentedTest", "LibraryDatabaseTest", "MetadataMutationTest",
@@ -163,10 +172,14 @@ jobs:
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",
                       "SubtitleTracksTest", "SubtitleContinuousPlaybackTest", "HomeCollectionNavigationTest",
-                      "FamilyStoreInstrumentedTest", "FamilyNavigationTest"}
+                      "FamilyStoreInstrumentedTest", "FamilyNavigationTest", "PlexProviderInstrumentedTest",
+                      "PlexSetupNavigationTest"}
           executed = {case.get("classname", "").rsplit(".", 1)[-1] for case in cases}
           identities = [(case.get("classname"), case.get("name")) for case in cases]
           duplicate = len(set(identities)) != len(cases)
+          plex = ("com.dineshdevkota.cinevault.plex.PlexTlsIntegrationTest", "ownerConnectsOverTlsAndReadsCatalogAndMediaRange")
+          if plex not in identities:
+              raise SystemExit("Plex TLS connection did not execute in the Android TV emulator")
           webdav = ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "webDavAuthenticationScanPlaybackAndSeek")
           if webdav not in identities:
               raise SystemExit("WebDAV playback did not execute in the Android TV emulator")
@@ -176,7 +189,7 @@ jobs:
           if not required <= executed or failures or skipped or duplicate:
               raise SystemExit("Required runtime tests did not all execute successfully: " + str(sorted(required - executed)))
           PY
-      - name: Stop the SMB, WebDAV and Dropbox fixtures
+      - name: Stop the SMB, WebDAV, Plex, and Dropbox fixtures
         if: always()
         run: |
           if [[ -f "$RUNNER_TEMP/android-nas-fixture.pid" ]]; then
@@ -201,5 +214,6 @@ jobs:
             ${{ runner.temp }}/jellyfin-android.log
             ${{ runner.temp }}/android-webdav-fixture/server.log
             ${{ runner.temp }}/android-dropbox-fixture/server.log
+            ${{ runner.temp }}/android-plex-fixture/server.log
           if-no-files-found: error
           retention-days: 7
