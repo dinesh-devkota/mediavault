@@ -62,17 +62,18 @@ internal class OneDriveAccount(
     private val store: OneDriveAccountStore,
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
-    private class Access(val token: String, val expires: Long, val revision: Long)
+    private class Access(val token: String, val expires: Long, val revision: Long, val drive: String)
     private class Refresh(val saved: SavedOneDriveAccount, val revision: Long)
 
     private val state = Mutex()
     private val renewal = Mutex()
-    private var revision = 0L
+    @Volatile private var revision = 0L
     private var cached: Access? = null
+    private var pending: SavedOneDriveAccount? = null
 
     suspend fun beginSignIn(): OneDriveClient.Challenge = client.beginSignIn()
 
-    suspend fun link(challenge: OneDriveClient.Challenge) = withContext(Dispatchers.IO) {
+    suspend fun link(challenge: OneDriveClient.Challenge, staged: Boolean = false) = withContext(Dispatchers.IO) {
         val attempt = state.withLock { ++revision }
         val tokens = client.completeSignIn(challenge)
         val refresh = tokens.refreshToken?.takeIf(String::isNotBlank)
@@ -84,16 +85,47 @@ internal class OneDriveAccount(
             if (current != null && current.driveId != drive) {
                 throw CloudClientException("Use the same OneDrive account, or add a separate source.")
             }
-            store.save(source, SavedOneDriveAccount(source.toString(), client.applicationId, drive, refresh))
-            remember(tokens, attempt)
+            val account = SavedOneDriveAccount(source.toString(), client.applicationId, drive, refresh)
+            if (staged) pending = account else {
+                store.save(source, account)
+                pending = null
+            }
+            remember(tokens, attempt, drive)
         }
         Unit
+    }
+
+    suspend fun commitLink(version: Long) = withContext(Dispatchers.IO) {
+        state.withLock {
+            requireCurrent(version)
+            val account = pending ?: throw CloudClientException("Finish signing in to OneDrive.")
+            store.save(source, account)
+            pending = null
+        }
+    }
+
+    suspend fun cancelLink() = withContext(Dispatchers.IO) {
+        state.withLock {
+            if (pending != null) {
+                revision++
+                pending = null
+                cached = null
+            }
+        }
+    }
+
+    suspend fun invalidateReads() {
+        state.withLock {
+            revision++
+            cached = null
+        }
     }
 
     suspend fun disconnect() = withContext(Dispatchers.IO) {
         state.withLock {
             revision++
             cached = null
+            pending = null
             store.remove(source)
         }
     }
@@ -101,19 +133,35 @@ internal class OneDriveAccount(
     suspend fun connectionVersion(): Long = state.withLock { revision }
 
     suspend fun list(folder: String?, version: Long, onPage: suspend (List<OneDriveClient.Entry>) -> Unit) {
-        val access = authorize(version)
-        client.listChildren(folder, access.token) { entries ->
-            state.withLock { requireCurrent(version) }
-            onPage(entries)
+        var pageReceived = false
+        useAccess(version, mayRetry = { !pageReceived }) { access ->
+            client.listChildren(folder, access.token, access.drive) { entries ->
+                state.withLock { requireCurrent(version) }
+                pageReceived = true
+                onPage(entries)
+            }
         }
         state.withLock { requireCurrent(version) }
     }
 
-    suspend fun read(file: String, offset: Long, length: Int, version: Long): ByteArray {
-        val access = authorize(version)
-        val bytes = client.read(file, offset, length, access.token)
+    suspend fun read(file: String, offset: Long, length: Int, version: Long, path: OneDriveClient.ScopedFile? = null): ByteArray {
+        val bytes = useAccess(version) { access -> client.read(file, offset, length, access.token, path) }
         state.withLock { requireCurrent(version) }
         return bytes
+    }
+
+    private suspend fun <T> useAccess(version: Long, mayRetry: () -> Boolean = { true }, action: suspend (Access) -> T): T {
+        val access = authorize(version)
+        return try {
+            action(access)
+        } catch (failure: CloudClientException) {
+            if (failure.statusCode != 401 || !mayRetry()) throw failure
+            state.withLock {
+                requireCurrent(version)
+                if (cached === access) cached = null
+            }
+            action(authorize(version))
+        }
     }
 
     private suspend fun authorize(version: Long): Access = withContext(Dispatchers.IO) {
@@ -125,16 +173,17 @@ internal class OneDriveAccount(
             if (current != null) return@withLock current
             val plan = state.withLock {
                 requireCurrent(version)
-                Refresh(saved() ?: throw CloudClientException("Connect the OneDrive account again."), version)
+                Refresh(pending ?: saved() ?: throw CloudClientException("Connect the OneDrive account again."), version)
             }
             val tokens = client.refresh(plan.saved.refreshToken)
             state.withLock {
                 requireCurrent(plan.revision)
                 val rotated = tokens.refreshToken
                 if (!rotated.isNullOrBlank() && rotated != plan.saved.refreshToken) {
-                    store.save(source, SavedOneDriveAccount(source.toString(), client.applicationId, plan.saved.driveId, rotated))
+                    val renewed = SavedOneDriveAccount(source.toString(), client.applicationId, plan.saved.driveId, rotated)
+                    if (pending == null) store.save(source, renewed) else pending = renewed
                 }
-                remember(tokens, plan.revision)
+                remember(tokens, plan.revision, plan.saved.driveId)
             }
         }
     }
@@ -149,10 +198,10 @@ internal class OneDriveAccount(
         return account
     }
 
-    private fun remember(tokens: OneDriveClient.Credentials, attempt: Long): Access =
-        Access(tokens.accessToken, nowMillis() + tokens.expiresIn * 1000L, attempt).also { cached = it }
+    private fun remember(tokens: OneDriveClient.Credentials, attempt: Long, drive: String): Access =
+        Access(tokens.accessToken, nowMillis() + tokens.expiresIn * 1000L, attempt, drive).also { cached = it }
 
-    private fun requireCurrent(attempt: Long) {
+    fun requireCurrent(attempt: Long) {
         if (revision != attempt) throw CloudClientException("The OneDrive connection changed during the request.")
     }
 }

@@ -60,7 +60,7 @@ internal class OneDriveCatalog(
                         val protected = path.toList()
                         val file = File(entry.id, path.toList(), size) { offset, length ->
                             requireAccess(mayRead(protected))
-                            val bytes = account.read(entry.id, offset, length, version)
+                            val bytes = account.read(entry.id, offset, length, version, OneDriveClient.ScopedFile(root, protected, size))
                             requireAccess(mayRead(protected))
                             bytes
                         }
@@ -79,6 +79,5 @@ internal class OneDriveCatalog(
         if (!allowed) throw CloudClientException("This profile cannot access the selected OneDrive item.")
     }
 
-    private fun validBaseName(name: String): Boolean = name.isNotBlank() && name != "." && name != ".." &&
-        name.none { it == '/' || it == '\\' || it.isISOControl() }
+    private fun validBaseName(name: String): Boolean = isOneDriveFileName(name)
 }

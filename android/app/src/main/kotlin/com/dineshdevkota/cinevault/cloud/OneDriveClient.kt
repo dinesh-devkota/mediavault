@@ -77,9 +77,12 @@ internal class OneDriveClient(
     @Serializable
     private data class Page(val value: List<Entry>, @SerialName("@odata.nextLink") val next: String? = null)
 
+    class ScopedFile(val root: String?, val path: List<String>, val size: Long)
+
     @Serializable
     private data class DownloadItem(
         val id: String,
+        val name: String? = null,
         @SerialName("@microsoft.graph.downloadUrl") val downloadUrl: String? = null,
     )
 
@@ -125,9 +128,12 @@ internal class OneDriveClient(
 
     suspend fun refresh(refreshToken: String): Credentials {
         require(refreshToken.isNotBlank()) { "Sign in to Microsoft again." }
-        return credentials(oauth(
-            "token", "grant_type" to "refresh_token", "refresh_token" to refreshToken, "scope" to SCOPE,
-        ))
+        return try {
+            credentials(oauth("token", "grant_type" to "refresh_token", "refresh_token" to refreshToken, "scope" to SCOPE))
+        } catch (failure: CloudClientException) {
+            if (failure.statusCode !in setOf(400, 401)) throw failure
+            throw CloudClientException("The saved Microsoft sign-in expired. Reconnect OneDrive.", failure.statusCode)
+        }
     }
 
     suspend fun driveIdentity(accessToken: String): String {
@@ -141,6 +147,7 @@ internal class OneDriveClient(
     suspend fun listChildren(
         folder: String? = null,
         accessToken: String,
+        driveId: String? = null,
         onPage: suspend (List<Entry>) -> Unit,
     ) {
         require(folder == null || ITEM_ID.matches(folder)) { "Invalid OneDrive folder ID." }
@@ -152,7 +159,7 @@ internal class OneDriveClient(
         val seen = mutableSetOf<HttpUrl>()
         while (true) {
             currentCoroutineContext().ensureActive()
-            if (seen.size >= 10_000 || !seen.add(next) || !isChildPage(next, requested, folder)) {
+            if (seen.size >= 10_000 || !seen.add(next) || !isChildPage(next, requested, folder, driveId)) {
                 throw CloudClientException("Microsoft returned an invalid folder continuation.")
             }
             val request = Request.Builder().url(next).bearer(accessToken).build()
@@ -165,17 +172,29 @@ internal class OneDriveClient(
         }
     }
 
-    suspend fun read(id: String, offset: Long, length: Int, accessToken: String): ByteArray {
+    suspend fun read(id: String, offset: Long, length: Int, accessToken: String, within: ScopedFile? = null): ByteArray {
         require(ITEM_ID.matches(id)) { "Invalid OneDrive file ID." }
         val end = rangeEnd(offset, length)
-        val url = GRAPH.newBuilder().addPathSegment("items").addPathSegment(id)
-            .addQueryParameter("\$select", "id,@microsoft.graph.downloadUrl").build()
+        val url = GRAPH.newBuilder().apply {
+            if (within == null) addPathSegment("items").addPathSegment(id)
+            else {
+                require(within.path.isNotEmpty() && within.path.all(::isOneDriveFileName))
+                if (within.root == null) addPathSegment("root:")
+                else {
+                    require(ITEM_ID.matches(within.root))
+                    addPathSegment("items").addPathSegment("${within.root}:")
+                }
+                within.path.forEach(::addPathSegment)
+            }
+        }.addQueryParameter("\$select", if (within == null) "id,@microsoft.graph.downloadUrl" else "id,name,@microsoft.graph.downloadUrl").build()
         val item = decode<DownloadItem>(transport.exchange(Request.Builder().url(url).bearer(accessToken).build()))
-        val signed = item.downloadUrl?.toHttpUrlOrNull()?.takeIf { it.isSafeTls() && item.id == id }
+        val signed = item.downloadUrl?.toHttpUrlOrNull()?.takeIf {
+            it.isSafeTls() && item.id == id && (within == null || item.name == within.path.last())
+        }
             ?: throw CloudClientException("Microsoft returned an invalid media download address.")
         val request = Request.Builder().url(signed).header("Range", "bytes=$offset-$end")
             .header("Accept-Encoding", "identity").build()
-        return transport.exchange(request, status = 206, limit = length).verifiedRange(offset, end, length)
+        return transport.exchange(request, status = 206, limit = length).verifiedRange(offset, end, length, within?.size)
     }
 
     private suspend fun oauth(path: String, vararg fields: Pair<String, String>, additionalStatus: Int? = null): CloudResponse {
@@ -201,12 +220,12 @@ internal class OneDriveClient(
         throw CloudClientException("Microsoft returned an invalid OneDrive response.")
     }
 
-    private fun isChildPage(url: HttpUrl, requested: HttpUrl, folder: String?): Boolean {
+    private fun isChildPage(url: HttpUrl, requested: HttpUrl, folder: String?, driveId: String?): Boolean {
         if (!url.isSafeTls() || url.host != GRAPH.host) return false
         if (url.pathSegments == requested.pathSegments) return true
         val parts = url.pathSegments
         return parts.size == 6 && parts[0] == "v1.0" && parts[1] == "drives" && ITEM_ID.matches(parts[2]) &&
-            parts[3] == "items" && ITEM_ID.matches(parts[4]) &&
+            (driveId == null || parts[2] == driveId) && parts[3] == "items" && ITEM_ID.matches(parts[4]) &&
             (folder == null || parts[4] == folder) && parts[5] == "children"
     }
 

@@ -39,7 +39,8 @@ python3 scripts/nas_fixture.py /tmp/cinevault-nas-fixture
 # In another terminal, with the Android TV emulator running:
 cd android
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2
+  -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
+  -Pandroid.testInstrumentationRunnerArguments.notClass=com.dineshdevkota.cinevault.FamilyNavigationTest
 ```
 
 `10.0.2.2` reaches the emulator host's loopback interface. SMB-only tests skip when
@@ -79,24 +80,72 @@ A live account connection still needs a key entered by its owner in the app.
 
 ## OneDrive source fixtures
 
-Android JVM tests cover Microsoft device-code polling, refresh rotation,
-pagination, exact signed download ranges, and rejection of a scan or read
-after access is revoked. The Android runtime suite checks that the refresh
-record is encrypted on disk and remains readable after reopening the store.
-The tvOS client fixtures cover device authorization, Graph pagination, and
-download requests that keep the Graph token on Graph.
+Android JVM fixtures cover device authorization, refresh rotation, Graph pagination,
+and scoped download ranges. Both hosted Android variants exercise source form
+validation and Android Keystore storage with a synthetic account record. The
+integrated fixture drives staged Microsoft sign-in, folder selection, a Room import,
+household restrictions, photo decoding, matching subtitle sidecars, rendered
+Media3 playback, and seeking. It verifies that Graph bearer tokens never reach
+the download host. Test media and OAuth responses stay within the test fixtures.
 
-For a live account test, register a public Microsoft Entra application that
-accepts personal Microsoft accounts. Enable public client flows, configure
-delegated Files.Read, and use the public application ID with a dedicated
-OneDrive test account. The client requests offline_access for refresh.
+For a live test, register a public Microsoft Entra application that accepts
+personal Microsoft accounts. Enable public client flows, add the Microsoft Graph
+delegated `Files.Read` permission, and test with a dedicated OneDrive account.
+Admin enters the public Application (client) ID in Sources. An Android build
+can prefill it through `-Pmediavault.oneDriveClientId=<application-uuid>`.
+The app requests `offline_access` for token refresh. Microsoft handles passwords
+and user approval on its device-code verification page. With Household Profiles
+enabled, leave MediaVault open and complete sign-in on a second device.
 [Microsoft device authorization](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code)
+[OneDrive item addressing](https://learn.microsoft.com/en-us/graph/onedrive-addressing-driveitems)
 [Drive item downloads](https://learn.microsoft.com/en-us/graph/api/driveitem-get-content)
 
-The Android catalog takes an admin-selected root and separate browse and
-read permission checks. The app still needs to bind these checks to the
-active household profile and connect the catalog to TV setup, the library,
-and the player before exposing OneDrive in Sources.
+Verify an Android source can rename, rescan, ignore and restore relative folders
+and files, reconnect the original account, and disconnect. Selecting a different
+root requires a new source and fresh viewer grants. Disconnect removes local
+credentials and indexed history. Microsoft permissions can be withdrawn separately
+from the Microsoft account. Work or school accounts and Shared Shortcuts are
+outside the personal OneDrive connector. Real account and device verification
+requires owner-provided registration and account access.
+
+## Household profile acceptance
+
+Family controls affect authorization, not just layout. Validate both platforms
+using synthetic libraries and isolated profile stores. Never enable test controls,
+seed histories or reset the owner's installed app for instrumentation.
+
+- Enable profiles without altering existing sources, credentials, metadata or owner
+  history. New viewers have empty histories and no access until granted a folder.
+- Check complete path-component matching, source identity, nested folders, aliases,
+  deleted sources and newly connected sources. Similar folder names must not match.
+- Verify movie and TV certifications separately, restrictive selection when TMDB
+  reports multiple US ratings, unknown/unrated handling and photo/audio folder rules.
+  A manual metadata rematch must not retain an old title's certification.
+- Exercise Admin/protected-viewer PIN entry, cancellation, persisted retry delays,
+  damaged or missing secure storage, relaunch and background relocking. A late PIN
+  calculation must not unlock a session that was locked while it was running.
+- Assert restricted titles, artwork, counts and photos are absent from Home, Library,
+  Search, grouped shows, Watchlist, Continue Watching and bulk actions. Direct detail,
+  photo and playback routes must enforce the same policy.
+- Switch or lock during playback, photo reads, subtitle work and the next-episode
+  countdown. Late work must not display old-profile content or save history to the
+  next profile. Back must not reveal the previous person's navigation stack.
+- Check separate Watchlist/watched/resume state, Admin legacy history, migration
+  preservation, and viewer inability to edit sources, metadata or access rules.
+- Keep commercial playback allowance device-wide. Profile switching, deleting a
+  profile or editing watch history must not reset trial usage or purchases.
+
+Run the full Android runtime suite and full Apple simulator suite for these changes;
+UI-only checks are insufficient. The hosted Android workflow first runs the baseline
+suite excluding `FamilyNavigationTest`, archives its results, then clears only the
+disposable emulator's app data and runs that explicit household journey. Both suites
+are required, with zero failures or skips. `scripts/test_android_runtime.sh` refuses
+to run outside GitHub Actions and verifies an emulator before clearing fixture data.
+The journey itself requires `familyUiFixture=true` and an empty app. Do not run that
+journey on an owner's TV or emulator.
+
+Keep synthetic remote screenshots for the profile
+picker and permission editor so focus, readable labels and empty states are reviewed.
 
 ## Further device testing
 

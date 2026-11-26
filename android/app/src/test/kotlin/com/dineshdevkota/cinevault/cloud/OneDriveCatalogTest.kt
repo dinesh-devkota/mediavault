@@ -154,10 +154,10 @@ class OneDriveCatalogTest {
                         """.trimIndent())
                         "/v1.0/me/drive/items/public-folder/children" -> response(request,
                             """{"value":[{"id":"film","name":"Film.mp4","file":{},"size":16}]}""")
-                        "/v1.0/me/drive/items/script" -> response(request,
-                            """{"id":"script","@microsoft.graph.downloadUrl":"https://fixture.example/script"}""")
-                        "/v1.0/me/drive/items/film" -> response(request,
-                            """{"id":"film","@microsoft.graph.downloadUrl":"https://fixture.example/film"}""")
+                        "/v1.0/me/drive/items/root-folder:/Script.ts" -> response(request,
+                            """{"id":"script","name":"Script.ts","@microsoft.graph.downloadUrl":"https://fixture.example/script"}""")
+                        "/v1.0/me/drive/items/root-folder:/Public/Film.mp4" -> response(request,
+                            """{"id":"film","name":"Film.mp4","@microsoft.graph.downloadUrl":"https://fixture.example/film"}""")
                         else -> error("Unexpected folder or file was accessed")
                     }
                 }

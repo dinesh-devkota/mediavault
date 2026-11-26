@@ -6,6 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.core.LibraryEntry
 import com.dineshdevkota.cinevault.core.EpisodeInfo
 import com.dineshdevkota.cinevault.core.EpisodeParser
@@ -36,8 +37,14 @@ data class SourceEntity(
     /** Literal folder paths relative to rootPath; excluded rows retain their history. */
     @ColumnInfo(defaultValue = "'[]'") val ignoredFolders: List<String> = emptyList(),
     @ColumnInfo(defaultValue = "'[]'") val ignoredFiles: List<String> = emptyList(),
+    @ColumnInfo(defaultValue = "'smb'") val sourceType: String = "smb",
+    @ColumnInfo(defaultValue = "0") val allowInsecureHttp: Boolean = false,
 ) {
     fun includesFile(filePath: String): Boolean {
+        if (sourceType == "webdav" || sourceType == ONEDRIVE) {
+            return com.dineshdevkota.cinevault.webdav.DavAddress.contains(filePath, rootPath) &&
+                !ScanExclusions.isFileExcluded(filePath, rootPath, ignoredFolders, ignoredFiles, caseSensitive = true)
+        }
         val path = ScanExclusions.normalizeFile(filePath) ?: return false
         val root = if (rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(rootPath) ?: return false
         return (root.isEmpty() || path.startsWith("$root/", ignoreCase = true)) &&
@@ -51,9 +58,10 @@ data class SourceEntity(
         share = share,
         rootPath = rootPath,
         username = username,
-        password = if (username.isEmpty()) "" else secrets.decrypt(encryptedPassword),
+        password = if (username.isEmpty() || sourceType == ONEDRIVE) "" else secrets.decrypt(encryptedPassword),
         ignoredFolders = ignoredFolders,
         ignoredFiles = ignoredFiles,
+        sourceType = sourceType, allowInsecureHttp = allowInsecureHttp,
     )
 }
 
@@ -93,6 +101,8 @@ data class MovieEntity(
     override val genres: List<String> = emptyList(),
     val runtimeMinutes: Int? = null,
     override val rating: Double? = null,
+    val ageCertification: String? = null,
+    @ColumnInfo(defaultValue = "0") val certificationFetched: Boolean = false,
     val metadataFetched: Boolean = false,
     /** User renamed / re-matched manually; rescans and auto-match won't overwrite. */
     val isLocked: Boolean = false,

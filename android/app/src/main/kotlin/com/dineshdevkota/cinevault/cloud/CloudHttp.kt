@@ -56,11 +56,11 @@ internal class CloudHttp(client: OkHttpClient = defaultClient) {
 }
 
 internal class CloudResponse(val headers: Headers, val data: ByteArray, val status: Int) {
-    fun verifiedRange(start: Long, end: Long, length: Int): ByteArray {
+    fun verifiedRange(start: Long, end: Long, length: Int, expectedTotal: Long? = null): ByteArray {
         val prefix = "bytes $start-$end/"
         val range = headers["Content-Range"]
         val total = range?.takeIf { it.startsWith(prefix) }?.removePrefix(prefix)?.toLongOrNull()
-        if (total == null || total <= end || range != "$prefix$total" || data.size != length ||
+        if (total == null || total <= end || (expectedTotal != null && total != expectedTotal) || range != "$prefix$total" || data.size != length ||
             headers["Content-Encoding"]?.equals("identity", ignoreCase = true) == false
         ) {
             throw CloudClientException("The provider returned a different byte range.")

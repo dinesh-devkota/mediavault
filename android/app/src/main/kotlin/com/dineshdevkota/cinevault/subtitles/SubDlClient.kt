@@ -1,5 +1,6 @@
 package com.dineshdevkota.cinevault.subtitles
 
+import com.dineshdevkota.cinevault.data.MovieEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -33,6 +34,13 @@ data class SubDlSearchQuery(
     val episode: Int? = null,
     val language: String = "en",
 )
+
+internal fun subtitleQuery(movie: MovieEntity, language: String): SubDlSearchQuery? {
+    val episode = movie.episodeInfo
+    return if (episode != null) movie.seriesTmdbId?.let {
+        SubDlSearchQuery(it, SubDlMediaType.TV, episode.season, episode.episode, language)
+    } else movie.tmdbId?.let { SubDlSearchQuery(it, SubDlMediaType.MOVIE, language = language) }
+}
 
 data class SubDlSubtitle(
     val id: String,

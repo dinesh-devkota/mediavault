@@ -107,9 +107,35 @@ final class SMBIntegrationTests: XCTestCase {
         let config = configuration()
         let files = try await SMBService.shared.scanVideos(config)
         let movie = try XCTUnwrap(files.first)
+        try await verifyPlayback(config: config, movie: movie)
+    }
+
+    @MainActor
+    func testWebDAVAuthenticationScanPlaybackAndSeek() async throws {
+        let endpoint = "https://127.0.0.1:15443/dav/"
+        let denied = SourceConfig(id: UUID(), host: endpoint, share: "", rootPath: "Movies",
+                                  username: "cinevault", password: "invalid", isWebDAV: true)
+        do {
+            try await SMBService.shared.testConnection(denied)
+            XCTFail("The fixture must reject incorrect credentials")
+        } catch WebDAVError.status(401) { }
+
+        let allowed = SourceConfig(id: UUID(), host: endpoint, share: "", rootPath: "Movies",
+                                   username: "cinevault", password: "fixture-only", isWebDAV: true)
+        let files = try await SMBService.shared.scanMedia(allowed) { _ in }
+        XCTAssertEqual(files.map(\.path), ["Movies/Film.mp4"])
+        let movie = try XCTUnwrap(files.first)
+        let captions = try await LocalSubtitleService.discover(config: allowed, videoPath: movie.path)
+        XCTAssertEqual(captions.map(\.path), ["Movies/Film.en.srt"])
+        try await verifyPlayback(config: allowed, movie: movie)
+    }
+
+    @MainActor
+    private func verifyPlayback(config: SourceConfig, movie: RemoteFile) async throws {
         let source = MediaSource(name: "Fixture", host: config.host, port: config.port, share: config.share,
                                  rootPath: config.rootPath, username: config.username)
         source.id = config.id
+        if config.isWebDAV { source.sourceProtocol = "webdav" }
         let staleMovie = Movie(filePath: movie.path, fileSize: 1, source: source)
         let prepared = try await PlaybackController.prepare(
             movie: staleMovie, resume: false, services: PlaybackServices(), sourceConfig: { _ in config }
@@ -127,7 +153,7 @@ final class SMBIntegrationTests: XCTestCase {
         let seekFinished = expectation(description: "Seek completes")
         player.seek(to: CMTime(seconds: 8, preferredTimescale: 600),
                     toleranceBefore: .zero, toleranceAfter: .zero) { finished in
-            XCTAssertTrue(finished, "The player could not seek in the SMB movie.")
+            XCTAssertTrue(finished, "The player could not seek in the fixture movie.")
             seekFinished.fulfill()
         }
         await fulfillment(of: [seekFinished], timeout: 30)
