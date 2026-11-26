@@ -32,5 +32,5 @@ function GroupTile({group, open, loadImage, session, preferred, selecting, selec
     <Text style={styles.detail}>{detail}{status ? ` · ${status}` : ''}</Text>
   </Pressable>;
 }
-const styles = StyleSheet.create({grid: {padding: 8, paddingBottom: 70}, row: {gap: 20}, tile: {flex: 1, maxWidth: '16%', padding: 8, marginBottom: 24, borderRadius: 18, borderWidth: 3, borderColor: 'transparent'},
+const styles = StyleSheet.create({grid: {padding: 8, paddingBottom: 70}, row: {gap: 20}, tile: {flex: 1, maxWidth: '16%', padding: 8, marginBottom: 24, borderWidth: 3, borderColor: 'transparent'},
   focused: {borderColor: colors.focus, backgroundColor: colors.raised}, selected: {borderColor: colors.accent}, title: {fontSize: 22, color: colors.text, marginTop: 12, fontWeight: '600'}, detail: {fontSize: 18, color: colors.secondary, marginTop: 6}});

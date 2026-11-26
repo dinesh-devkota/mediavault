@@ -6,10 +6,12 @@ import {MediaItem, PlaybackResource, ViewingState} from '../domain/model';
 import {SubtitleCue} from '../domain/subtitles';
 import {Action, colors, shared} from './Controls';
 import {PlayerSession} from './PlayerSession';
+import {SubtitleSelection} from './PlaybackTracks';
 
 export interface LoadedSubtitle { label: string; language: string; cues: SubtitleCue[] }
 // SDK 2.3 implements numeric access with a Proxy, but omits its index signature from typings.
 const textAt = (list: TextTrackList, index: number): TextTrack | undefined => (list as TextTrackList & {[key: number]: TextTrack | undefined})[index];
+const textChoices = (list: TextTrackList): (TextTrack | undefined)[] => Array.from({length: list.length}, (_, index) => textAt(list, index));
 const audioAt = (list: AudioTrackList, index: number): AudioTrack | undefined => (list as AudioTrackList & {[key: number]: AudioTrack | undefined})[index];
 let previousPlayerRelease: Promise<void> = Promise.resolve();
 export function Player({item, resume, load, releaseResource, subtitles, onProgress, onClose, next, onNext, autoNext, onAutoNext}: {
@@ -31,6 +33,7 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   const [countdown, setCountdown] = useState<number>();
   const [controlsVisible, setControlsVisible] = useState(true);
   const [interaction, setInteraction] = useState(0);
+  const subtitleSelection = useRef(new SubtitleSelection());
   const callbacks = useRef({onProgress, onClose, onNext, autoNext, next}); callbacks.current = {onProgress, onClose, onNext, autoNext, next};
   // Progress updates change parent callbacks and resume state. Capture inputs once per media identity,
   // so a five-second progress write cannot restart the active native player.
@@ -55,6 +58,7 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
     const configuration = startConfiguration.current;
     const video = new VideoPlayer();
     const tracks = (): void => {
+      subtitleSelection.current.reconcile(textChoices(video.textTracks));
       const text = Array.from({length: video.textTracks.length}, (_, i) => textAt(video.textTracks, i)?.label || textAt(video.textTracks, i)?.language || `Subtitles ${i + 1}`);
       const audio = Array.from({length: video.audioTracks.length}, (_, i) => audioAt(video.audioTracks, i)?.label || audioAt(video.audioTracks, i)?.language || `Audio ${i + 1}`);
       setTrackLabels(current => JSON.stringify(current) === JSON.stringify(text) ? current : text);
@@ -67,11 +71,13 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
         // Subtitle failure must never stop valid media playback.
         Promise.resolve().then(configuration.subtitles).then(files => {
           if (!session.active) { return; }
-          for (const [index, file] of files.entries()) {
+          let firstLocalTrack: string | undefined;
+          for (const file of files) {
             const track = video.addTextTrack('subtitles', file.label, file.language);
+            firstLocalTrack ??= track.id;
             for (const cue of file.cues) { track.addCue(new VTTCue(cue.start, cue.end, cue.text)); }
-            track.mode = index === 0 ? 'showing' : 'disabled';
           }
+          if (firstLocalTrack !== undefined) { subtitleSelection.current.preferLocal(textChoices(video.textTracks), firstLocalTrack); }
           tracks();
         }).catch(() => {});
       },
@@ -85,10 +91,15 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
       ended: () => { if (callbacks.current.next && callbacks.current.autoNext) { setCountdown(10); } },
       failed: message => { setError(message); setReady(false); setTrackLabels([]); setAudioLabels([]); },
     });
+    const trackChanges = (): void => { if (session.active) { tracks(); } };
+    video.textTracks.addEventListener('addtrack', trackChanges);
+    video.textTracks.addEventListener('removetrack', trackChanges);
     session.start(previousPlayerRelease);
     const lifecycle = AppState.addEventListener('change', state => { if (state !== 'active' && session.active) { callbacks.current.onClose(); } });
     return () => {
       lifecycle.remove();
+      video.textTracks.removeEventListener('addtrack', trackChanges);
+      video.textTracks.removeEventListener('removetrack', trackChanges);
       // The next episode must await pending native initialization and teardown.
       previousPlayerRelease = session.stop();
     };
@@ -119,8 +130,8 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
         <Action label="Forward 30 seconds" disabled={!ready || !!error} onPress={() => seek(30)}/>
       </View>
       {!!trackLabels.length && <View style={shared.row}>
-        <Action label="Subtitles off" onPress={() => { if (player) { for (let i = 0; i < player.textTracks.length; i++) { const track = textAt(player.textTracks, i); if (track) { track.mode = 'disabled'; } } } }}/>
-        {trackLabels.map((label, index) => <Action key={index} label={label} onPress={() => { if (player) { for (let i = 0; i < player.textTracks.length; i++) { const track = textAt(player.textTracks, i); if (track) { track.mode = i === index ? 'showing' : 'disabled'; } } } }}/>)}</View>}
+        <Action label="Subtitles off" onPress={() => { if (player) { subtitleSelection.current.select(textChoices(player.textTracks), null); } }}/>
+        {trackLabels.map((label, index) => <Action key={index} label={label} onPress={() => { const track = player && textAt(player.textTracks, index); if (player && track) { subtitleSelection.current.select(textChoices(player.textTracks), track.id); } }}/>)}</View>}
       {audioLabels.length > 1 && <View style={shared.row}>{audioLabels.map((label, index) => <Action key={index} label={label} onPress={() => { if (player) { for (let i = 0; i < player.audioTracks.length; i++) { const track = audioAt(player.audioTracks, i); if (track) { track.enabled = i === index; } } } }}/>)}</View>}
       {item.kind === 'episode' && <Action label={autoNext ? 'Auto-play next episode: On' : 'Auto-play next episode: Off'} selected={autoNext} onPress={() => { onAutoNext(!autoNext); if (autoNext) { setCountdown(undefined); } }}/ >}
       {next && countdown === undefined && status === 'Finished' && <Action label={`Play next: ${next.title}`} onPress={onNext}/>}
@@ -130,4 +141,4 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   </View>;
 }
 const styles = StyleSheet.create({page: {flex: 1, backgroundColor: '#000'}, heading: {position: 'absolute', top: 20, left: 40, right: 40, padding: 14, backgroundColor: '#000b'},
-  fileName: {fontSize: 18, color: colors.secondary}, controls: {position: 'absolute', left: 40, right: 40, bottom: 20, padding: 20, borderRadius: 16, backgroundColor: '#10131ae8'}});
+  fileName: {fontSize: 18, color: colors.secondary}, controls: {position: 'absolute', left: 40, right: 40, bottom: 20, padding: 20, backgroundColor: '#10131ae8'}});

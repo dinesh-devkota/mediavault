@@ -211,53 +211,65 @@ storage, NFO/artwork import, folder/age permissions and actual playback/seek ran
 on every target. Evidence is in `.artifacts/android-tv-b98f180`,
 `.artifacts/android-phone-b98f180` and `.artifacts/fire-compat-b98f180`.
 
-Local Fire `1a327be` additionally includes the Apple contrast change `d5a9ab6`
-and Vega keyboard, URL and layout fixes. It is pushed ONLY to the dedicated
-`codex/mediavault-vega-keyboard-visibility` verification branch, not PR20's head.
-Run `45752871600` passed all three production architectures, isolated fixture
-package, native regressions and production startup. Stages01/02 passed without
-a fatal overlay; stage03 reached collection creation/opening, then failed exact
-rename acknowledgement. Home now fits all five cards (grid y444/h580), but
-screenshots still omit colored backgrounds, focus fills and poster pixels despite
-native image-load success. Do not call these visually acceptable journeys.
-The rename harness is being corrected using the pinned driver's clear operation
-with acknowledged old/empty/new values for nonsecret fields. Protected inputs
-must never be read. A manual-only, separate-identity template rendering probe
-will compare square/rounded Views, bundled images and a focused button without
-NAS, credentials or the MediaVault native module. Local app typecheck/lint,
-42 domain tests and eight harness contracts pass; complete playback/profile
-journeys and clean visible rendering are still unverified.
+Vega follow-ups are on `codex/mediavault-vega-keyboard-visibility`, not PR20's
+remote head. Tested baseline `2847a6e` includes Apple `d5a9ab6` and its completed
+handoff. Normal run `45756851737` passed all three production architectures,
+isolated fixture packaging, native regressions and production startup. Stages01/02
+passed without the earlier fatal overlay. Stage03 reached collection creation,
+but the driver's clear/setText('') left the seven-character old name unchanged;
+strict empty acknowledgement failed. The replacement now uses the observed
+keyboard Clear button with a positively visible window and strict native focus.
+Nonsecret prior/empty/final checks remain; PIN/password contents are never read.
 
-Run `45750173905` at `a019f2e` proved stable keyboard closure: wait for positive
-native visibility, send one Back, then require the same window hidden and Done
-absent. The first two journey assertions passed, but captured screens exposed a
-fatal native overlay, so these are NOT accepted as clean journey passes. Its
-stack maps to react-native-url-polyfill's unsupported NativeModules.BlobModule
-access. `77f31cc` removes that library and uses Vega 0.83's built-in URL API while
-retaining all address/path guards. The harness rejects an exact fatal heading
-before/after each journey and after capture without reading its error body.
+Home's grid improved from 94px to 580px (y444, five complete cards). Collection
+browsing also moves rename/delete to Manage collection, leaving a compact title
+and action row over the grid. Detail Add to collection keeps its candidates on
+that route instead of replacing the active Home bulk selection. Stage03 tests
+return navigation, the renamed collection and all three originally selected files.
+The new management field/actions were on-screen in the failed rename evidence;
+its poster grid and selection-return assertions still need a completed journey.
 
-The same run revealed selection controls consuming the entire Home viewport.
-Home now has a compact toolbar, separate section/search pages and bulk actions
-that leave space for the poster grid. Search/genre state, profile lock and
-collection navigation are retained. Native runtime must establish actual focus,
-artwork decode and visual behavior; static/type/domain checks cannot prove them.
-A reviewed follow-up keeps detail Add to collection candidates on that route,
-so cancelling it cannot replace the Home bulk selection. Stage03 now returns
-from the detail action and asserts the original three files/two grouped titles
-remain selected. The fixture screenshot also captures that restored selection.
-SDK typecheck/lint, 42 app tests and eight harness contracts pass; the new
-selection regression still needs hosted execution.
-Collection browsing now keeps its poster grid below a compact title/action row;
-rename/delete move to Manage collection, and deletion returns to the list.
-The runtime journey follows those controls, checks the renamed collection after
-Back, and verifies the original Home bulk selection. The standalone render probe
-builds with SDK 2.0.15159, includes its known bundled PNG and no MediaVault native
-module/libsmb2, and retains exact dependency/template provenance. Its manual-only
-workflow input is `rendering_probe_only`; normal app jobs are skipped in that mode.
-Both the new collection journey and isolated pixel measurements need hosted runs.
-The simulator remains incapable of validating production secure storage, and
-there is no physical Vega device available. Do not ask the owner again.
+The isolated rendering probe succeeded in run `45756854606` at `2847a6e` with
+SDK 2.0.15159, simulated x86_64 OS 2.0 TV Ship/102815880, OpenGL acceleration
+disabled. Square Views painted 100% expected color, while rounded Views painted
+0%. An unclipped bundled PNG painted all four quadrants correctly; the same PNG
+inside a rounded clipping parent painted none despite successful load callbacks.
+Native/React focus agreed: the rounded focused background was absent, while the
+square focused button was visible. A stale first screenshot was separately
+identified by consecutive captures. This is a measured virtual-device paint/clip
+failure, not evidence of physical-device behavior. See the probe README and
+`.artifacts/vega-render-probe-45756854606` for exact package and pixel evidence.
+
+The product follow-up uses the same rectangular surfaces in both production and
+fixture Vega builds, retaining spacing, colors, typography, borders and behavior.
+It also aborts a stuck native initialization before waiting for startup cleanup,
+and sends the SDK's required hidden transition to disable embedded subtitles.
+Per-player selection uses stable IDs and explicit Off, so delayed sidecars and
+native default-track events cannot replace a viewer's choice. Missing native
+tracks are skipped until available, and unchanged choices cause no repeated
+native enable/disable calls. Typecheck and all 51 app tests pass. SDK-method
+regressions execute the installed initialization, track setters and track-event
+code with only native boundaries replaced. These fixes require a new full
+hosted app journey and visual review; the isolated probe is not an app pass.
+
+The old URL polyfill called unsupported NativeModules.BlobModule; `77f31cc`
+replaced it with Vega's built-in URL API while retaining address guards. The
+harness now rejects fatal overlays before/after journeys and captures. Keyboard
+closure uses positive native-window visibility, one Back, then that same window
+hidden and Done absent; transient publisher absence cannot satisfy closure.
+
+The render probe is manual-only (`rendering_probe_only`); normal jobs are skipped
+in that mode. Its separate package contains a known bundled PNG, no MediaVault
+native module/libsmb2, no network/accounts, and exact template/dependency provenance.
+Production secure storage cannot be validated by this simulator. No physical
+Vega device is available; do not ask the owner again. Complete media playback,
+continuous viewing and household UI journeys remain unverified on Vega.
+
+Owner follow-up: after finishing the feature fixes and validation, optimize app
+performance, release size and build times using measurements. A read-only review
+is being prepared in `.artifacts/build-optimization-review.md`; implementation
+is deliberately deferred until the current feature checks finish. Preserve test
+coverage and keep protected credentials/private source out of shared build caches.
 
 ### Earlier Fire validation and investigations
 

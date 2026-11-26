@@ -65,6 +65,16 @@ async function nativeDisplayed(id) {
     return response.result.visiblePortions.length > 0;
   } catch { return null; }
 }
+const keyboardApp = "//app[@appName='com.amazon.silverstone']";
+async function displayedKeyboardWindow() {
+  if (!await exists(keyboardApp + byID('key_Done'))) { return null; }
+  const windows = await call('POST', '/elements', {using: 'xpath', value: keyboardApp + '//window'});
+  for (const window of windows) {
+    const id = window[elementKey];
+    if (await nativeDisplayed(id) === true) { return id; }
+  }
+  return null;
+}
 const inputFocusTrace = [];
 async function traceInputFocus(phase, target, detail = {}) {
   if (!fixtureBuild || inputFocusTrace.length >= 16) { return; }
@@ -247,9 +257,14 @@ async function enter(id, value, previous = '') {
         }, `The replacement field must retain its expected prior value and native focus: ${id}`);
       } finally { await recordReplacement('before-clear', actual); }
     }
-    // Verified pinned driver3.30.0: clear -> setValue('') -> setText(id, '').
+    // The pinned driver's clear/setText('') left the old value unchanged on
+    // device. Use the observed IME Clear control as a real remote action.
+    let clearWindow;
+    await waitFor(async () => Boolean(clearWindow = await displayedKeyboardWindow()),
+      'The system keyboard must be visibly open before selecting Clear.');
+    await clickXPath(keyboardApp + `//window[@id=${literal(clearWindow)}]` + byID('key_Clear'));
     // Nonsecret edits must acknowledge an empty editor before replacement.
-    await call('POST', `/element/${target}/clear`, {});
+    // Protected fields instead rely on the later unlock/connect assertion.
     if (!secret) {
       try {
         await waitFor(async () => {
@@ -277,20 +292,12 @@ async function enter(id, value, previous = '') {
   // Vega documents Back as keyboard dismissal; controlled onChangeText has
   // already stored the edit. Do not require the IME's Done key to take focus.
   // https://developer.amazon.com/docs/vega/2.0/vega-release-notes#textinput-done-and-back-behavior-will-match-stock-react-native
-  const keyboardWindow = "//app[@appName='com.amazon.silverstone']//window";
   const traceDismissal = id === 'source-name' || id === 'source-address';
   let activeKeyboardWindow;
   // The publisher temporarily omitted Done and its window before the next
   // remote key. Absence must not skip the one Back required for this edit.
-  await waitFor(async () => {
-    if (!await exists(byID('key_Done'))) { return false; }
-    const windows = await call('POST', '/elements', {using: 'xpath', value: keyboardWindow});
-    for (const window of windows) {
-      const candidate = window[elementKey];
-      if (await nativeDisplayed(candidate) === true) { activeKeyboardWindow = candidate; return true; }
-    }
-    return false;
-  }, 'The edited field did not expose a displayed system keyboard for dismissal.');
+  await waitFor(async () => Boolean(activeKeyboardWindow = await displayedKeyboardWindow()),
+    'The edited field did not expose a displayed system keyboard for dismissal.');
   if (traceDismissal) { await traceInputFocus('before-back', id, {activeKeyboardWindow, activeWindowDisplayed: true}); }
   const keyStartedAt = new Date().toISOString();
   await key(158);
@@ -487,6 +494,7 @@ try {
     await enter('field-new-collection-name', 'Weekend'); await click('action-create-collection');
     await click('action-weekend-2-titles'); // Finish adding the selected titles and return to the library.
     await click('action-collections'); await click('action-weekend-2-titles');
+    await capture('03-collection-before-edit');
     await click('action-manage-collection');
     await enter('field-collection-name', 'Movie Night', 'Weekend'); await click('action-save-name');
     await click('action-back');

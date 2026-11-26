@@ -42,6 +42,7 @@ export function Poster({item, load, session, size = 'small'}: {item: MediaItem; 
       : <View style={styles.placeholder}><Text style={styles.posterLetter}>{item.kind === 'music' ? '♫' : item.kind === 'photo' ? '▧' : item.title.slice(0, 1).toUpperCase()}</Text></View>}
   </View>;
 }
+// Rectangular Vega surfaces avoid the rounded paint/clip failure measured in tools/vega/render-probe/README.md.
 export const shared = StyleSheet.create({
   page: {flex: 1, backgroundColor: colors.background, paddingHorizontal: 56, paddingVertical: 28},
   header: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20},
@@ -52,18 +53,18 @@ export const shared = StyleSheet.create({
   row: {flexDirection: 'row', flexWrap: 'wrap', gap: 14, alignItems: 'center'},
   section: {marginBottom: 26},
   error: {fontSize: 22, color: colors.danger, marginVertical: 12},
-  panel: {backgroundColor: colors.panel, borderRadius: 18, padding: 24, marginVertical: 12},
+  panel: {backgroundColor: colors.panel, padding: 24, marginVertical: 12},
 });
 const styles = StyleSheet.create({
-  action: {backgroundColor: colors.raised, paddingHorizontal: 24, paddingVertical: 16, borderRadius: 13, borderWidth: 3, borderColor: 'transparent', marginVertical: 4},
+  action: {backgroundColor: colors.raised, paddingHorizontal: 24, paddingVertical: 16, borderWidth: 3, borderColor: 'transparent', marginVertical: 4},
   compactAction: {paddingHorizontal: 8},
   actionText: {color: colors.text, fontSize: 23, fontWeight: '600'},
   focused: {backgroundColor: colors.focus, borderColor: colors.focus, transform: [{scale: 1.025}]},
   selected: {borderColor: colors.accent}, disabled: {opacity: .4},
   fieldGroup: {marginBottom: 18}, label: {fontSize: 22, color: colors.secondary, marginBottom: 8},
-  field: {fontSize: 24, color: colors.text, backgroundColor: colors.panel, borderWidth: 3, borderColor: 'transparent', borderRadius: 12, padding: 16, minHeight: 62},
+  field: {fontSize: 24, color: colors.text, backgroundColor: colors.panel, borderWidth: 3, borderColor: 'transparent', padding: 16, minHeight: 62},
   fieldFocused: {borderColor: colors.accent},
-  poster: {width: '100%', aspectRatio: 2 / 3, borderRadius: 13, overflow: 'hidden', backgroundColor: colors.panel},
+  poster: {width: '100%', aspectRatio: 2 / 3, backgroundColor: colors.panel},
   largePoster: {width: 260}, placeholder: {flex: 1, alignItems: 'center', justifyContent: 'center'},
   posterLetter: {fontSize: 64, fontWeight: '600', color: '#667991'},
 });

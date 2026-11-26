@@ -28,3 +28,20 @@ The analyzer needs Pillow. The harness verifies the fixed diagnostic banner and 
 Compare round versus square and object versus array before changing product styles. Compare image pixels with native load events; neither alone proves the other. Paired captures expose stale buffers. The current single-session graphics mode is retained explicitly by the runner; a prior identical-package OpenGL comparison already failed to resolve the symptom.
 
 References: [Vega View style props](https://developer.amazon.com/docs/react-native-vega/0.83/view-style-props), [input and focus styling](https://developer.amazon.com/docs/react-native-vega/0.83/handling-touches), [Appium commands](https://developer.amazon.com/docs/vega/2.0/appium-commands).
+
+## Measured result and portable surfaces
+
+[Run 45756854606](https://github.com/dinesh-devkota/mediavault/actions/runs/45756854606), source `2847a6eea5e9d213d4ab4cd648cf30ab540047db`, captured SDK 2.0.15159 on the x86_64 virtual TV, OS 2.0 TV Ship/102815880, with OpenGL acceleration disabled. The retained `vega-render-probe-evidence` artifact contains the exact package, provenance, native state, paired screenshots, and `runtime/pixel-analysis.json`.
+
+| Measured interior | Expected-color pixels |
+| --- | --- |
+| Square View, object or array style | 100% |
+| Rounded View, object or array style | 0% |
+| Unclipped bundled PNG, each of four quadrants | 100% |
+| Same PNG inside rounded clipping parent | 0% |
+| Rounded control with verified native focus | 0% white background |
+| Square control with verified native focus | 87.6% white background; remaining pixels include text |
+
+Both image load events succeeded, all image rectangles had positive size, and React/native focus agreed. The first square-focus screenshot was stale; the second showed its white background and dark label. Rounded content remained absent across both buffers and all three checkpoints. This isolates the rounded paint/clipping path on this simulator; it does not establish physical-device behavior.
+
+MediaVault therefore uses the same rectangular surfaces in production and fixture Vega builds, keeping typography, spacing, colors, borders, scale, and interaction behavior unchanged. The product workaround must still pass the normal native library/player journeys and visual review; the diagnostic alone is not an application pass.

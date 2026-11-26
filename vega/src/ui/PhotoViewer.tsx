@@ -31,4 +31,4 @@ export function PhotoViewer({item, load, previous, next, onClose}: {item: MediaI
     </View>
   </View>;
 }
-const styles = StyleSheet.create({page: {flex: 1, backgroundColor: '#000'}, footer: {position: 'absolute', left: 40, right: 40, bottom: 20, padding: 20, borderRadius: 16, backgroundColor: '#10131add'}});
+const styles = StyleSheet.create({page: {flex: 1, backgroundColor: '#000'}, footer: {position: 'absolute', left: 40, right: 40, bottom: 20, padding: 20, backgroundColor: '#10131add'}});

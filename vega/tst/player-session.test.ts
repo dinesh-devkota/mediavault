@@ -109,6 +109,30 @@ test('stopping during initialization prevents source, surface, captions and play
   expect(value.video.deinitialize).toHaveBeenCalledTimes(1); expect(value.options.releaseResource).toHaveBeenCalledTimes(1);
 });
 
+test('cancelling an unresolved initialization aborts it before waiting and permits the next session', async () => {
+  const old = make(); let rejectInitialization!: () => void;
+  (old.video.initialize as jest.Mock).mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectInitialization = reject; }));
+  (old.video.deinitialize as jest.Mock).mockImplementation(async () => { rejectInitialization(); });
+  const previous = old.create(); previous.start(Promise.resolve()); await flush();
+  const stopped = previous.stop(), next = make(), successor = next.create(); successor.start(stopped);
+  await stopped; await flush();
+  expect(old.video.deinitialize).toHaveBeenCalledTimes(1);
+  expect(old.options.initialized).not.toHaveBeenCalled(); expect(old.video.play).not.toHaveBeenCalled();
+  expect(old.options.releaseResource).toHaveBeenCalledTimes(1); expect(old.options.failed).not.toHaveBeenCalled();
+  expect(next.options.load).toHaveBeenCalledTimes(1); expect(next.video.initialize).toHaveBeenCalledTimes(1);
+});
+
+test('initialization resolving concurrently with cancellation is released only once', async () => {
+  const value = make(), initialized = deferred<void>();
+  (value.video.initialize as jest.Mock).mockReturnValue(initialized.promise);
+  (value.video.deinitialize as jest.Mock).mockImplementation(async () => { initialized.resolve(); });
+  const session = value.create(); session.start(Promise.resolve()); await flush();
+  await session.stop();
+  expect(value.video.deinitialize).toHaveBeenCalledTimes(1);
+  expect(value.options.initialized).not.toHaveBeenCalled(); expect(value.video.play).not.toHaveBeenCalled();
+  expect(value.options.releaseResource).toHaveBeenCalledTimes(1);
+});
+
 test('a late playback ticket after cancellation is revoked without initializing the native player', async () => {
   const value = make(), ticket = deferred<PlaybackResource>(); value.options.load.mockReturnValue(ticket.promise);
   const session = value.create(); session.start(Promise.resolve()); await flush(); const stopped = session.stop();

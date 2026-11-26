@@ -19,6 +19,7 @@ interface SessionOptions {
 }
 export class PlayerSession {
   private initialized = false;
+  private initializing = false;
   private stopped = false;
   private started = false;
   private finished = false;
@@ -58,8 +59,9 @@ export class PlayerSession {
     this.resourceURI = resource.uri;
     if (this.stopped) { return; }
     if (resource.headers && Object.keys(resource.headers).length) { throw new Error('This connection needs a protected playback link. Reconnect the source.'); }
-    await this.video.initialize();
-    this.initialized = true;
+    this.initializing = true;
+    try { await this.video.initialize(); this.initialized = true; }
+    finally { this.initializing = false; }
     if (this.stopped) { return; }
     this.options.initialized();
     // React can mount later. Only the native surface callback starts URL loading.
@@ -169,14 +171,23 @@ export class PlayerSession {
     if (this.releaseTask) { return this.releaseTask; }
     this.stopped = true; if (this.startupTimer !== undefined) { clearTimeout(this.startupTimer); } if (this.sampleTimer !== undefined) { clearInterval(this.sampleTimer); }
     // Publish the teardown promise before callbacks can re-enter stop().
-    // Await a late initialization/load to revoke the exact capability once; never start it after cancellation.
-    this.releaseTask = this.operation.catch(() => {}).then(async () => {
-      if (this.initialized) {
+    this.releaseTask = Promise.resolve().then(async () => {
+      // SDK 2.3 deinitialize() aborts a pending initialize() promise and destroys
+      // a native element that arrives later. Waiting for prepare first would
+      // deadlock cancellation and every subsequent episode behind that promise.
+      let initializationReleased = false;
+      if (this.initializing) {
+        try { await this.video.deinitialize(); initializationReleased = true; }
+        catch { /* If initialization already won the race, release it below. */ }
+      }
+      // A late source load still owns a ticket that must be revoked exactly once.
+      await this.operation.catch(() => {});
+      if (this.initialized && !initializationReleased) {
         if (this.surface) { try { this.video.clearSurfaceHandle(this.surface); } catch { /* Still release the decoder. */ } }
         if (this.caption) { try { this.video.clearCaptionViewHandle(this.caption); } catch { /* Still release the decoder. */ } }
         try { await this.video.deinitialize(); } catch { /* Revocation remains mandatory even if native teardown fails. */ }
-        this.initialized = false;
       }
+      this.initialized = false;
       this.surface = undefined; this.caption = undefined;
       if (this.resourceURI) { const uri = this.resourceURI; this.resourceURI = undefined; await this.options.releaseResource(uri).catch(() => {}); }
     });
