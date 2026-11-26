@@ -32,9 +32,10 @@ signed archive. [Apple upload requirements](https://developer.apple.com/news/upc
   [Export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/)
 - Verify the signed archive's privacy manifests and third-party notices.
   Confirm distribution terms for the playback and SMB dependencies. Keep
-  evidence for any third-party service use, trademarks, and content shown.
-  Capture iPhone and Apple TV screenshots in the app using owned or licensed
-  media, original artwork, and fictional account details.
+  evidence for third-party service use, trademarks, and content shown. Confirm
+  the terms for optional SubDL subtitle downloads before including that feature
+  in a submission. Capture iPhone and Apple TV screenshots in the app using
+  owned or licensed media, original artwork, and fictional account details.
   [Playback dependency notices](PLAYBACK-ENGINE.md)
   [Apple's SDK requirements](https://developer.apple.com/support/third-party-SDK-requirements/)
   [Review Guidelines 2.3 and 5.2](https://developer.apple.com/app-store/review/guidelines/)
@@ -84,12 +85,13 @@ details there.
 > connect. It has no MediaVault account service. Household profiles,
 > permissions, and viewing history are local to this device.
 >
-> To try playback, choose Sources → Add NAS → Connect WebDAV. Enter
-> [review HTTPS WebDAV address] and the demo credentials in the review
-> information. Choose [demo folder], save and scan, then play [demo clip].
-> Seek within the clip, select its matching subtitle, and open [demo photo].
-> A metadata API key is optional. For household access, open Settings →
-> Household profiles and grant the demo folder to a local viewer.
+> On iPhone, open Manage → Media sources. On Apple TV, open Sources.
+> Choose Add NAS → Connect WebDAV. Enter [review HTTPS WebDAV address] and
+> the demo credentials in the review information. Choose [demo folder],
+> save the source, and wait for its scan. Play [demo clip], seek within it,
+> select its matching subtitle, and open [demo photo]. A metadata API key is
+> optional. To check household access, open Settings → Household profiles
+> (under Manage on iPhone) and grant the demo folder to a local viewer.
 >
 > Additional connection steps and test accounts for this build are provided
 > in the review attachments. The privacy policy is available in Settings
