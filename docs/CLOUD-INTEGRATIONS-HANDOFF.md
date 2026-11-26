@@ -300,18 +300,21 @@ subsequent photo navigation fix completed the signed preview as recorded below.
   synthetic OneDrive device-code sign-in and playback test also passed, together
   with its idle TLS peer regression.
   [Emby #17](https://github.com/dinesh-devkota/mediavault/pull/17)
-- Fire TV and Vega #20 `f8a5247` includes merged NFS, Apple previews, and Drive.
-  The prior `36b8a08` passed production startup, all ten Vega runtime cases,
-  66 Fire OS cases, and Android TV and phone. Four native MP4 seeks landed at
-  11, 41, 31, and 21 seconds. The Vega SDK returned MKV seek error 50004 and the
-  player retained its confirmed checkpoint. The earlier iPhone `51af57c`
-  WebDAV flow passed, and its only failure was a native MKV drag intended near
-  21 seconds that left the decoder clock at 28.39 seconds. The exact next
-  iPhone test records the request and the VLC clock separately in Debug. The
-  production seek implementation is unchanged. Combined NFS-enabled Android
-  production and instrumentation compiled locally.
+- Fire TV and Vega #20 `4c38f28` includes merged Emby, NFS, Apple previews,
+  and Drive. The preceding `f8a5247` passed 66 Fire OS cases, 125 Android TV,
+  20 Android phone, 260 Apple TV and all ten Vega runtime cases, including
+  native MP4 seeks and the administrator unlock journey. The Vega SDK returned
+  error 50004 for the MKV seek, and playback retained the confirmed point.
+  The exact prior iPhone simulator passed 258/258. Its Debug fixture recorded
+  the scrubber's submitted 26.311-second seek and the real VLC clock landing
+  at 26.311 seconds. That simulated touch had requested a nominal slider
+  position of 0.35. Debug evidence distinguishes slider input from decoder
+  behavior. The current combined Emby and NFS Android candidate compiled
+  release and instrumentation and passed 23 focused fixture tests. The full
+  exact combined hosted suite remains under the PR checks.
   [Fire TV and Vega #20](https://github.com/dinesh-devkota/mediavault/pull/20)
-  · [Vega evidence](https://github.com/dinesh-devkota/mediavault/actions/runs/45890596491)
+  · [Vega evidence](https://github.com/dinesh-devkota/mediavault/actions/runs/45895847633)
+  · [iPhone evidence](https://github.com/dinesh-devkota/mediavault/actions/runs/45895847570)
 - Apple simulator reliability #31 merged at `99616cd` with the exact tested
   `b06f13c` tree. The branch passed 258 iPhone, 260 Apple TV, and 84 Swift Core
   tests, plus both unsigned Apple builds and their privacy resources. The signed
