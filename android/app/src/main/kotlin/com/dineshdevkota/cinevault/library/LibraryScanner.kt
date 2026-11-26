@@ -102,7 +102,8 @@ class LibraryScanner(
                     }
                 }
                 foundPaths.addAll(allowed.map { it.path })
-                statusFlow.value = "Scanning ${source.name}: ${foundPaths.size} items in ${progress.folders} folders…"
+                val discovered = if (config.isDropbox) progress.found else foundPaths.size
+                statusFlow.value = "Scanning ${source.name}: $discovered items in ${progress.folders} folders…"
             }
             val files = scanned.filter { MediaFile.shouldIndex(it.path, it.size) &&
                 !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.caseSensitivePaths) }
