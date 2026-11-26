@@ -182,6 +182,27 @@ content and bounds the handoff. Its full Android TV workflow passed
 
 ## Amazon Fire TV work — November 25, 2026
 
+At `3edbd0b`, modern Fire TV passed 120/120, phone passed 16/16, and build/lint/
+packaging passed. API 25 passed 22/22. API 22 and 28 each passed 21/22; their
+only failure was the setup test expecting Sign in immediately after editing a
+valid application ID while the keyboard/error panel could move the lazy-list
+item out of the composed viewport. The retained logs do not establish exact
+field contents at that failure. The follow-up test verifies the actual UUID,
+uses the field's existing Next action, scrolls to Sign in, and requires it enabled;
+its instrumentation compilation passes. All three OneDrive storage/media/scoping
+journeys passed on every tested API. Shared base `7bfc5b5` passed Android phone
+16/16 and TV 113/113. Its unsigned Apple TV build passed; new Apple simulator
+runs remain queued. Pre-OneDrive `96df268` iPhone completed 231/231 plus unsigned
+Release. These results do not transfer automatically to newer app changes.
+
+Vega `3edbd0b` run `45746551228` passed packages/native/startup checks and the
+name/address edit postconditions, then failed revealing Username. Masked layout
+shows the keyboard still open and focused while the reveal loop was navigating.
+Done disappearance alone did not establish stable closure. The next diagnostic
+records bounded, sanitized keyboard-window visibility and app/IME focus before/
+after Back and the first few D-pad actions, without reading input values. No
+product change or looser navigation assertion is justified yet.
+
 Fire integration `4b87c31` includes public `96df268` and Plex's secure-storage test
 adaptations for API 22. Local checks passed 101 core and 146 app unit cases, with
 two pre-existing Jellyfin cases requiring their loopback fixture; instrumentation

@@ -55,6 +55,59 @@ async function nativeFocused(xpath) {
   const value = await call('GET', `/element/${matches[0][elementKey]}/attribute/UiObject:focused`);
   return value === 'true';
 }
+const inputFocusTrace = [];
+async function traceInputFocus(phase, target, detail = {}) {
+  if (!fixtureBuild || inputFocusTrace.length >= 16) { return; }
+  const sample = {phase, target, ...detail, startedAt: new Date().toISOString()};
+  inputFocusTrace.push(sample);
+  // Read-only, bounded diagnostics for address dismissal -> username reveal.
+  // Never request text, descriptions, raw hierarchy or images here. Samples
+  // are sequential observations, not an atomic snapshot; retain their duration.
+  const app = `//app[@appName=${literal(packageId)}]`;
+  const ime = "//app[@appName='com.amazon.silverstone']";
+  const find = xpath => call('POST', '/elements', {using: 'xpath', value: xpath});
+  const safe = async read => { try { return await read(); } catch { return null; } };
+  try {
+    sample.donePresent = await exists(byID('key_Done'));
+    sample.doneObservedAt = new Date().toISOString();
+    const windows = await find(ime + '//window');
+    sample.imeWindowCount = windows.length;
+    sample.imeWindows = [];
+    for (const match of windows.slice(0, 2)) {
+      const id = match[elementKey];
+      // The pinned driver maps the documented displayed endpoint to native
+      // visibilityOf. No UiObject:visible attribute exists. Unsupported window
+      // queries remain null, never evidence that the keyboard closed.
+      // https://developer.amazon.com/docs/vega/2.0/appium-commands#is_displayed
+      sample.imeWindows.push({id, displayed: await safe(() => call('GET', `/element/${id}/displayed`))});
+    }
+    sample.focus = {};
+    for (const [scope, path] of [['app', app], ['ime', ime]]) {
+      const candidates = await find(path + "//*[@focused='true']");
+      const objects = [];
+      for (const match of candidates.slice(0, 4)) {
+        const id = match[elementKey];
+        const nativeFocused = await safe(async () =>
+          await call('GET', `/element/${id}/attribute/UiObject:focused`) === 'true');
+        objects.push({id, nativeFocused});
+      }
+      // Candidates come from publisher state; native RPC independently checks
+      // each. No claim that this enumerates every natively focused object.
+      sample.focus[scope] = {serializedCount: candidates.length, objects};
+    }
+    const targets = await find(app + byID(target));
+    sample.targetCount = targets.length;
+    sample.targetBounds = [];
+    for (const match of targets.slice(0, 2)) {
+      const id = match[elementKey];
+      const rect = await safe(() => call('GET', `/element/${id}/rect`));
+      sample.targetBounds.push({id, rect: rect && {x: rect.x, y: rect.y, width: rect.width, height: rect.height}});
+    }
+  } catch { sample.observationFailed = true; }
+  sample.finishedAt = new Date().toISOString();
+  await writeFile(resolve(output, 'input-focus-diagnostic.json'), JSON.stringify(inputFocusTrace, null, 2))
+    .catch(() => console.log('[Vega journey] Input focus diagnostics unavailable; assertions unchanged.'));
+}
 async function dismissFixtureWarning() {
   if (!fixtureBuild || await exists(byID('key_Done'))) { return false; }
   const app = `//app[@appName=${literal(packageId)}]`;
@@ -75,9 +128,20 @@ async function dismissFixtureWarning() {
 }
 async function focusVisible(xpath, openingField = false) {
   const deadline = Date.now() + 25_000;
+  const traceReveal = fixtureBuild && xpath === byID('source-username');
+  let tracedKeys = 0;
+  async function revealKey(code) {
+    const observe = traceReveal && tracedKeys++ < 3;
+    if (observe) { await traceInputFocus('before-reveal-key', 'source-username', {code, sequence: tracedKeys}); }
+    const keyStartedAt = new Date().toISOString();
+    await key(code);
+    const keyFinishedAt = new Date().toISOString();
+    if (observe) { await traceInputFocus('after-reveal-key', 'source-username', {code, sequence: tracedKeys, keyStartedAt, keyFinishedAt}); }
+  }
   if (openingField) {
     await waitFor(async () => !await exists(byID('key_Done')),
       'The previous keyboard must close before opening another field.', Math.max(1, deadline - Date.now()));
+    if (traceReveal) { await traceInputFocus('reveal-after-done-absence', 'source-username', {absenceObservedAt: new Date().toISOString()}); }
   }
   const window = await call('GET', '/window/rect');
   let direction = 108, previousFocus, unchanged = 0;
@@ -104,7 +168,7 @@ async function focusVisible(xpath, openingField = false) {
           const native = await nativeFocused(xpath);
           const serialized = await exists(xpath + '[@focused="true"]');
           console.log('[Vega journey] Focus not acknowledged', JSON.stringify({xpath, result, native, serialized}));
-          await key(direction); await sleep(100);
+          await revealKey(direction); await sleep(100);
           continue;
         }
         return element(xpath);
@@ -118,7 +182,7 @@ async function focusVisible(xpath, openingField = false) {
     const focus = focused.map(value => value[elementKey]).join(',');
     unchanged = focus === previousFocus ? unchanged + 1 : 0; previousFocus = focus;
     if (unchanged >= 2) { direction = direction === 108 ? 103 : 108; unchanged = 0; }
-    await key(direction); await sleep(100);
+    await revealKey(direction); await sleep(100);
   }
   throw new Error(`The remote could not reveal the target control: ${xpath}`);
 }
@@ -155,12 +219,19 @@ async function enter(id, value, previous = '') {
   const keyboardWindow = "//app[@appName='com.amazon.silverstone']//window";
   if (await exists(byID('key_Done'))) {
     assert(await exists(keyboardWindow), 'Back may dismiss only an observed system keyboard.');
+    if (id === 'source-address') { await traceInputFocus('before-back', id); }
+    const keyStartedAt = new Date().toISOString();
     await key(158);
+    const keyFinishedAt = new Date().toISOString();
+    if (id === 'source-address') { await traceInputFocus('after-back', id, {code: 158, keyStartedAt, keyFinishedAt}); }
+  } else if (id === 'source-address') {
+    await traceInputFocus('back-skipped-done-absent', id);
   }
   // Done disappears when this IME closes. Its window may persist while hidden;
   // window removal is not a verified closed-state signal on the pinned SDK.
   await waitFor(async () => !await exists(byID('key_Done')),
     'The system keyboard did not close after editing.');
+  if (id === 'source-address') { await traceInputFocus('after-done-absence', id, {absenceObservedAt: new Date().toISOString()}); }
   assert(await exists(byID(id)), `Dismissing the keyboard must keep the same form field: ${id}`);
   if (!/password|pin/.test(id)) {
     const editor = await element(editorPath);
