@@ -2,6 +2,8 @@
 set -euo pipefail
 source_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$source_dir/../../.." && pwd)"
+probe_package_id=com.dineshdevkota.mediavault.seekprobe
+python3 "$source_dir/check-identity.py" "$probe_package_id" "$source_dir/manifest.toml" "$source_dir/app.json"
 source "$HOME/vega/env"
 dependencies="$(realpath "${PROBE_NODE_MODULES:-$repo/vega/node_modules}")"
 [[ -d "$dependencies/react-native" ]] || { echo 'Run npm ci in vega first.' >&2; exit 2; }
@@ -62,13 +64,11 @@ mapfile -t packages < <(find build/x86_64-debug -maxdepth 1 -type f -name '*.vpk
 vega exec vpt validate "${packages[0]}"
 vega exec vpt show-contents "${packages[0]}" >"$output/package-contents.txt"
 vega exec vpt dump "${packages[0]}" manifest.toml --dest-path "$output/packaged-manifest.toml" >/dev/null
+vega exec vpt dump "${packages[0]}" bundle/assets/app.json --dest-path "$output/packaged-app.json" >/dev/null
+python3 "$source_dir/check-identity.py" "$probe_package_id" "$output/packaged-manifest.toml" "$output/packaged-app.json"
 python3 - "$output" <<'PY'
-import pathlib, re, sys
+import pathlib, sys
 output = pathlib.Path(sys.argv[1])
-# vpt already validates TOML; check the generated package section without extra Python dependencies.
-manifest = (output/'packaged-manifest.toml').read_text()
-package = re.search(r'(?ms)^\[package\]\s*(.*?)(?=^\[|\Z)', manifest)
-assert package and re.search(r'^id\s*=\s*"com\.dineshdevkota\.mediavault\.seekprobe"\s*$', package.group(1), re.M)
 contents = (output/'package-contents.txt').read_text()
 assert 'index.hermes.bundle' in contents
 assert 'libMediaVaultNative' not in contents and 'libsmb2' not in contents
