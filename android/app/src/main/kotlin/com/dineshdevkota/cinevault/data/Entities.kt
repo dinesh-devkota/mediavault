@@ -47,8 +47,9 @@ data class SourceEntity(
         }
         val path = ScanExclusions.normalizeFile(filePath) ?: return false
         val root = if (rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(rootPath) ?: return false
-        return (root.isEmpty() || path.startsWith("$root/", ignoreCase = true)) &&
-            !ScanExclusions.isFileExcluded(path, root, ignoredFolders, ignoredFiles)
+        val caseSensitive = sourceType == com.dineshdevkota.cinevault.plex.PLEX
+        return (root.isEmpty() || path.startsWith("$root/", ignoreCase = !caseSensitive)) &&
+            !ScanExclusions.isFileExcluded(path, root, ignoredFolders, ignoredFiles, caseSensitive = caseSensitive)
     }
 
     fun config(secrets: SecretBox): SourceConfig = SourceConfig(
@@ -134,6 +135,7 @@ data class MovieEntity(
         get() {
             val info = episodeInfo ?: return null
             return seriesTmdbId?.let { "tmdb:$it" }
+                ?: com.dineshdevkota.cinevault.plex.plexSeriesId(filePath)?.let { "plex:$sourceId:$it" }
                 ?: "local:${TitleMatcher.normalize(info.seriesTitle)}|${info.year ?: ""}"
         }
 

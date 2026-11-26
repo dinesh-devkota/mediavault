@@ -308,9 +308,10 @@ private struct HouseholdFolderChooser: View {
     var body: some View {
         List {
             Section {
-                Text("Allow all current and future folders in this source, or browse to choose a smaller folder.").font(.caption)
+                Text(source.isPlex ? "Allow this Plex library. The viewer’s rating limits still apply."
+                     : "Allow all current and future folders in this source, or browse to choose a smaller folder.").font(.caption)
                 Button("Allow entire source: \(source.name)") { add(source.rootPath) }
-                if let configuration, !source.isJellyfin {
+                if let configuration, !source.isJellyfin && !source.isPlex {
                     NavigationLink("Browse folders") {
                         NASPathPicker(configuration: configuration, mode: .household) { path, _ in add(path) }
                     }
@@ -326,7 +327,7 @@ private struct HouseholdFolderChooser: View {
     }
     private func add(_ path: String) {
         guard HouseholdStore.shared.isAdmin else { return }
-        let folder = HouseholdFolder(sourceID: source.id, path: path, caseSensitive: (source.isWebDAV || source.isJellyfin) ? true : nil)
+        let folder = HouseholdFolder(sourceID: source.id, path: path, caseSensitive: (source.isWebDAV || source.isJellyfin || source.isPlex) ? true : nil)
         if !allowed.contains(where: { $0.id == folder.id }) { allowed.append(folder) }
         dismiss()
     }

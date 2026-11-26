@@ -20,11 +20,16 @@ export ANDROID_SERIAL="$SERIAL"
 JELLYFIN_FIXTURE=$(mktemp -d "$RUNNER_TEMP/jellyfin-android.XXXXXX")
 python3 scripts/test_jellyfin_fixture.py --serve-android "$JELLYFIN_FIXTURE" >"$RUNNER_TEMP/jellyfin-android.log" 2>&1 &
 JELLYFIN_PID=$!
-cleanup_jellyfin() {
+PLEX_PID=""
+cleanup_media_fixtures() {
+  if [[ -n "$PLEX_PID" ]]; then kill "$PLEX_PID" 2>/dev/null || true; fi
   kill "$JELLYFIN_PID" 2>/dev/null || true
   wait "$JELLYFIN_PID" || true
 }
-trap cleanup_jellyfin EXIT
+trap cleanup_media_fixtures EXIT
+bash scripts/start_plex_fixture.sh "$RUNNER_TEMP/android-plex-fixture" android
+PLEX_PID=$(cat "$RUNNER_TEMP/android-plex-fixture/server.pid")
+PLEX_CERTIFICATE=$(openssl base64 -A -in "$RUNNER_TEMP/android-plex-fixture/fixture.cer")
 for attempt in {1..100}; do
   if [[ -s "$JELLYFIN_FIXTURE/jellyfin.cer" ]]; then break; fi
   if ! kill -0 "$JELLYFIN_PID" 2>/dev/null; then break; fi
@@ -78,6 +83,7 @@ WEBDAV_CERTIFICATE=$(openssl base64 -A -in "$RUNNER_TEMP/android-webdav-fixture/
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   "-Pandroid.testInstrumentationRunnerArguments.jellyfinCertificate=$JELLYFIN_CERTIFICATE" \
   "-Pandroid.testInstrumentationRunnerArguments.webDavCertificate=$WEBDAV_CERTIFICATE" \
+  "-Pandroid.testInstrumentationRunnerArguments.plexCertificate=$PLEX_CERTIFICATE" \
   "-Pandroid.testInstrumentationRunnerArguments.notClass=$FAMILY_TEST,$PHONE_TEST" || status=$?
 archive_results baseline
 if [[ "$status" != "0" ]]; then exit "$status"; fi

@@ -12,13 +12,15 @@ if [[ -z "$SERIAL" || "$SERIAL" == *$'\n'* || "$(adb -s "$SERIAL" shell getprop 
   exit 1
 fi
 export ANDROID_SERIAL="$SERIAL"
+PLEX_CERTIFICATE=$(base64 -w0 "$RUNNER_TEMP/phone-plex/fixture.cer")
 APP_ID=com.dineshdevkota.cinevault
-CLASSES="$APP_ID.AndroidPhoneNavigationTest,$APP_ID.cloud.OneDriveSetupNavigationTest,$APP_ID.cloud.OneDriveMediaIntegrationTest,$APP_ID.cloud.OneDriveAccountStoreInstrumentedTest"
+CLASSES="$APP_ID.AndroidPhoneNavigationTest,$APP_ID.plex.PlexTlsIntegrationTest,$APP_ID.cloud.OneDriveSetupNavigationTest,$APP_ID.cloud.OneDriveMediaIntegrationTest,$APP_ID.cloud.OneDriveAccountStoreInstrumentedTest"
 cd android
 status=0
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
   "-Pandroid.testInstrumentationRunnerArguments.class=$CLASSES" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
+  "-Pandroid.testInstrumentationRunnerArguments.plexCertificate=$PLEX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.phoneUiFixture=true || status=$?
 python3 - <<'PY'
 from pathlib import Path
@@ -29,6 +31,9 @@ cases = [case for report in reports for case in ElementTree.parse(report).getroo
 expected = {
     "handheldLauncherOpensSourceFormAndShowsAddressValidation",
     "touchSetupImportsMovieAndPlaysAndSeeksWithNativeControls",
+    "touchNavigationOpensPlexLinking",
+    "touchNavigationOpensOneDriveSetupAlongsidePlex",
+    "ownerConnectsOverTlsAndReadsCatalogAndMediaRange",
     "ownerCanOpenOneDriveSetupAndRecoverFromInvalidPublicApplicationId",
     "stagedSignInImportsSelectedFolderAndPlaysWithBoundedReadsAndCaptions",
     "refreshRecordIsEncryptedOnDiskAndRemovable",

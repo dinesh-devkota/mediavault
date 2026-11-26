@@ -59,6 +59,29 @@ class AndroidPhoneNavigationTest {
     }
 
     @Test
+    fun touchNavigationOpensPlexLinking() {
+        launchPhone().use {
+            tap("Sources")
+            tap("Connect Plex", scroll = true)
+            visible(hasText("Get Plex link code") and hasClickAction(), scroll = true)
+            tap("Back", scroll = true)
+            visible(hasText("Connect Plex") and hasClickAction(), scroll = true)
+        }
+    }
+
+    @Test
+    fun touchNavigationOpensOneDriveSetupAlongsidePlex() {
+        launchPhone().use {
+            tap("Sources")
+            visible(hasText("Connect Plex") and hasClickAction(), scroll = true)
+            tap("Connect OneDrive", scroll = true)
+            visible(hasText("Microsoft Entra application ID") and hasSetTextAction(), scroll = true)
+            tap("Back", scroll = true)
+            visible(hasText("Connect OneDrive") and hasClickAction(), scroll = true)
+        }
+    }
+
+    @Test
     fun touchSetupImportsMovieAndPlaysAndSeeksWithNativeControls() {
         val container = application.container
         val host = InstrumentationRegistry.getArguments().getString("nasHost")

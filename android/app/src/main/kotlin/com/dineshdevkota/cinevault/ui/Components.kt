@@ -66,6 +66,8 @@ import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.plex.PLEX
+import com.dineshdevkota.cinevault.plex.plexItemId
 import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.jellyfin.jellyfinItemID
 import kotlinx.coroutines.CancellationException
@@ -118,7 +120,7 @@ internal fun MediaArtwork(
     width: Int,
     kind: JellyfinImage = JellyfinImage.Primary,
 ) {
-    if (jellyfinItemID(movie.filePath) == null || movie.isHidden || movie.isMissing) {
+    if ((jellyfinItemID(movie.filePath) == null && plexItemId(movie.filePath) == null) || movie.isHidden || movie.isMissing) {
         Artwork(url, title, modifier)
         return
     }
@@ -127,7 +129,7 @@ internal fun MediaArtwork(
         .collectAsStateWithLifecycle(null)
     val session by container.family.session.collectAsStateWithLifecycle()
     val activeSource = source
-    if (activeSource?.sourceType != JELLYFIN) {
+    if (activeSource?.sourceType != JELLYFIN && activeSource?.sourceType != PLEX) {
         Artwork(url, title, modifier)
         return
     }
