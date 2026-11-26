@@ -16,7 +16,7 @@ import {PhotoViewer} from './ui/PhotoViewer';
 import {Player} from './ui/Player';
 import {SourceEditor} from './ui/SourceEditor';
 
-type Page = 'home' | 'sections' | 'search' | 'sources' | 'source' | 'add-source' | 'ignored' | 'collections' | 'collection' | 'membership' | 'group' | 'season' | 'detail' | 'photo' | 'player' | 'profiles' | 'unlock' | 'add-profile' | 'filters' | 'add-to-collection';
+type Page = 'home' | 'sections' | 'search' | 'sources' | 'source' | 'add-source' | 'ignored' | 'collections' | 'collection' | 'collection-settings' | 'membership' | 'group' | 'season' | 'detail' | 'photo' | 'player' | 'profiles' | 'unlock' | 'add-profile' | 'filters' | 'add-to-collection';
 interface Route { page: Page; id?: string; folder?: string; season?: number }
 const newID = (): string => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
 const sectionLabels: Record<MediaKind, string> = {movie: 'Movies', documentary: 'Documentaries', episode: 'TV shows', music: 'Music', photo: 'Photos'};
@@ -162,8 +162,9 @@ const MediaVaultApp = () => {
     if (value.items[0]!.kind === 'episode' || value.items.length > 1) { navigate({page: 'group', id: value.id}); }
     else { navigate({page: value.items[0]!.kind === 'photo' ? 'photo' : 'detail', id: value.items[0]!.id}); }
   };
+  const collectionCandidates = route.page === 'add-to-collection' && route.id ? [route.id] : [...selected];
   const create = (): void => {
-    updatePersonal(current => createCollection(current, newID(), name, available, [...selected])); setName('');
+    updatePersonal(current => createCollection(current, newID(), name, available, collectionCandidates)); setName('');
   };
   const unlock = async (): Promise<void> => {
     const target = libraryRef.current?.profiles.find(value => value.id === route.id);
@@ -222,7 +223,7 @@ const MediaVaultApp = () => {
   }
   const selectingHome = route.page === 'home' && unlocked && selecting;
   const sectionTitle = watchlistOnly ? 'Watchlist' : sections.length === 1 ? sectionLabels[sections[0]!] : 'All media';
-  const header = <View style={[shared.header, route.page === 'home' && {marginBottom: 8}]}>
+  const header = <View style={[shared.header, (route.page === 'home' || route.page === 'collection') && {marginBottom: 8}]}>
     <Text style={shared.title}>{selectingHome ? `${selected.size} selected` : 'MediaVault'}</Text><View style={shared.row}>
     {routes.length > 1 && <Action label="Back" onPress={back}/>}
     {selectingHome && <><Action label="Collections" compact onPress={() => navigate({page: 'collections'})}/>
@@ -285,16 +286,23 @@ const MediaVaultApp = () => {
       <View style={shared.row}><View style={{flex: 1}}><Field label="New collection name" value={name} onChange={setName} placeholder="Weekend movies"/></View><Action label="Create collection" onPress={() => { try { create(); } catch (reason) { report(reason); } }}/></View>
       {collectionList.map(value => <Action key={value.id} label={`${value.title} · ${value.count} ${value.count === 1 ? 'title' : 'titles'}`} onPress={() => {
         if (route.page === 'add-to-collection' && value.personalId) { const allowed = new Set(available.filter(media => media.kind !== 'photo').map(media => media.id));
-          updatePersonal(current => ({...current, collections: current.collections.map(entry => entry.id === value.personalId ? {...entry, itemIds: [...new Set([...entry.itemIds, ...[...selected].filter(id => allowed.has(id))])]} : entry)})); back();
+          updatePersonal(current => ({...current, collections: current.collections.map(entry => entry.id === value.personalId ? {...entry, itemIds: [...new Set([...entry.itemIds, ...collectionCandidates.filter(id => allowed.has(id))])]} : entry)})); back();
         } else { setName(value.title); navigate({page: 'collection', id: value.id}); }
       }}/>)}</ScrollView>}
-    {route.page === 'collection' && collection && <><Text style={shared.heading}>{collection.title} · {collection.count} titles</Text>
-      {collection.personalId && <View style={shared.row}><Action label="Manage titles" onPress={() => navigate({page: 'membership', id: collection.personalId})}/>
-        <View style={{width: 420}}><Field label="Collection name" value={name} onChange={setName}/></View><Action label="Save name" onPress={() => {
-          const proposed = name.trim(); if (!proposed || proposed.length > 80 || personal.collections.some(value => value.id !== collection.personalId && value.name.toLowerCase() === proposed.toLowerCase())) { setError('Choose a unique name between 1 and 80 characters.'); return; }
-          updatePersonal(current => ({...current, collections: current.collections.map(value => value.id === collection.personalId ? {...value, name: proposed} : value)}));
-        }}/><Action label="Delete collection" destructive onPress={() => { updatePersonal(current => ({...current, collections: current.collections.filter(value => value.id !== collection.personalId)})); back(); }}/></View>}
+    {route.page === 'collection' && collection && <>
+      <View style={shared.row}><Text style={[shared.heading, {flex: 1, marginBottom: 0}]} numberOfLines={1} testID="collection-title">{collection.title} · {collection.count} {collection.count === 1 ? 'title' : 'titles'}</Text>
+        {collection.personalId && <><Action label="Manage titles" compact onPress={() => navigate({page: 'membership', id: collection.personalId})}/>
+          <Action label="Manage collection" compact onPress={() => { setName(collection.title); navigate({page: 'collection-settings', id: collection.personalId}); }}/></>}
+      </View>
       <LibraryGrid groups={groupLibrary(collection.items)} open={openGroup} loadImage={loadImage} session={session} viewing={personal.viewing}/></>}
+    {route.page === 'collection-settings' && collection?.personalId && <ScrollView><Text style={shared.heading}>Manage collection</Text>
+      <Field label="Collection name" value={name} onChange={setName}/><View style={shared.row}><Action label="Save name" onPress={() => {
+        const proposed = name.trim(); if (!proposed || proposed.length > 80 || personal.collections.some(value => value.id !== collection.personalId && value.name.toLowerCase() === proposed.toLowerCase())) { setError('Choose a unique name between 1 and 80 characters.'); return; }
+        updatePersonal(current => ({...current, collections: current.collections.map(value => value.id === collection.personalId ? {...value, name: proposed} : value)}));
+      }}/><Action label="Delete collection" destructive onPress={() => {
+        updatePersonal(current => ({...current, collections: current.collections.filter(value => value.id !== collection.personalId)}));
+        unlockAttempt.current++; setError(undefined); setPin(''); setRoutes(current => current.slice(0, -2));
+      }}/></View></ScrollView>}
     {route.page === 'membership' && collection?.personalId && <ScrollView><Text style={shared.heading}>Titles in {collection.title}</Text>{groups.filter(value => value.items[0]!.kind !== 'photo').map(value => {
       const contained = value.items.every(media => collection.items.some(entry => entry.id === media.id));
       return <Action key={value.id} label={`${contained ? '✓' : '○'} ${value.title}`} selected={contained} onPress={() => updatePersonal(current => ({...current, collections: current.collections.map(entry => entry.id === collection.personalId ? {...entry,
@@ -315,7 +323,7 @@ const MediaVaultApp = () => {
       <Text style={shared.text}>{item.plot ?? 'No description yet. Add a matching NFO file beside this media to use your own details.'}</Text>
       <View style={shared.row}><Action label={personal.viewing[item.id]?.position && !personal.viewing[item.id]?.watched ? 'Resume' : 'Play'} preferred onPress={() => navigate({page: 'player', id: item.id})}/>
         <Action label={personal.viewing[item.id]?.watched ? 'Mark unwatched' : 'Mark watched'} onPress={() => mark([item], !personal.viewing[item.id]?.watched)}/>
-        <Action label="Add to collection" onPress={() => { setSelected(new Set([item.id])); navigate({page: 'add-to-collection'}); }}/>
+        <Action label="Add to collection" onPress={() => navigate({page: 'add-to-collection', id: item.id})}/>
         <Action label={personal.watchlist.includes(item.id) ? 'Remove from Watchlist' : 'Add to Watchlist'} onPress={() => updatePersonal(current => ({...current, watchlist: current.watchlist.includes(item.id) ? current.watchlist.filter(id => id !== item.id) : [...current.watchlist, item.id]}))}/></View>
     </View></View></ScrollView>}
     {route.page === 'profiles' && <ScrollView><Text style={shared.heading}>Who’s watching?</Text><Text style={shared.subtitle}>Each person has their own collections, watched status, and resume points.</Text>

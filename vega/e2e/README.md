@@ -66,6 +66,14 @@ and requires actual native focus before selecting application buttons. Text
 acknowledgement uses the actual editor, not the wrapper's empty `getText` result.
 Category changes open the Home section chooser, select the desired section,
 and return to the library through the same remote actions available to users.
+For a nonsecret replacement, the harness requires the expected old value and
+native editor focus, invokes the pinned driver's clear command, and verifies an
+empty editor before sending the new value. The final exact-value assertion
+remains. `input-replacement-diagnostic.json` records only lengths/comparison
+flags at those three phases; password/PIN contents are never read or recorded.
+Protected replacements require native editor focus and use clear/write without
+text readback or replacement diagnostics; the PIN-unlock/source journey must
+verify the new credential through actual behavior.
 
 The Debug fixture can show the SDK's focus-stealing development LogBox. The
 harness dismisses only its exact observed "Open debugger to view warnings."

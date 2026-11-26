@@ -222,16 +222,57 @@ async function enter(id, value, previous = '') {
   if (!await exists(byID('key_Done'))) { await key(96); }
   await element(byID('key_Done'));
   const target = await element(editorPath);
-  // Use documented Linux key events for editing; the Vega command reference does not promise element.clear().
-  if (previous) { await key(107); for (let i = 0; i < previous.length; i++) { await key(14); } }
-  await call('POST', `/element/${target}/value`, {text: value, value: [...value]});
-  if (!/password|pin/.test(id)) {
-    await waitFor(async () => {
-      // RN Vega puts testID on a focus wrapper. The actual editor is a child;
-      // getText(wrapper) returns null even when the full value is visible.
-      const editor = await element(editorPath);
-      return await call('GET', `/element/${editor}/text`) === value;
-    }, `The text field did not acknowledge the complete input: ${id}`);
+  const secret = /password|pin/.test(id);
+  const replacementTrace = [];
+  async function recordReplacement(phase, actual) {
+    if (!fixtureBuild || secret || !previous) { return; }
+    replacementTrace.push({field: id, phase, observedAt: new Date().toISOString(),
+      expectedLength: value.length, previousLength: previous.length,
+      actualLength: typeof actual === 'string' ? actual.length : null,
+      empty: actual === '', equalsPrevious: actual === previous, equalsExpected: actual === value});
+    await writeFile(resolve(output, 'input-replacement-diagnostic.json'), JSON.stringify(replacementTrace, null, 2))
+      .catch(() => console.log('[Vega journey] Replacement diagnostics unavailable; assertions unchanged.'));
+  }
+  if (previous) {
+    let actual;
+    if (secret) {
+      // PIN/password replacement never reads the previous or cleared text.
+      // The later unlock/connect journey must prove that the new value works.
+      await waitFor(() => nativeFocused(editorPath), `The protected replacement editor must have native focus: ${id}`);
+    } else {
+      try {
+        await waitFor(async () => {
+          actual = await call('GET', `/element/${target}/text`);
+          return actual === previous && await nativeFocused(editorPath);
+        }, `The replacement field must retain its expected prior value and native focus: ${id}`);
+      } finally { await recordReplacement('before-clear', actual); }
+    }
+    // Verified pinned driver3.30.0: clear -> setValue('') -> setText(id, '').
+    // Nonsecret edits must acknowledge an empty editor before replacement.
+    await call('POST', `/element/${target}/clear`, {});
+    if (!secret) {
+      try {
+        await waitFor(async () => {
+          const editor = await element(editorPath);
+          actual = await call('GET', `/element/${editor}/text`);
+          return actual === '';
+        }, `The text field did not acknowledge clearing before replacement: ${id}`);
+      } finally { await recordReplacement('after-clear', actual); }
+    }
+  }
+  const writeTarget = previous ? await element(editorPath) : target;
+  await call('POST', `/element/${writeTarget}/value`, {text: value, value: [...value]});
+  if (!secret) {
+    let actual;
+    try {
+      await waitFor(async () => {
+        // RN Vega puts testID on a focus wrapper. The actual editor is a child;
+        // getText(wrapper) returns null even when the full value is visible.
+        const editor = await element(editorPath);
+        actual = await call('GET', `/element/${editor}/text`);
+        return actual === value;
+      }, `The text field did not acknowledge the complete input: ${id}`);
+    } finally { await recordReplacement('after-replacement', actual); }
   }
   // Vega documents Back as keyboard dismissal; controlled onChangeText has
   // already stored the edit. Do not require the IME's Done key to take focus.
@@ -446,18 +487,31 @@ try {
     await enter('field-new-collection-name', 'Weekend'); await click('action-create-collection');
     await click('action-weekend-2-titles'); // Finish adding the selected titles and return to the library.
     await click('action-collections'); await click('action-weekend-2-titles');
+    await click('action-manage-collection');
     await enter('field-collection-name', 'Movie Night', 'Weekend'); await click('action-save-name');
+    await click('action-back');
     await click('action-manage-titles'); await click('action-library-sequel'); await click('action-done');
     await element(byID(feature)); assert.equal(await exists(byID(sequel)), false, 'Removing a title must immediately update the collection.');
     // Home bulk selection stays active, but collection posters must open their titles.
     await click(feature);
     await clickXPath('//*[starts-with(@test_id,"item-open-") and contains(@test_id,"Directors Cut.mp4")]');
     assert.equal(await text('detail-title'), 'Library Feature');
+    await click('action-add-to-collection'); await element(byID('field-new-collection-name'));
+    await click('action-back'); // Cancelling a detail action must preserve the Home bulk selection.
+    assert.equal(await text('detail-title'), 'Library Feature');
     await click('action-back'); await click('action-back');
+    await click('action-manage-collection');
     const collectionName = await element(byID('field-collection-name') + "//*[@editable='true']");
     assert.equal(await call('GET', `/element/${collectionName}/text`), 'Movie Night', 'Back must return to the same collection.');
+    await click('action-back');
     await element(byID(feature)); assert.equal(await exists(byID(sequel)), false);
-    await click('action-back'); await click('action-back'); await click('action-done-selecting');
+    await click('action-back'); await click('action-back');
+    assert(await exists("//*[@role='text' and text='3 selected']"), 'Detail collection actions must preserve all three selected Home files.');
+    for (const id of [feature, sequel]) {
+      assert(await exists(byID(id) + "[starts-with(@description,'Selected, ')]"), 'Both original Home title groups must remain selected.');
+    }
+    await capture('03-bulk-selection-restored');
+    await click('action-done-selecting');
   });
   await step('04-show-season-episode', async () => {
     await click('library-section'); await click('action-tv-shows');

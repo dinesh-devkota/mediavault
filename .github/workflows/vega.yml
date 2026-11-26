@@ -8,6 +8,10 @@ on:
     paths: ["vega/**", "tools/vega/**", ".github/workflows/vega.yml"]
   workflow_dispatch:
     inputs:
+      rendering_probe_only:
+        description: "Build and run the isolated static rendering probe only; no library or credential tests."
+        type: boolean
+        default: false
       reuse_run_id:
         description: "Graphics comparison only: completed Vega run containing the exact packages (45738633627 for the first comparison). Leave empty for normal builds."
         type: string
@@ -21,12 +25,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.reuse_run_id != '' && 'vega-graphics' || 'vega' }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.rendering_probe_only && 'vega-render' || github.event_name == 'workflow_dispatch' && inputs.reuse_run_id != '' && 'vega-graphics' || 'vega' }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   native-tests:
-    if: github.event_name != 'workflow_dispatch' || inputs.reuse_run_id == ''
+    if: github.event_name != 'workflow_dispatch' || (inputs.reuse_run_id == '' && !inputs.rendering_probe_only)
     name: Native source and stream regressions
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -61,7 +65,7 @@ jobs:
             .artifacts/native-host-tests/fixture/nas.log
             .artifacts/native-host-tests/fixture/http-audit.jsonl
   package:
-    if: github.event_name != 'workflow_dispatch' || inputs.reuse_run_id == ''
+    if: github.event_name != 'workflow_dispatch' || (inputs.reuse_run_id == '' && !inputs.rendering_probe_only)
     name: Vega package (${{ matrix.target }})
     runs-on: ubuntu-24.04
     timeout-minutes: 70
@@ -97,7 +101,7 @@ jobs:
             vega/native/CMakeLists.txt
           if-no-files-found: warn
   fixture-package:
-    if: github.event_name != 'workflow_dispatch' || inputs.reuse_run_id == ''
+    if: github.event_name != 'workflow_dispatch' || (inputs.reuse_run_id == '' && !inputs.rendering_probe_only)
     name: Simulator-only synthetic-data package
     runs-on: ubuntu-24.04
     timeout-minutes: 70
@@ -173,9 +177,60 @@ jobs:
           name: vega-virtual-device-evidence
           path: .artifacts/vega-ui/
           if-no-files-found: warn
+  rendering-probe:
+    name: Isolated static rendering probe
+    if: github.event_name == 'workflow_dispatch' && inputs.rendering_probe_only && github.repository == 'dinesh-devkota/mediavault'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require a standalone probe request
+        env:
+          REUSE_RUN_ID: ${{ inputs.reuse_run_id }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_sha }}
+        run: test -z "$REUSE_RUN_ID" && test -z "$EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.5"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install native Linux virtual-device dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl tar jq build-essential cmake ninja-build pkg-config python3-dev unzip xz-utils lz4 libssl-dev xvfb libgtk-3-0 libgbm1 libnss3 libxkbcommon0 libpulse0 libsdl2-2.0-0
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle --timeout=30
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Install pinned SDK including the virtual device
+        env:
+          SKIP_VVD_INSTALL: "false"
+        run: bash tools/vega/install-sdk.sh
+      - name: Install Amazon's documented automation driver
+        run: |
+          npm install -g appium@2.2.2
+          appium driver install --source=npm @amazon-devices/appium-kepler-driver@3.30.0
+      - name: Build isolated template-based probe
+        run: |
+          python -m pip install pillow==13.0.0
+          (cd vega && npm ci)
+          bash tools/vega/render-probe/build.sh
+      - name: Capture static and focused rendering
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' bash tools/vega/run-render-probe.sh .artifacts/vega-render-probe/MediaVault-RENDER-PROBE-x86_64.vpkg
+      - name: Retain isolated rendering evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vega-render-probe-evidence
+          path: .artifacts/vega-render-probe/
+          if-no-files-found: warn
   graphics-comparison:
     name: Compare identical packages with SDK graphics acceleration
-    if: github.event_name == 'workflow_dispatch' && inputs.reuse_run_id != '' && github.repository == 'dinesh-devkota/mediavault'
+    if: github.event_name == 'workflow_dispatch' && !inputs.rendering_probe_only && inputs.reuse_run_id != '' && github.repository == 'dinesh-devkota/mediavault'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:

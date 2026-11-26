@@ -182,26 +182,72 @@ content and bounds the handoff. Its full Android TV workflow passed
 
 ## Amazon Fire TV work — November 25, 2026
 
-At `3edbd0b`, modern Fire TV passed 120/120, phone passed 16/16, and build/lint/
-packaging passed. API 25 passed 22/22. API 22 and 28 each passed 21/22; their
-only failure was the setup test expecting Sign in immediately after editing a
-valid application ID while the keyboard/error panel could move the lazy-list
-item out of the composed viewport. The retained logs do not establish exact
-field contents at that failure. The follow-up test verifies the actual UUID,
-uses the field's existing Next action, scrolls to Sign in, and requires it enabled;
-its instrumentation compilation passes. All three OneDrive storage/media/scoping
-journeys passed on every tested API. Shared base `7bfc5b5` passed Android phone
-16/16 and TV 113/113. Its unsigned Apple TV build passed; new Apple simulator
-runs remain queued. Pre-OneDrive `96df268` iPhone completed 231/231 plus unsigned
-Release. These results do not transfer automatically to newer app changes.
+Remote PR20 head `b98f180` is green across Android/Fire OS: modern TV 120/120
+(run `45748429035`), phone 16/16 (`45748429096`), and API 22/25/28 22/22 each
+(`45748429091`), with zero failures/skips. Build/lint/APK/unsigned bundle passed.
+Four library screenshots were reviewed. OneDrive setup, protected credential
+storage, NFO/artwork import, folder/age permissions and actual playback/seek ran
+on every target. Evidence is in `.artifacts/android-tv-b98f180`,
+`.artifacts/android-phone-b98f180` and `.artifacts/fire-compat-b98f180`.
 
-Vega `3edbd0b` run `45746551228` passed packages/native/startup checks and the
-name/address edit postconditions, then failed revealing Username. Masked layout
-shows the keyboard still open and focused while the reveal loop was navigating.
-Done disappearance alone did not establish stable closure. The next diagnostic
-records bounded, sanitized keyboard-window visibility and app/IME focus before/
-after Back and the first few D-pad actions, without reading input values. No
-product change or looser navigation assertion is justified yet.
+Local Fire `1a327be` additionally includes the Apple contrast change `d5a9ab6`
+and Vega keyboard, URL and layout fixes. It is pushed ONLY to the dedicated
+`codex/mediavault-vega-keyboard-visibility` verification branch, not PR20's head.
+Run `45752871600` passed all three production architectures, isolated fixture
+package, native regressions and production startup. Stages01/02 passed without
+a fatal overlay; stage03 reached collection creation/opening, then failed exact
+rename acknowledgement. Home now fits all five cards (grid y444/h580), but
+screenshots still omit colored backgrounds, focus fills and poster pixels despite
+native image-load success. Do not call these visually acceptable journeys.
+The rename harness is being corrected using the pinned driver's clear operation
+with acknowledged old/empty/new values for nonsecret fields. Protected inputs
+must never be read. A manual-only, separate-identity template rendering probe
+will compare square/rounded Views, bundled images and a focused button without
+NAS, credentials or the MediaVault native module. Local app typecheck/lint,
+42 domain tests and eight harness contracts pass; complete playback/profile
+journeys and clean visible rendering are still unverified.
+
+Run `45750173905` at `a019f2e` proved stable keyboard closure: wait for positive
+native visibility, send one Back, then require the same window hidden and Done
+absent. The first two journey assertions passed, but captured screens exposed a
+fatal native overlay, so these are NOT accepted as clean journey passes. Its
+stack maps to react-native-url-polyfill's unsupported NativeModules.BlobModule
+access. `77f31cc` removes that library and uses Vega 0.83's built-in URL API while
+retaining all address/path guards. The harness rejects an exact fatal heading
+before/after each journey and after capture without reading its error body.
+
+The same run revealed selection controls consuming the entire Home viewport.
+Home now has a compact toolbar, separate section/search pages and bulk actions
+that leave space for the poster grid. Search/genre state, profile lock and
+collection navigation are retained. Native runtime must establish actual focus,
+artwork decode and visual behavior; static/type/domain checks cannot prove them.
+A reviewed follow-up keeps detail Add to collection candidates on that route,
+so cancelling it cannot replace the Home bulk selection. Stage03 now returns
+from the detail action and asserts the original three files/two grouped titles
+remain selected. The fixture screenshot also captures that restored selection.
+SDK typecheck/lint, 42 app tests and eight harness contracts pass; the new
+selection regression still needs hosted execution.
+Collection browsing now keeps its poster grid below a compact title/action row;
+rename/delete move to Manage collection, and deletion returns to the list.
+The runtime journey follows those controls, checks the renamed collection after
+Back, and verifies the original Home bulk selection. The standalone render probe
+builds with SDK 2.0.15159, includes its known bundled PNG and no MediaVault native
+module/libsmb2, and retains exact dependency/template provenance. Its manual-only
+workflow input is `rendering_probe_only`; normal app jobs are skipped in that mode.
+Both the new collection journey and isolated pixel measurements need hosted runs.
+The simulator remains incapable of validating production secure storage, and
+there is no physical Vega device available. Do not ask the owner again.
+
+### Earlier Fire validation and investigations
+
+At `3edbd0b`, API 22 and 28 each passed 21/22; only the OneDrive setup-form
+assertion failed. The follow-up checks the exact entered UUID, performs the
+field's existing Next action and scrolls to Sign in before checking enabled.
+It retains invalid-input activation. All targets passed at `b98f180` above.
+The earlier Vega keyboard diagnostic showed Done was temporarily absent while
+the keyboard window was still opening, causing the conditional Back to be skipped.
+Native-window visibility is now the authoritative boundary; strict application
+focus assertions have not been relaxed. The checkpoints below are historical.
 
 Fire integration `4b87c31` includes public `96df268` and Plex's secure-storage test
 adaptations for API 22. Local checks passed 101 core and 146 app unit cases, with
