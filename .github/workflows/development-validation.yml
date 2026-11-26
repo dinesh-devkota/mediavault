@@ -60,8 +60,8 @@ jobs:
 
   nas-integration:
     name: Test SMB on Apple TV simulator
-    runs-on: macos-15-intel
-    timeout-minutes: 30
+    runs-on: macos-26
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -190,7 +190,7 @@ jobs:
 
   preview:
     name: Capture Apple TV preview
-    runs-on: macos-15-intel
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -199,7 +199,7 @@ jobs:
       - name: Generate project
         run: |
           python3 scripts/generate_app_icons.py
-          xcodegen generate
+          xcodegen generate --spec project.simulator-tests.yml
       - name: Select a tvOS simulator
         id: simulator
         run: |
@@ -222,76 +222,13 @@ jobs:
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-derived" \
-            CODE_SIGNING_ALLOWED=NO build | tail -n 160
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build | tail -n 160
       - name: Capture preview
         run: |
           set -euo pipefail
           DEVICE='${{ steps.simulator.outputs.device }}'
           APP="$RUNNER_TEMP/cinevault-derived/Build/Products/Debug-appletvsimulator/CineVault.app"
-          # Verify the exact spelling independently of OCR's all-caps word spacing.
-          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' "$APP/Info.plist")" == "MediaVault" ]]
-          swiftc scripts/verify_preview.swift -o "$RUNNER_TEMP/verify-preview"
-          capture_when_ready() {
-            local path="$1"
-            shift
-            local expected="$*"
-            for attempt in {1..24}; do
-              if ! kill -0 "$PID" 2>/dev/null; then
-                echo "CineVault exited before $expected became visible." >&2
-                return 1
-              fi
-              if xcrun simctl io "$DEVICE" screenshot "$path" >/dev/null 2>&1 &&
-                 "$RUNNER_TEMP/verify-preview" "$path" "$@"; then
-                sleep 15
-                if kill -0 "$PID" 2>/dev/null &&
-                   xcrun simctl io "$DEVICE" screenshot "$path" >/dev/null 2>&1 &&
-                   "$RUNNER_TEMP/verify-preview" "$path" "$@"; then
-                  return 0
-                fi
-              fi
-              sleep 5
-            done
-            echo "Timed out waiting for $expected in the screenshot." >&2
-            return 1
-          }
-          # The physical-device arm64 requirement does not apply to the simulator.
-          plutil -remove UIRequiredDeviceCapabilities "$APP/Info.plist"
-          xcrun simctl boot "$DEVICE"
-          xcrun simctl bootstatus "$DEVICE" -b
-          xcrun simctl install "$DEVICE" "$APP"
-          LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview)
-          echo "$LAUNCH"
-          PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-home.png" "Welcome to MediaVault" "Continue Watching" "Next available" "S01E03"
-          xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
-          LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-detail)
-          echo "$LAUNCH"
-          PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-detail.png" "Start Over" "Midnight Horizon"
-          xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
-          LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-filters)
-          PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-filters.png" "All Genres" "Adventure" "Drama" "Apply"
-          xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
-          LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-nas)
-          PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-nas.png" "Devices on your network"
-          xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
-          LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-nas-folder)
-          PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-nas-folder.png" "Living Room NAS" "Use this folder & scan"
-          xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
-          LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-photos)
-          PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-photos.png" "Photos" "Summer Trip" "Family NAS"
-          xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
-          LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-photo)
-          PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-photo.png" "Golden Hour" "Next" "Back"
-          xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
-          LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-search)
-          PID="${LAUNCH##*: }"
-          capture_when_ready "$RUNNER_TEMP/cinevault-search.png" "Search" "1 result" "192 episodes"
+          bash scripts/capture_tvos_previews.sh "$DEVICE" "$APP" "$RUNNER_TEMP"
       - uses: actions/upload-artifact@v4
         with:
           name: cinevault-ui-preview

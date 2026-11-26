@@ -155,6 +155,7 @@ struct LibraryView: View {
                     }
                     Spacer()
                     Button("Clear filters") { preferences.clearFilters() }
+                        .tvOSBorderedAction()
                         .disabled(!hasFilters)
                     Text("\(MovieVersions.groups(results).count) \(resultKind)\(MovieVersions.groups(results).count == 1 ? "" : "s")")
                         .font(.callout)
@@ -236,6 +237,7 @@ struct LibraryView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .tvOSBorderedAction()
         .focused($focusedControl, equals: item)
         .accessibilityLabel(item.rawValue)
         .accessibilityValue(value)
