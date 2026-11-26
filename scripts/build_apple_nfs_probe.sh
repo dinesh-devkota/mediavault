@@ -55,14 +55,14 @@ build_tvos_probe() {
   local sdk="$1"
   local platform="$2"
   local build="$work/$sdk"
-  local probe="$build/nfs_readonly_probe"
+  local probe="$build/nfs_readonly_probe.app/nfs_readonly_probe"
   local sysroot
   sysroot="$(xcrun --sdk "$sdk" --show-sdk-path)"
 
   build_probe "$build" -DCMAKE_SYSTEM_NAME=tvOS \
     -DCMAKE_OSX_SYSROOT="$sysroot" -DCMAKE_OSX_ARCHITECTURES=arm64 \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0
-  xcrun lipo -verify_arch arm64 "$probe"
+  xcrun lipo "$probe" -verify_arch arm64
   local build_version
   build_version="$(xcrun vtool -show-build "$probe")"
   printf '%s\n' "$build_version"
