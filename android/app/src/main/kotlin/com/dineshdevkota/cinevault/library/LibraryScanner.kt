@@ -1,6 +1,8 @@
 package com.dineshdevkota.cinevault.library
 
 import androidx.room.withTransaction
+import com.dineshdevkota.cinevault.cloud.DriveDocumentPath
+import com.dineshdevkota.cinevault.core.EpisodeParser
 import com.dineshdevkota.cinevault.core.FilenameParser
 import com.dineshdevkota.cinevault.core.MediaFile
 import com.dineshdevkota.cinevault.core.MediaKind
@@ -89,16 +91,16 @@ class LibraryScanner(
             val foundPaths = mutableSetOf<String>()
             val scanned = if (scanWithProgress == null) scanVideos(config) else scanWithProgress(config) { progress ->
                 val allowed = progress.files.filter {
-                    MediaFile.shouldIndex(it.path, it.size) &&
+                    MediaFile.shouldIndex(displayPath(config, it), it.size) &&
                         !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.caseSensitivePaths)
                 }
-                database.withTransaction {
+                if (!config.isGoogleDrive) database.withTransaction {
                     check(database.sources().get(source.id) == source) { "The NAS source changed during the scan. Scan again." }
                     val existing = if (allowed.isEmpty()) emptyMap() else
                         movies.forPaths(source.id, allowed.map { it.path }).associateBy { it.filePath }
                     for (file in allowed) {
                         val current = existing[file.path]
-                        if (current == null) { movies.insert(newEntry(source.id, file)); partialAdded++ }
+                        if (current == null) { movies.insert(newEntry(source.id, file, config)); partialAdded++ }
                         else movies.markPresent(current.id, file.size)
                     }
                 }
@@ -106,17 +108,25 @@ class LibraryScanner(
                 val discovered = if (config.isDropbox) progress.found else foundPaths.size
                 statusFlow.value = "Scanning ${source.name}: $discovered items in ${progress.folders} folders…"
             }
-            val files = scanned.filter { MediaFile.shouldIndex(it.path, it.size) &&
+            val files = scanned.filter { MediaFile.shouldIndex(displayPath(config, it), it.size) &&
                 !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.caseSensitivePaths) }
             val added = database.withTransaction {
                 // An edit/delete can finish while the NAS operation is suspended. Never apply
                 // the old share's results to the replacement source (or recreate deleted rows).
                 if (database.sources().get(source.id) != source) return@withTransaction null
-                val diff = LibrarySync.diff(movies.forSource(source.id), files) { it.filePath }
-                diff.present.forEach { (movie, file) -> movies.markPresent(movie.id, file.size) }
+                fun key(path: String) = if (config.isGoogleDrive) DriveDocumentPath.fileID(path) ?: path else path
+                val diff = LibrarySync.diff(movies.forSource(source.id), files, fileKey = { key(it.path) }) { key(it.filePath) }
+                diff.present.forEach { (movie, file) ->
+                    if (config.isGoogleDrive && movie.filePath != file.path) {
+                        // Drive IDs survive rename and moves inside a grant. Keep the row and household history.
+                        val display = displayPath(config, file)
+                        movies.update(movie.copy(filePath = file.path, fileName = display.substringAfterLast('/'),
+                            fileSize = file.size, isMissing = false))
+                    } else movies.markPresent(movie.id, file.size)
+                }
                 diff.missing.forEach { movies.markMissing(it.id) }
                 diff.added.forEach { file ->
-                    movies.insert(newEntry(source.id, file))
+                    movies.insert(newEntry(source.id, file, config))
                 }
                 database.sources().setLastScan(source.id, System.currentTimeMillis())
                 diff.added.size + partialAdded
@@ -152,13 +162,19 @@ class LibraryScanner(
         }
     }
 
-    private fun newEntry(sourceId: String, file: RemoteFile): MovieEntity {
-        val parsed = FilenameParser.parse(file.path)
-        val localTitle = MediaFile.isAudio(file.path) || MediaFile.isPhoto(file.path)
-        val title = if (localTitle) file.fileName.substringBeforeLast('.') else parsed.title
-        return MovieEntity(sourceId = sourceId, filePath = file.path, fileName = file.fileName, fileSize = file.size,
+    private fun displayPath(config: SourceConfig, file: RemoteFile): String =
+        if (config.isGoogleDrive) DriveDocumentPath.displayPath(file.path) ?: file.path else file.path
+
+    private fun newEntry(sourceId: String, file: RemoteFile, config: SourceConfig): MovieEntity {
+        val visibleFile = if (config.isGoogleDrive) file.copy(path = displayPath(config, file)) else file
+        val parsed = FilenameParser.parse(visibleFile.path)
+        val localTitle = MediaFile.isAudio(visibleFile.path) || MediaFile.isPhoto(visibleFile.path)
+        val title = if (localTitle) visibleFile.fileName.substringBeforeLast('.') else parsed.title
+        val episode = if (config.isGoogleDrive && !localTitle) EpisodeParser.parse(visibleFile.path) else null
+        return MovieEntity(sourceId = sourceId, filePath = file.path, fileName = visibleFile.fileName, fileSize = file.size,
             parsedTitle = title, parsedYear = if (localTitle) null else parsed.year, tmdbId = if (localTitle) null else parsed.tmdbId,
-            year = if (localTitle) null else parsed.year, title = if (localTitle) title else LibrarySync.initialTitle(file, parsed),
+            year = if (localTitle) null else parsed.year, title = if (localTitle) title else LibrarySync.initialTitle(visibleFile, parsed),
+            seriesTitle = episode?.seriesTitle, seasonNumber = episode?.season, episodeNumber = episode?.episode,
             metadataFetched = localTitle)
     }
 }

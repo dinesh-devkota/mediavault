@@ -2,6 +2,7 @@
 
 package com.dineshdevkota.cinevault.ui
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
+import com.dineshdevkota.cinevault.cloud.GoogleDriveDocuments
 import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.BuildConfig
@@ -54,6 +57,10 @@ fun SourcesTab(movies: List<MovieEntity>) {
     val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(emptyList())
     val scanning by container.scanner.isScanning.collectAsStateWithLifecycle()
     val status by container.scanner.status.collectAsStateWithLifecycle()
+    val driveAvailable = remember(context) {
+        GoogleDriveDocuments.canPick(context, Intent.ACTION_OPEN_DOCUMENT_TREE) ||
+            GoogleDriveDocuments.canPick(context, Intent.ACTION_OPEN_DOCUMENT)
+    }
     val counts = remember(movies) { movies.filter { !it.isMissing }.groupingBy { it.sourceId }.eachCount() }
 
     LazyColumn(
@@ -68,6 +75,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
                 OutlinedButton(onClick = { PlexSetupActivity.start(context) }) { Text("Connect Plex") }
                 OutlinedButton(onClick = { OneDriveSetupActivity.start(context) }) { Text("Connect OneDrive") }
                 OutlinedButton(onClick = { DropboxSetupActivity.start(context) }) { Text("Connect Dropbox") }
+                if (driveAvailable) OutlinedButton(onClick = { GoogleDriveSetupActivity.start(context) }) { Text("Add Google Drive") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
                     enabled = !scanning && sources.isNotEmpty(),
@@ -100,6 +108,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
                         PLEX -> PlexSetupActivity.start(context, source.id)
                         ONEDRIVE -> OneDriveSetupActivity.start(context, source.id)
                         DROPBOX -> DropboxSetupActivity.start(context, source.id)
+                        GOOGLE_DRIVE_DOCUMENTS -> GoogleDriveSetupActivity.start(context, source.id)
                         else -> SourceEditorActivity.start(context, source.id)
                     }
                 },
@@ -141,6 +150,7 @@ fun sourceUrl(source: SourceEntity): String {
     if (source.sourceType == DROPBOX) return "Dropbox / ${source.rootPath}"
     if (source.sourceType == JELLYFIN || source.sourceType == PLEX) return source.host
     if (source.sourceType == ONEDRIVE) return "OneDrive · ${source.username}"
+    if (source.sourceType == GOOGLE_DRIVE_DOCUMENTS) return "Google Drive · Android file picker"
     if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
     return "smb://" + listOf(address.authority, source.share, source.rootPath).filter { it.isNotEmpty() }.joinToString("/")

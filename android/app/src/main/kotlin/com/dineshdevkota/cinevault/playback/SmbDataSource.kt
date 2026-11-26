@@ -12,6 +12,7 @@ import androidx.media3.datasource.DataSourceException
 import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import com.dineshdevkota.cinevault.cloud.DriveDocumentHandle
 import com.dineshdevkota.cinevault.smb.RemoteHandle
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.hierynomus.mssmb2.SMBApiException
@@ -37,7 +38,7 @@ class SmbDataSource(private val authorize: () -> Unit = {}, private val openFile
             handle = file
             authorize()
             bytesRemaining = bytesToServe(dataSpec.position, dataSpec.length, file.length)
-            input = file.stream(dataSpec.position)
+            input = if (file is DriveDocumentHandle) file.stream(dataSpec.position, authorize) else file.stream(dataSpec.position)
         } catch (e: Exception) {
             // SMBJ may throw a runtime exception while opening the stream as well as the file.
             // Media3's loader handles IOExceptions; close() still releases a partial open.

@@ -1,7 +1,7 @@
 """Disposable Plex account and Media Server HTTPS fixture for simulator tests."""
 
 import argparse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import itertools
 import json
 from pathlib import Path
@@ -10,6 +10,8 @@ import ssl
 import subprocess
 import threading
 from urllib.parse import parse_qs, urlsplit
+
+from webdav_fixture import TLSFixtureServer
 
 
 PORT = 18777
@@ -69,9 +71,11 @@ def catalog():
     }, {item["ratingKey"]: item for item in [movie, second_movie, show, season, episode, photo]}
 
 
-class FixtureServer(ThreadingHTTPServer):
-    def __init__(self, port, advertised_host):
-        super().__init__(("127.0.0.1", port), Handler)
+class FixtureServer(TLSFixtureServer):
+    handshake_log_tag = "plex-tls"
+
+    def __init__(self, port, advertised_host, *, ssl_context):
+        super().__init__(("127.0.0.1", port), Handler, ssl_context=ssl_context)
         self.origin = f"https://{advertised_host}:{self.server_address[1]}"
         self.pages, self.items = catalog()
         self.pins = {}
@@ -281,10 +285,9 @@ def main():
     parser.add_argument("--port", type=int, default=PORT)
     args = parser.parse_args()
     cert, key = certificate(args.directory)
-    with FixtureServer(args.port, args.advertised_host) as server:
-        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        tls.load_cert_chain(cert, key)
-        server.socket = tls.wrap_socket(server.socket, server_side=True)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert, key)
+    with FixtureServer(args.port, args.advertised_host, ssl_context=tls) as server:
         server.serve_forever()
 
 

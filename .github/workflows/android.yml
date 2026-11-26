@@ -166,9 +166,11 @@ jobs:
                   detail = (problem.get("message", "") + "\n" + (problem.text or ""))[:4000]
                   detail = detail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
                   print(f"::error title=Android runtime test::{case.get('classname')}.{case.get('name')}: {detail}")
-              elif case.find("skipped") is None and (case.get("classname", "").endswith((
-                      ".JellyfinAndroidIntegrationTest", ".OneDriveMediaIntegrationTest", ".PlexTlsIntegrationTest"))
-                   or case.get("name", "").startswith("dropbox")):
+              elif case.find("skipped") is None and (case.get("classname", "").endswith(
+                    (".JellyfinAndroidIntegrationTest", ".PlexTlsIntegrationTest", ".OneDriveMediaIntegrationTest",
+                     ".OneDriveSetupNavigationTest", ".OneDriveAccountStoreInstrumentedTest"))
+                    or case.get("name", "").startswith(("googleDrive", "dropbox"))
+                    or case.get("name") == "mkvPlaybackAndSeekFromNas"):
                   print(f"{case.get('classname')}.{case.get('name')} passed")
           required = {"TVNavigationTest", "SecretBoxInstrumentedTest", "LibraryDatabaseTest", "MetadataMutationTest",
                       "LibraryScannerTest", "SmbDataSourceContractTest", "SmbIntegrationTest", "SmbPlaybackTest",
@@ -185,6 +187,19 @@ jobs:
           executed = {case.get("classname", "").rsplit(".", 1)[-1] for case in cases}
           identities = [(case.get("classname"), case.get("name")) for case in cases]
           duplicate = len(set(identities)) != len(cases)
+          drive = {("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", name) for name in (
+              "googleDriveFolderImportPhotosCaptionsAndSeekRequireAnExplicitHouseholdGrant",
+              "googleDriveExplicitDocumentsCannotReadAnUnselectedFile",
+          )}
+          if not drive <= set(identities):
+              raise SystemExit("Required Google Drive simulation did not run.")
+          one_drive = {("com.dineshdevkota.cinevault.cloud." + test, method) for test, method in (
+              ("OneDriveSetupNavigationTest", "ownerCanOpenOneDriveSetupAndRecoverFromInvalidPublicApplicationId"),
+              ("OneDriveMediaIntegrationTest", "stagedSignInImportsSelectedFolderAndPlaysWithBoundedReadsAndCaptions"),
+              ("OneDriveAccountStoreInstrumentedTest", "refreshRecordIsEncryptedOnDiskAndRemovable"),
+          )}
+          if not one_drive <= set(identities):
+              raise SystemExit("Required OneDrive fixture tests did not run.")
           plex = ("com.dineshdevkota.cinevault.plex.PlexTlsIntegrationTest", "ownerConnectsOverTlsAndReadsCatalogAndMediaRange")
           if plex not in identities:
               raise SystemExit("Plex TLS connection did not execute in the Android TV emulator")
@@ -194,9 +209,12 @@ jobs:
           mkv = ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "mkvPlaybackAndSeekFromNas")
           if mkv not in identities:
               raise SystemExit("MKV playback did not execute in the Android TV emulator")
-          dropbox = ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate")
-          if dropbox not in identities:
-              raise SystemExit("Dropbox playback and household access did not execute in the Android TV emulator")
+          dropbox = {
+              ("com.dineshdevkota.cinevault.cloud.DropboxSetupNavigationTest", "dropboxOwnerCanOpenAndCancelTheQrApproval"),
+              ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate"),
+          }
+          if not dropbox <= set(identities):
+              raise SystemExit("Required Dropbox fixture tests did not run in the Android TV emulator.")
           if not required <= executed or failures or skipped or duplicate:
               raise SystemExit("Required runtime tests did not all execute successfully: " + str(sorted(required - executed)))
           PY
