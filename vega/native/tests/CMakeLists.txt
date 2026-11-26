@@ -24,7 +24,7 @@ FetchContent_Declare(utf8proc URL https://github.com/JuliaStrings/utf8proc/relea
   URL_HASH SHA256=a393fbef160835fb315bc3e91ba8d86f7a73a7cec9e6198b6c60b848b498bfeb)
 FetchContent_MakeAvailable(utf8proc)
 
-add_executable(mediavault_native_tests TestMain.cpp PathTests.cpp KeyPolicyTests.cpp PlatformErrorCategoryTests.cpp JellyfinPolicyTests.cpp RelayTests.cpp
+add_executable(mediavault_native_tests TestMain.cpp PathTests.cpp KeyPolicyTests.cpp PlatformErrorCategoryTests.cpp FixturePolicyTests.cpp JellyfinPolicyTests.cpp RelayTests.cpp
   ../kepler/Path.cpp ../kepler/Relay.cpp)
 target_include_directories(mediavault_native_tests PRIVATE ../kepler)
 target_link_libraries(mediavault_native_tests PRIVATE mbedcrypto utf8proc nlohmann_json::nlohmann_json Threads::Threads)
@@ -35,6 +35,7 @@ foreach(test IN ITEMS
   path_identifiers path_traversal path_encoding source_boundaries source_unicode_aliases source_parse_limits
   key_existing key_missing_read key_missing_records key_fresh_save key_creation_failure
   platform_error_exact platform_error_spoofed platform_error_precedence platform_error_bound platform_error_private
+  fixture_source_allowed fixture_source_endpoint fixture_source_credentials fixture_source_protocol
   jellyfin_catalog_allowed jellyfin_catalog_scope jellyfin_catalog_parameters
   jellyfin_resources_allowed jellyfin_resource_routes jellyfin_resource_parameters
   relay_get_head relay_ranges relay_invalid_ranges relay_invalid_requests relay_resource_limits
@@ -43,6 +44,32 @@ foreach(test IN ITEMS
   relay_client_limit relay_stop relay_header_deadline)
   add_test(NAME ${test} COMMAND mediavault_native_tests ${test})
   set_tests_properties(${test} PROPERTIES TIMEOUT 15)
+endforeach()
+
+# Deliberately isolated from the production host executable: the only target
+# that compiles the disposable in-memory Vault and its conspicuous marker.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+  add_executable(mediavault_fixture_vault_tests TestMain.cpp FixtureVaultTests.cpp
+    ../kepler/FixtureVault.cpp ../kepler/Path.cpp)
+  target_include_directories(mediavault_fixture_vault_tests PRIVATE ../kepler)
+  target_compile_definitions(mediavault_fixture_vault_tests PRIVATE MEDIAVAULT_VVD_FIXTURE=1)
+  target_compile_options(mediavault_fixture_vault_tests PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
+  target_link_libraries(mediavault_fixture_vault_tests PRIVATE mbedcrypto utf8proc nlohmann_json::nlohmann_json Threads::Threads)
+  foreach(test IN ITEMS fixture_vault_transient fixture_vault_source_scope fixture_vault_cancel
+      fixture_vault_bounds fixture_vault_random)
+    add_test(NAME ${test} COMMAND mediavault_fixture_vault_tests ${test})
+    set_tests_properties(${test} PROPERTIES TIMEOUT 15 LABELS fixture)
+  endforeach()
+endif()
+
+set(MEDIAVAULT_GUARD_CMAKE "${CMAKE_COMMAND}" CACHE FILEPATH "CMake 3.25+ executable for production build guard checks")
+foreach(guard IN ITEMS release relwithdebinfo armv7 aarch64 package_identity)
+  add_test(NAME fixture_build_${guard} COMMAND "${CMAKE_COMMAND}"
+    "-DGUARD=${guard}" "-DGUARD_CMAKE=${MEDIAVAULT_GUARD_CMAKE}"
+    "-DNATIVE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/.."
+    "-DGUARD_BINARY=${CMAKE_CURRENT_BINARY_DIR}/fixture-build-guards/${guard}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/FixtureBuildGuard.cmake")
+  set_tests_properties(fixture_build_${guard} PROPERTIES TIMEOUT 30 LABELS fixture)
 endforeach()
 
 option(MEDIAVAULT_NATIVE_INTEGRATION "Build real SMB/HTTPS loopback integration cases" OFF)
@@ -92,6 +119,18 @@ if(MEDIAVAULT_NATIVE_INTEGRATION)
   target_sources(mediavault_native_tests PRIVATE SMBTests.cpp HTTPTests.cpp ../kepler/SMB.cpp ../kepler/HTTP.cpp)
   target_include_directories(mediavault_native_tests PRIVATE "${smb2_SOURCE_DIR}/include" "${CMAKE_CURRENT_BINARY_DIR}/fixture")
   target_link_libraries(mediavault_native_tests PRIVATE smb2 CURL::libcurl)
+  add_executable(mediavault_fixture_transport_tests TestMain.cpp FixtureTransportTests.cpp
+    ../kepler/SMB.cpp ../kepler/HTTP.cpp ../kepler/Path.cpp)
+  target_include_directories(mediavault_fixture_transport_tests PRIVATE ../kepler
+    "${smb2_SOURCE_DIR}/include" "${CMAKE_CURRENT_BINARY_DIR}/fixture")
+  target_compile_definitions(mediavault_fixture_transport_tests PRIVATE MEDIAVAULT_VVD_FIXTURE=1)
+  target_compile_options(mediavault_fixture_transport_tests PRIVATE -Wall -Wextra -Wpedantic)
+  target_link_libraries(mediavault_fixture_transport_tests PRIVATE smb2 CURL::libcurl mbedcrypto
+    utf8proc nlohmann_json::nlohmann_json Threads::Threads)
+  foreach(test IN ITEMS fixture_transport_smb_allowed fixture_transport_smb_denied fixture_transport_http_denied)
+    add_test(NAME ${test} COMMAND mediavault_fixture_transport_tests ${test})
+    set_tests_properties(${test} PROPERTIES TIMEOUT 30 LABELS "fixture;integration")
+  endforeach()
   foreach(test IN ITEMS smb_list_stat smb_ranges smb_unicode smb_authentication smb_cancellation smb_invalid_paths
       http_get_head_range http_unicode_query http_authentication http_redirect_credentials
       http_certificate_validation http_limits http_untrusted_input http_profile_expiry http_text_decoding

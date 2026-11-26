@@ -41,7 +41,7 @@ isolated Ubuntu host with pinned base images and a verified official installer.
 Source development includes SMB, WebDAV and Jellyfin, local metadata/artwork,
 profile-scoped collections, versions, photos, continuous viewing and protected
 source access. The native SMB/HTTP/credential bridge compiles against Amazon's
-real SDK. TypeScript checking, 25 app/contract tests and 52 native host regression
+real SDK. TypeScript checking, 25 app/contract tests and 74 native host regression
 tests pass. The host suite exercises real SMB/HTTPS fixtures, including rejected
 credentials, cancellation, certificate verification and Jellyfin access boundaries.
 The first complete aarch64 debug VPKG also passes Amazon's manifest
@@ -53,8 +53,23 @@ The SMB sign-in stall found by the negative-credential tests is fixed. Connectio
 negotiation and authentication have a ten-second deadline and support cancellation;
 upstream system DNS resolution can still take longer. All three release architectures
 passed the hosted package checks in run `45718538147`. The build selects the final
-VPKG explicitly instead of counting the SDK's staging copy twice. Virtual-device results remain
-required before distributing this checkpoint.
+VPKG explicitly instead of counting the SDK's staging copy twice. The later run
+`45723078157` passed all three release packages and 57 production native tests.
+On the real virtual device, production startup reports `MV06:not-supported` from
+the native keystore. Amazon explicitly documents that its
+[Crypto API is unsupported in the simulator](https://developer.amazon.com/docs/vega-api/2.0/README.amazon-devices_keplercrypto).
+Production keeps the library closed when protected storage is unavailable.
+
+A separately identified Debug/x86_64 test package uses in-memory synthetic
+credentials so the remaining interface and playback can be exercised. Its native
+code permits only the three fixed loopback NAS fixtures and refuses external
+HTTP access. CMake refuses this storage for release builds, device architectures,
+or the production package identity. The packaged binary is checked for a fixture
+marker, which must be absent from every release. This isolated package passes the
+actual SDK manifest/ABI checks; its UI journeys remain under hosted validation.
+The 74 host checks include 17 fixture-policy/build-guard tests. Another 19 tests
+verify staging and packaged identities, and seven validate the startup probe.
+None of these replace physical-device secure-storage and restart testing.
 
 The initial Vega app still lacks the existing Android/Apple apps' TMDB settings,
 SubDL downloads, automatic NAS discovery and editing an existing household profile.
@@ -81,8 +96,12 @@ then run `bash tools/vega/install-sdk.sh`. Run
 validates the package and verifies that both the native bridge and SMB shared
 library are present. It does not publish an app or configure an owner account.
 
-`.github/workflows/vega.yml` builds all three architectures and runs ten real
-Appium journeys on a fresh virtual device. The runtime script refuses to attach
+`.github/workflows/vega.yml` builds all three release architectures, verifies
+production startup separately, and runs nine real Appium library/player journeys
+with the visibly marked simulator fixture app. Its tenth journey, credential
+persistence, is explicitly skipped as hardware-required. See
+[`vega/e2e/README.md`](../vega/e2e/README.md) for the distinct result formats.
+The runtime script refuses to attach
 to a physical TV or run outside the isolated cloud job. It forwards a synthetic
 loopback NAS explicitly; it does not scan the owner's network or use their media.
 Screenshots, UI trees and test results are retained even on failure. A pending or

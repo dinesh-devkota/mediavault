@@ -1,5 +1,8 @@
 #include "Core.h"
 #include "Relay.h"
+#ifdef MEDIAVAULT_VVD_FIXTURE
+#include "FixturePolicy.h"
+#endif
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -217,6 +220,9 @@ std::string Backend::configure(const std::string &json, std::string username,
   source.username = std::move(username);
   source.password = std::move(password);
   source.token.clear();
+#ifdef MEDIAVAULT_VVD_FIXTURE
+  requireFixtureSource(source);
+#endif
   if (jellyfin != (source.kind == "jellyfin"))
     throw UserError("Invalid source sign-in.");
   JSON account = JSON::object();

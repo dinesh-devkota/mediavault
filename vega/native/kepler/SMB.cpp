@@ -1,4 +1,7 @@
 #include "Core.h"
+#ifdef MEDIAVAULT_VVD_FIXTURE
+#include "FixturePolicy.h"
+#endif
 #include <cerrno>
 #include <chrono>
 #include <curl/curl.h>
@@ -52,6 +55,9 @@ struct SMB::Impl {
 SMB::SMB(const Source &source, const std::function<void()> &assertCurrent)
     : impl(std::make_unique<Impl>()) {
   assertCurrent();
+#ifdef MEDIAVAULT_VVD_FIXTURE
+  requireFixtureSource(source);
+#endif
   std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> url(curl_url(),
                                                           curl_url_cleanup);
   if (!url ||

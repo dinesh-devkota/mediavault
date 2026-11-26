@@ -1,4 +1,7 @@
 #include "Core.h"
+#ifdef MEDIAVAULT_VVD_FIXTURE
+#include "FixturePolicy.h"
+#endif
 #include "TrustRoots.h"
 #include <algorithm>
 #include <cctype>
@@ -87,6 +90,9 @@ std::string part(CURLU *url, CURLUPart component, unsigned flags = 0) {
 HTTPResult http(const Source &source, const JSON &request,
                 const std::function<void()> &assertCurrent) {
   assertCurrent();
+#ifdef MEDIAVAULT_VVD_FIXTURE
+  rejectFixtureHTTP();
+#endif
   if (source.endpoint.size() > 4096 ||
       source.endpoint.find('\0') != std::string::npos ||
       source.username.size() > 1024 || source.password.size() > 4096 ||

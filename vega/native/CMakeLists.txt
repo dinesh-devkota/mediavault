@@ -4,6 +4,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+option(MEDIAVAULT_VVD_FIXTURE "Isolated simulator synthetic-data target only" OFF)
+set(MEDIAVAULT_VAULT_SOURCE kepler/Vault.cpp)
+if(MEDIAVAULT_VVD_FIXTURE)
+  if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+    message(FATAL_ERROR "The VVD fixture is restricted to Debug/x86_64.")
+  endif()
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../manifest.toml" fixture_manifest)
+  string(REGEX MATCH "\\[package\\]([^\\[]*)" fixture_package "${fixture_manifest}")
+  if(NOT fixture_package MATCHES "[\r\n][ \t]*id[ \t]*=[ \t]*\"com\\.dineshdevkota\\.mediavault\\.vvdfixture\"[ \t]*[\r\n]")
+    message(FATAL_ERROR "A separate VVD fixture package identity is required.")
+  endif()
+  set(MEDIAVAULT_VAULT_SOURCE kepler/FixtureVault.cpp)
+endif()
 include(FetchContent)
 
 # Immutable upstream sources. SMB remains dynamically linked for LGPL relinking.
@@ -70,11 +83,21 @@ configure_file(kepler/TrustRoots.h.in "${CMAKE_CURRENT_BINARY_DIR}/TrustRoots.h"
 kepler_add_idl_import_library(MediaVaultPlatformInterfaces PACKAGES
   com.amazon.kepler.crypto com.amazon.kepler.keystore
   com.amazon.kepler.security com.amazon.kepler.file_system)
+if(MEDIAVAULT_VVD_FIXTURE)
+  # The SDK's default map exports only autoLinkKeplerTurboModulesV1. Extend it
+  # for this one target so packaging can positively identify a fixture binary.
+  set(MEDIAVAULT_ORIGINAL_VERSION_SCRIPT "${TMAPI_VERSION_SCRIPT_PATH}")
+  set(TMAPI_VERSION_SCRIPT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/kepler/fixture-exports.map")
+endif()
 kepler_add_turbo_module_library(MediaVaultNative SHARED
   kepler/AutoLinkInit.cpp
-  kepler/Path.cpp kepler/Vault.cpp kepler/SMB.cpp kepler/HTTP.cpp kepler/Backend.cpp kepler/Relay.cpp
+  kepler/Path.cpp ${MEDIAVAULT_VAULT_SOURCE} kepler/SMB.cpp kepler/HTTP.cpp kepler/Backend.cpp kepler/Relay.cpp
   kepler/turbo-modules/generated/MediaVaultNativeSpec.cpp
   kepler/turbo-modules/MediaVaultNative.cpp)
+if(MEDIAVAULT_VVD_FIXTURE)
+  set(TMAPI_VERSION_SCRIPT_PATH "${MEDIAVAULT_ORIGINAL_VERSION_SCRIPT}")
+  target_compile_definitions(MediaVaultNative PRIVATE MEDIAVAULT_VVD_FIXTURE=1)
+endif()
 target_link_libraries(MediaVaultNative PRIVATE MediaVaultPlatformInterfaces smb2 CURL::libcurl
   mbedcrypto utf8proc nlohmann_json::nlohmann_json)
 target_include_directories(MediaVaultNative PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${smb2_SOURCE_DIR}/include")

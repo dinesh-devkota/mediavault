@@ -1,7 +1,8 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {AppState, BackHandler, ScrollView, Text, View} from 'react-native';
+import {AppState, BackHandler, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {TVFocusGuideView} from '@amazon-devices/react-native-kepler';
 import {platformServices} from './native/platform';
+import {BUILD_CONFIG} from './generated/buildConfig';
 import {collectionGroups, createCollection, groupLibrary, MediaGroup, nextEpisode, progressState, versionLabel, visible} from './domain/library';
 import {emptyProfileLibrary, HouseholdProfile, LibrarySnapshot, MediaItem, MediaKind, PlaybackResource, ProfileLibrary, Source} from './domain/model';
 import {contains, parentPath} from './domain/paths';
@@ -20,7 +21,19 @@ interface Route { page: Page; id?: string; folder?: string; season?: number }
 const newID = (): string => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
 const sectionLabels: Record<MediaKind, string> = {movie: 'Movies', documentary: 'Documentaries', episode: 'TV shows', music: 'Music', photo: 'Photos'};
 
-export const App = () => {
+export const App = () => BUILD_CONFIG.fixtureVault
+  ? <View style={fixtureStyles.root}>
+    <Text testID="fixture-build-banner" style={fixtureStyles.banner}>VIRTUAL DEVICE TEST BUILD · Synthetic credentials only · Secure storage requires hardware verification</Text>
+    <MediaVaultApp/>
+  </View>
+  : <MediaVaultApp/>;
+
+const fixtureStyles = StyleSheet.create({
+  root: {flex: 1, backgroundColor: '#10131a'},
+  banner: {backgroundColor: '#ffd58a', color: '#231900', fontSize: 18, fontWeight: '700', textAlign: 'center', paddingHorizontal: 40, paddingVertical: 8},
+});
+
+const MediaVaultApp = () => {
   const [library, setLibrary] = useState<LibrarySnapshot>();
   const libraryRef = useRef<LibrarySnapshot | undefined>(undefined);
   const [profileId, setProfileId] = useState<string>();

@@ -6,12 +6,21 @@ import {resolve} from 'node:path';
 // https://developer.amazon.com/docs/vega/2.0/appium-sessions
 // https://developer.amazon.com/docs/vega/2.0/appium-commands
 const server = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
+const startupCheckOnly = process.env.MEDIA_VAULT_E2E_STARTUP_CHECK_ONLY === '1';
 const endpoint = process.env.MEDIA_VAULT_E2E_NAS_ENDPOINT;
-assert(endpoint?.startsWith('smb://') && endpoint.endsWith('/MEDIALIBRARY'), 'Set a device-accessible synthetic MEDIALIBRARY SMB endpoint.');
+if (!startupCheckOnly) {
+  assert(endpoint?.startsWith('smb://') && endpoint.endsWith('/MEDIALIBRARY'), 'Set a device-accessible synthetic MEDIALIBRARY SMB endpoint.');
+}
 assert.equal(process.env.MEDIA_VAULT_E2E_FIXTURE_ONLY, '1', 'Run only on a fresh disposable app installation with synthetic fixtures.');
+const packageId = process.env.MEDIA_VAULT_E2E_PACKAGE_ID ?? 'com.dineshdevkota.cinevault';
+assert(['com.dineshdevkota.cinevault', 'com.dineshdevkota.mediavault.vvdfixture'].includes(packageId), 'Use the explicit production or isolated virtual-device fixture package ID.');
+const fixtureBuild = packageId === 'com.dineshdevkota.mediavault.vvdfixture';
+assert(!startupCheckOnly || !fixtureBuild, 'The startup-only probe accepts only the production package ID.');
 const output = resolve(process.env.MEDIA_VAULT_E2E_OUTPUT ?? '.artifacts/vega-ui');
 await mkdir(output, {recursive: true});
 let session;
+let fixtureBannerVerified = false;
+let startupProbe = startupCheckOnly ? {outcome: 'not-completed'} : null;
 const results = [];
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const elementKey = 'element-6066-11e4-a52e-4f735466cecf';
@@ -81,26 +90,59 @@ async function capture(name) {
 }
 async function step(name, run) {
   const started = Date.now();
-  try { await run(); await capture(name); results.push({name, passed: true, durationMs: Date.now() - started}); }
+  try { await run(); await capture(name); results.push({name, passed: true, status: 'passed', durationMs: Date.now() - started}); }
   catch (error) {
     const sanitized = String(error).replace(/482619|000000|fixture-only/g, '[fixture credential]');
-    results.push({name, passed: false, error: sanitized, durationMs: Date.now() - started});
+    results.push({name, passed: false, status: 'failed', error: sanitized, durationMs: Date.now() - started});
     await capture(name + '-failure').catch(() => {}); throw new Error(sanitized);
+  }
+}
+async function probeProductionStartup() {
+  await waitFor(async () => {
+    assert.equal(await exists(byID('fixture-build-banner')), false, 'Production startup must never display the fixture build banner.');
+    return await exists(byID('startup-error')) || (await exists(byID('action-sources')) && await exists(byID('library-grid')));
+  }, 'Production startup did not reach home or report its secure-storage status.');
+  assert.equal(await exists(byID('fixture-build-banner')), false, 'Production startup must never display the fixture build banner.');
+  if (await exists(byID('startup-error'))) {
+    const message = await text('startup-error');
+    assert.equal(message, 'Protected settings are unavailable. Try again. (MV06:not-supported)', 'Only the confirmed virtual-device keystore limitation is an accepted startup failure.');
+    for (const id of ['library-grid', 'action-sources', 'action-all-media']) {
+      assert.equal(await exists(byID(id)), false, 'Unavailable secure storage must not expose the home library.');
+    }
+    const retry = await element(byID('startup-retry'));
+    assert.equal(await call('GET', `/element/${retry}/enabled`), true, 'The secure startup error must offer an enabled Retry action.');
+    startupProbe = {outcome: 'unsupported-on-virtual-device', nativeStorageAvailable: false,
+      errorCode: 'MV06:not-supported', hardwareRequired: true, homeExposed: false, retryEnabled: true};
+  } else {
+    assert(await exists(byID('action-sources')) && await exists(byID('library-grid')), 'The fresh production installation must reach its home library.');
+    startupProbe = {outcome: 'native-storage-available', nativeStorageAvailable: true,
+      hardwareRequired: false, homeExposed: true,
+      limitation: 'Startup availability only; PIN persistence, restart protection, and saved NAS credentials were not tested.'};
   }
 }
 const feature = 'media-group-tmdb:910001', sequel = 'media-group-tmdb:910002';
 try {
   const created = await command('POST', '/session', {capabilities: {alwaysMatch: {
     platformName: 'Kepler', 'appium:automationName': 'automation-toolkit/JSON-RPC',
-    'kepler:device': process.env.VEGA_DEVICE ?? 'vda://default', 'appium:appURL': 'com.dineshdevkota.cinevault.main',
+    'kepler:device': process.env.VEGA_DEVICE ?? 'vda://default', 'appium:appURL': packageId + '.main',
   }}});
   session = created.sessionId;
   assert(session, 'Appium must return a real device session.');
+  if (startupCheckOnly) {
+    await step('production-startup-probe', probeProductionStartup);
+  } else {
   await step('01-connect-and-scan', async () => {
     await waitFor(async () => {
       if (await exists(byID('startup-error'))) { throw new Error('Library startup failed: ' + await text('startup-error')); }
       return exists(byID('action-sources'));
     }, 'The protected library did not finish opening.');
+    if (fixtureBuild) {
+      await element(byID('fixture-build-banner'));
+      assert.match(await text('fixture-build-banner'), /VIRTUAL DEVICE TEST BUILD.*Synthetic credentials only.*Secure storage requires hardware verification/);
+      fixtureBannerVerified = true;
+    } else {
+      assert.equal(await exists(byID('fixture-build-banner')), false, 'A production package must never use the fixture build.');
+    }
     await addSource('Fixture NAS', endpoint); await element(byID(feature)); await element(byID(sequel));
     assert.equal((await call('POST', '/elements', {using: 'xpath', value: '//*[starts-with(@test_id,"media-group-")]'})).length, 5,
       'Five visible grouped titles: two movies, one show, one invalid-metadata movie, one standalone photo. Sidecar artwork must be suppressed.');
@@ -186,9 +228,9 @@ try {
     await element(byID('action-sources'));
     // Capture only after the app has cleared the PIN field and restored the library.
   });
-  await step('10-keystore-and-source-persistence', async () => {
-    await call('POST', '/appium/device/terminate_app', {appId: 'com.dineshdevkota.cinevault'});
-    await call('POST', '/appium/device/activate_app', {appId: 'com.dineshdevkota.cinevault.main'});
+  if (!fixtureBuild) { await step('10-keystore-and-source-persistence', async () => {
+    await call('POST', '/appium/device/terminate_app', {appId: packageId});
+    await call('POST', '/appium/device/activate_app', {appId: packageId + '.main'});
     await element(byID('action-everyone-pin-protected'));
     assert.equal(await exists(byID('library-grid')), false, 'Restart must keep the protected household locked.');
     await click('action-everyone-pin-protected'); await enter('field-profile-pin', '482619'); await click('action-continue');
@@ -202,8 +244,21 @@ try {
     assert.notEqual(await text('source-scan-Fixture NAS'), before, 'The completed scan must update its saved timestamp.');
     assert(!after.includes('Reconnect this source') && !after.includes('rejected this account'), 'Saved source credentials must still work.');
     await click('action-back'); await element(byID(feature));
-  });
+  }); }
+  }
 } finally {
-  await writeFile(resolve(output, 'results.json'), JSON.stringify({executedOnDevice: Boolean(session), results}, null, 2));
+  if (fixtureBuild) {
+    results.push({name: '10-keystore-and-source-persistence', passed: null,
+      status: fixtureBannerVerified ? 'skipped' : 'not-run', hardwareRequired: true,
+      reason: fixtureBannerVerified
+        ? 'The visibly marked virtual-device fixture uses synthetic in-memory credentials. Production keystore, restart protection, and saved source credentials require physical Vega hardware.'
+        : 'The fixture package identity/banner was not verified. Production secure-storage checks require physical Vega hardware.'});
+  }
+  const secureStorageVerification = !fixtureBuild && results.some(value => value.name === '10-keystore-and-source-persistence' && value.passed === true)
+    ? 'verified-on-device' : 'not-verified';
+  await writeFile(resolve(output, 'results.json'), JSON.stringify({executedOnDevice: Boolean(session), packageId,
+    mode: startupCheckOnly ? 'production-startup-probe' : 'library-journeys', startupProbe,
+    libraryJourneyCount: results.filter(value => /^0[1-9]-/.test(value.name)).length,
+    buildKind: fixtureBuild ? 'virtual-device-fixture' : 'production', fixtureBannerVerified, secureStorageVerification, results}, null, 2));
   if (session) { await call('DELETE', '').catch(() => {}); }
 }

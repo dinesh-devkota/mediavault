@@ -15,5 +15,6 @@ RUN curl --fail --silent --show-error --location https://sdk-installer.vega.labc
     && bash /tmp/get_vvm.sh && rm /tmp/get_vvm.sh
 ENV PATH="/root/vega/bin:${PATH}"
 RUN vega --version && node --version && npm --version
+RUN apt-get update && apt-get install -y --no-install-recommends python3-tomli && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 CMD ["bash"]

@@ -5,19 +5,28 @@ set -euo pipefail
 [[ "${GITHUB_ACTIONS:-}" == true ]] || { echo 'Use the isolated GitHub Actions runner.' >&2; exit 2; }
 package="${1:?Pass the built x86_64 VPKG}"
 [[ -f "$package" && "$package" == *x86_64*.vpkg ]] || { echo 'An x86_64 package is required.' >&2; exit 2; }
+fixture_package="${2:?Pass the separate simulator-only VPKG}"
+[[ -f "$fixture_package" ]] || { echo 'The isolated fixture package is required.' >&2; exit 2; }
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$HOME/vega/env"
 cd "$repo"
 evidence="$repo/.artifacts/vega-ui"
 mkdir -p "$evidence"
-nas_pid=''; appium_pid=''; log_device_serial=''
+bash tools/vega/check-package.sh "$package" production x86_64 >"$evidence/production-package-validation.json"
+bash tools/vega/check-package.sh "$fixture_package" fixture x86_64 >"$evidence/fixture-package-validation.json"
+nas_pid=''; appium_pid=''; virtual_device_verified=false
 cleanup() {
-  if [[ -n "$log_device_serial" && "$log_device_serial" != unknown ]]; then
-    # Collect only this app on the verified disposable device, retaining its
-    # latest 2 MiB. Time is bounded even if a native service or VDA is stuck.
+  if [[ "$virtual_device_verified" == true ]]; then
+    # This fresh hosted runner has only the verified disposable virtual device.
+    # Its VDA serial is literally "unknown", so use its default connection as
+    # the SDK does for developer-mode and port forwarding. Collect only our apps,
+    # retaining each app's latest 2 MiB.
+    # Time is bounded even if a native service or VDA is stuck.
     # https://developer.amazon.com/docs/vega/2.0/loggingctl documents -v.
-    timeout --kill-after=2s 15s vega exec vda -s "$log_device_serial" shell 'loggingctl log -v com.dineshdevkota.cinevault' 2>&1 |
-      tail -c 2097152 >"$evidence/device-application.log" || true
+    for app_id in com.dineshdevkota.cinevault com.dineshdevkota.mediavault.vvdfixture; do
+      timeout --kill-after=2s 15s vega exec vda shell "loggingctl log -v $app_id" 2>&1 |
+        tail -c 2097152 >"$evidence/$app_id.log" || true
+    done
   fi
   [[ -z "$appium_pid" ]] || kill "$appium_pid" 2>/dev/null || true
   [[ -z "$nas_pid" ]] || kill "$nas_pid" 2>/dev/null || true
@@ -32,6 +41,7 @@ info = json.load(open(sys.argv[1]))
 assert info.get('simulated') is True, 'Refusing to test on a physical device'
 assert info.get('architecture') == 'x86_64', 'Unexpected virtual-device architecture'
 PY
+virtual_device_verified=true
 if ! python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1])).get("inDeveloperMode", False))' "$evidence/device.json"; then
   vega exec vda shell 'vsm developer-mode enable'
   # Enabling developer mode reboots only this disposable virtual device.
@@ -45,19 +55,26 @@ if ! python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1])).get(
   done
   [[ "$ready" == true ]] || { echo 'The virtual device did not finish restarting.' >&2; exit 1; }
 fi
-# Developer mode can restart VDA. Resolve its serial only after that restart,
-# retaining bounded lookup diagnostics instead of silently omitting app logs.
-for attempt in {1..3}; do
-  if timeout --kill-after=2s 15s vega exec vda get-serialno >"$evidence/device-serial.txt" 2>>"$evidence/device-serial.log"; then
-    candidate="$(tr -d '\r\n' <"$evidence/device-serial.txt")"
-    if [[ "$candidate" =~ ^emulator-[0-9]+$ ]]; then log_device_serial="$candidate"; break; fi
-  fi
+vega exec vda shell 'touch /tmp/automation-toolkit.enable'
+vega run-app "$package" com.dineshdevkota.cinevault.main -d VirtualDevice >"$evidence/production-launch.log" 2>&1
+export PATH="$(dirname "$(vega exec which vda)"):$PATH"
+# Debug-level driver logs include text-entry request bodies. Keep diagnostics
+# without retaining the synthetic password/PIN values from these journeys.
+appium --address 127.0.0.1 --log-level warn --log "$evidence/appium.log" >"$evidence/appium-console.log" 2>&1 &
+appium_pid=$!
+for attempt in {1..60}; do
+  if curl --fail --silent http://127.0.0.1:4723/status >/dev/null; then break; fi
   sleep 1
 done
-if [[ -z "$log_device_serial" ]]; then
-  printf 'The verified virtual device did not provide a usable VDA serial.\n' >"$evidence/device-application.log"
-fi
-vega exec vda shell 'touch /tmp/automation-toolkit.enable'
+curl --fail --silent http://127.0.0.1:4723/status >/dev/null
+export MEDIA_VAULT_E2E_FIXTURE_ONLY=1
+MEDIA_VAULT_E2E_PACKAGE_ID=com.dineshdevkota.cinevault \
+  MEDIA_VAULT_E2E_STARTUP_CHECK_ONLY=1 \
+  MEDIA_VAULT_E2E_OUTPUT="$evidence/production-startup" \
+  node vega/e2e/library-journey.mjs
+# The production probe remains separate evidence. Never reinterpret the
+# simulator's unsupported keystore as successful library/persistence testing.
+vega device terminate-app --device VirtualDevice --appName com.dineshdevkota.cinevault.main >"$evidence/production-stop.log" 2>&1
 python3 scripts/nas_fixture.py "$RUNNER_TEMP/vega-nas" >"$evidence/nas.log" 2>&1 &
 nas_pid=$!
 python3 - <<'PY'
@@ -72,18 +89,9 @@ else:
     raise SystemExit('Synthetic NAS did not start')
 PY
 vega exec vda reverse tcp:1445 tcp:1445
-vega run-app "$package" com.dineshdevkota.cinevault.main -d VirtualDevice >"$evidence/launch.log" 2>&1
-export PATH="$(dirname "$(vega exec which vda)"):$PATH"
-# Debug-level driver logs include text-entry request bodies. Keep diagnostics
-# without retaining the synthetic password/PIN values from these journeys.
-appium --address 127.0.0.1 --log-level warn --log "$evidence/appium.log" >"$evidence/appium-console.log" 2>&1 &
-appium_pid=$!
-for attempt in {1..60}; do
-  if curl --fail --silent http://127.0.0.1:4723/status >/dev/null; then break; fi
-  sleep 1
-done
-curl --fail --silent http://127.0.0.1:4723/status >/dev/null
-export MEDIA_VAULT_E2E_FIXTURE_ONLY=1
+vega run-app "$fixture_package" com.dineshdevkota.mediavault.vvdfixture.main -d VirtualDevice >"$evidence/fixture-launch.log" 2>&1
+export MEDIA_VAULT_E2E_PACKAGE_ID=com.dineshdevkota.mediavault.vvdfixture
+export MEDIA_VAULT_E2E_STARTUP_CHECK_ONLY=0
 export MEDIA_VAULT_E2E_NAS_ENDPOINT=smb://127.0.0.1:1445/MEDIALIBRARY
-export MEDIA_VAULT_E2E_OUTPUT="$evidence"
+export MEDIA_VAULT_E2E_OUTPUT="$evidence/fixture"
 node vega/e2e/library-journey.mjs

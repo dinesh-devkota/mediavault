@@ -59,6 +59,18 @@ content and bounds the handoff. Its full Android TV workflow passed
 
 ## Amazon Fire TV work — November 25, 2026
 
+Latest Vega checkpoint: all 74 native host regressions pass (57 production,
+17 isolated fixture). The SDK-built Debug/x86_64 simulator-only VPKG passes
+manifest/ABI and actual packaged marker checks. Its package ID is
+`com.dineshdevkota.mediavault.vvdfixture`; production remains
+`com.dineshdevkota.cinevault`. Nineteen staging/package tests and seven startup
+probe tests pass. Production storage is unchanged. Hosted runtime now probes
+production startup independently, terminates it, and runs nine library/player
+journeys in the synthetic-only fixture build. Secure storage/restart remains a
+hardware-required skip. These new device journeys have not passed yet; inspect
+their results before claiming runtime coverage. The owner has been asked whether
+a physical Vega device is available; do not wait to finish independent testing.
+
 The owner answered **Do it for all**, including both Fire OS and Vega OS.
 Worktree `D:\CineVault\.worktrees\mediavault-fire-tv`, branch
 `codex/mediavault-fire-tv`, draft PR [20](https://github.com/dinesh-devkota/mediavault/pull/20)

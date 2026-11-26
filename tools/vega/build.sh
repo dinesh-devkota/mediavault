@@ -8,6 +8,7 @@ case "$configuration" in Debug|Release) ;; *) echo 'Choose Debug or Release.' >&
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$HOME/vega/env"
 cd "$repo/vega"
+python3 "$repo/tools/vega/stage-fixture.py" --check-production
 npm ci
 vega project doctor
 npm run typecheck
@@ -15,7 +16,7 @@ npm run lint
 npm run test:domain
 
 # Build the separate native package before the application's autolink step.
-(cd native && vega build -t "$target" -b "$configuration")
+(cd native && vega build -t "$target" -b "$configuration" --cmakeFlags=-DMEDIAVAULT_VVD_FIXTURE=OFF)
 # The React Native command bundles Hermes before calling the native packager.
 # Calling `vega build` directly here can produce a VPKG without its interface.
 npx react-native build-vega --target "$target" --build-type "$configuration" --max-workers 4 --include-js-bundle true
@@ -30,6 +31,7 @@ fi
 package="${packages[0]}"
 vega exec vpt validate "$package"
 mkdir -p build/evidence
+bash "$repo/tools/vega/check-package.sh" "$package" production "$target" >"build/evidence/${target}-production-storage.json"
 vega exec vpt show-contents "$package" | tee "build/evidence/${target}-contents.txt"
 grep -Fq 'libMediaVaultNative.so' "build/evidence/${target}-contents.txt"
 grep -Eq 'libsmb2\.so(\.|[[:space:]]|$)' "build/evidence/${target}-contents.txt"
