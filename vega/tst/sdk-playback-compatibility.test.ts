@@ -53,7 +53,7 @@ test('the installed SDK owns remote transport once with the explicit ten-second 
   client.callbacks.onStop(); expect(sdk.pause).toHaveBeenCalledTimes(2); // Stop is a pause, not app dismissal.
 });
 
-test('a pinned SDK seek setter can return without moving and the session recovers on failed seeked', async () => {
+test('a pinned SDK seek setter can return without moving and the session recovers after the clock confirmation deadline', async () => {
   jest.useFakeTimers();
   const boundary = {position: 1, acceptsSeek: false};
   const native = {getCurrentTime: () => boundary.position,
@@ -76,6 +76,7 @@ test('a pinned SDK seek setter can return without moving and the session recover
   try {
     session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
     session.seek(30); events.get('seeked')?.();
+    await jest.advanceTimersByTimeAsync(10_000);
     expect(native.seek).toHaveBeenCalledWith(sdk.mediaElement, 31);
     expect(state).toHaveBeenLastCalledWith(expect.objectContaining({position: 1, paused: true, seekWarning: expect.stringContaining('could not be reached')}));
     expect(failed).not.toHaveBeenCalled(); expect(video.deinitialize).not.toHaveBeenCalled();

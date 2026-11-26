@@ -86,7 +86,7 @@ MEDIA_VAULT_E2E_PACKAGE_ID=com.dineshdevkota.cinevault \
 # The production probe remains separate evidence. Never reinterpret the
 # simulator's unsupported keystore as successful library/persistence testing.
 vega device terminate-app --device VirtualDevice --appName com.dineshdevkota.cinevault.main >"$evidence/production-stop.log" 2>&1
-python3 scripts/nas_fixture.py "$RUNNER_TEMP/vega-nas" >"$evidence/nas.log" 2>&1 &
+python3 scripts/nas_fixture.py --vega-seek-controls "$RUNNER_TEMP/vega-nas" >"$evidence/nas.log" 2>&1 &
 nas_pid=$!
 python3 - <<'PY'
 import socket, time
@@ -112,6 +112,7 @@ export MEDIA_VAULT_E2E_PACKAGE_ID=com.dineshdevkota.mediavault.vvdfixture
 export MEDIA_VAULT_E2E_STARTUP_CHECK_ONLY=0
 export MEDIA_VAULT_E2E_NAS_ENDPOINT=smb://127.0.0.1:1445/MEDIALIBRARY
 export MEDIA_VAULT_E2E_OUTPUT="$evidence/fixture"
+export MEDIA_VAULT_E2E_NATIVE_LOG="$evidence/fixture-live.log"
 # The pinned Vega driver connects to Automation Toolkit on the device's
 # TCP 8383. Keep read-only keyboard visibility independent of its queue.
 vega exec vda forward "tcp:$keyboard_rpc_port" tcp:8383

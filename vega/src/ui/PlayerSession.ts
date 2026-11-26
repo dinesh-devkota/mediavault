@@ -29,7 +29,7 @@ export class PlayerSession {
   private resumeChecked = false;
   private pendingSeek?: {target: number; origin: number; requestedAt: number; paused: boolean; resume: boolean};
   private protectedResumePosition?: number;
-  private externalSeekOrigin?: {position: number; startedAt: number; paused: boolean};
+  private externalSeekOrigin?: {position: number; startedAt: number; paused: boolean; completionReported: boolean};
   private seekWarning?: string;
   private lastPosition?: number;
   private lastWrite = 0;
@@ -50,7 +50,10 @@ export class PlayerSession {
     this.events.seeking = () => {
       if (!this.stopped && this.sourceSet && !this.pendingSeek && !this.externalSeekOrigin) {
         // The SDK can deliver seeking after the native clock has already jumped.
-        this.externalSeekOrigin = {position: this.lastPosition ?? this.video.currentTime, startedAt: Date.now(), paused: this.video.paused};
+        this.externalSeekOrigin = {
+          position: this.lastPosition ?? this.video.currentTime, startedAt: Date.now(),
+          paused: this.video.paused, completionReported: false,
+        };
       }
     };
     this.events.seeked = () => this.sample(false, true);
@@ -193,9 +196,9 @@ export class PlayerSession {
         if (!this.video.seeking && landed) {
           this.lastPosition = position; this.pendingSeek = undefined;
           this.protectedResumePosition = undefined; this.seekWarning = undefined;
-        } else if ((seekCompleted && !this.video.seeking) || elapsed >= SEEK_TIMEOUT_MS) {
-          // SDK 2.3 can emit seeked even when the native engine rejects the seek.
-          // A missing event is bounded too; keep showing native state after either failure.
+        } else if (elapsed >= SEEK_TIMEOUT_MS) {
+          // SDK 2.3 can report seeked while native time still shows the old
+          // position, both for failed and successful seeks. Poll until native time settles.
           this.rejectSeek();
         }
       } else if (this.externalSeekOrigin !== undefined) {
@@ -206,14 +209,12 @@ export class PlayerSession {
         const origin = this.externalSeekOrigin;
         origin.paused = origin.paused && paused;
         const elapsed = Math.max(0, Date.now() - origin.startedAt);
-        if (seekCompleted && !this.video.seeking) {
-          const displacement = position - origin.position;
-          const naturalAdvance = origin.paused ? 0 : elapsed / 1000;
-          if (Number.isFinite(origin.position) && (displacement < -2 || displacement > naturalAdvance + 2)) {
-            this.protectedResumePosition = undefined; this.seekWarning = undefined;
-          } else {
-            this.seekWarning = 'A new seek position could not be confirmed. You can continue playing.';
-          }
+        if (seekCompleted) { origin.completionReported = true; }
+        const displacement = position - origin.position;
+        const naturalAdvance = origin.paused ? 0 : elapsed / 1000;
+        if (origin.completionReported && !this.video.seeking && Number.isFinite(origin.position) &&
+          (displacement < -2 || displacement > naturalAdvance + 2)) {
+          this.protectedResumePosition = undefined; this.seekWarning = undefined;
           this.lastPosition = position;
           this.externalSeekOrigin = undefined;
         } else if (elapsed >= SEEK_TIMEOUT_MS) {

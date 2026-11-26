@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import {mkdir, writeFile} from 'node:fs/promises';
+import {mkdir, readFile, stat, writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {activateKeyboardClear} from './keyboard-clear.mjs';
+import {nativeSeeks} from './native-seek-evidence.mjs';
 import {keyboardApp, keyboardDone, keyboardVisibilityReader, simulatorVisibilityRpc, waitForKeyboardDismissal}
   from './keyboard-observation.mjs';
 
@@ -11,8 +12,10 @@ import {keyboardApp, keyboardDone, keyboardVisibilityReader, simulatorVisibility
 const server = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
 const startupCheckOnly = process.env.MEDIA_VAULT_E2E_STARTUP_CHECK_ONLY === '1';
 const endpoint = process.env.MEDIA_VAULT_E2E_NAS_ENDPOINT;
+const nativeLog = process.env.MEDIA_VAULT_E2E_NATIVE_LOG;
 if (!startupCheckOnly) {
   assert(endpoint?.startsWith('smb://') && endpoint.endsWith('/MEDIALIBRARY'), 'Set a device-accessible synthetic MEDIALIBRARY SMB endpoint.');
+  assert(nativeLog, 'Supply the live native log for the disposable app package.');
 }
 assert.equal(process.env.MEDIA_VAULT_E2E_FIXTURE_ONLY, '1', 'Run only on a fresh disposable app installation with synthetic fixtures.');
 const packageId = process.env.MEDIA_VAULT_E2E_PACKAGE_ID ?? 'com.dineshdevkota.cinevault';
@@ -311,6 +314,11 @@ async function position() {
   assert(match, 'The player must expose an actual elapsed position.');
   return Number(match[1]) * 60 + Number(match[2]);
 }
+async function seekEvidenceSince(mark) {
+  const log = await readFile(nativeLog);
+  assert(log.length >= mark, 'Native player log was truncated during the seek regression.');
+  return nativeSeeks(log.subarray(mark).toString('utf8'), packageId);
+}
 async function capture(name) {
   if (await exists('//*[starts-with(@test_id,"field-") and contains(@test_id,"pin")]') || await exists(byID('source-password'))
     || await exists("//app[@appName='com.amazon.silverstone']//window")) {
@@ -538,13 +546,18 @@ try {
     assert(!(await call('GET', '/source')).includes('could not be'), 'The actual photo must load without an error.');
     await click('action-back'); await click('library-section'); await click('action-all-media');
   });
-  await step('06-mkv-remote-playback', async () => {
+  await step('06-mp4-remote-playback', async () => {
     await addSource('Formats NAS', endpoint.replace(/MEDIALIBRARY$/, 'FORMATPLAYBACK'));
-    await clickXPath('//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Controls.mkv")]'); await click('action-play');
-    await waitFor(async () => await position() >= 1, 'The real MKV decoder must advance.', 40_000);
+    await clickXPath('//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Seek Controls.mp4")]'); await click('action-play');
+    assert.equal(await text('player-file-name'), 'Seek Controls.mp4');
+    await waitFor(async () => await position() >= 1, 'The real MP4 decoder must advance.', 40_000);
     await waitFor(() => nativeFocused(byID('action-pause')),
       'The ready player must give Pause native focus before any helper assigns it.');
     await key(164); await element(byID('action-play'));
+    await click('player-subtitles');
+    await clickXPath('//*[starts-with(@test_id,"subtitle-track-") and @description="English"]');
+    const activeCaptions = byID('player-subtitles') + "[@description='Subtitles · English']";
+    await element(activeCaptions);
     const paused = await position(); await sleep(1500); assert(Math.abs(await position() - paused) <= 1, 'Pause must stop the clock.');
     async function seekAcknowledged(before, delta, message) {
       const expected = Math.max(0, before + delta);
@@ -568,9 +581,75 @@ try {
     await focusVisible(byID('action-play'));
     await key(164); await element(byID('action-pause'));
     await waitFor(async () => await position() >= buttonRewound + 1, 'Resume after seeking must advance the actual decoder clock.');
-    await capture('06-mkv-playing');
+    await element(activeCaptions);
+    await capture('06-mp4-playing');
     await key(158); await element(byID('detail-title')); await element(byID('action-resume'));
     await click('action-back');
+  });
+  await step('06-mkv-seek-constraint', async () => {
+    await clickXPath('//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Controls.mkv")]');
+    await click('action-play');
+    assert.equal(await text('player-file-name'), 'Controls.mkv');
+    await waitFor(async () => await position() >= 1, 'The real MKV decoder must advance before seeking.', 40_000);
+    await click('action-pause'); await element(byID('action-play'));
+    const origin = await position();
+    const target = origin + 30;
+    assert(target < 58, 'The MKV test must request a seek within the media, away from end clamping.');
+    await sleep(1500);
+    assert(Math.abs(await position() - origin) <= 1, 'The MKV playback clock must remain paused before the seek.');
+    assert.equal(await exists(byID('player-seek-warning')), false, 'A stale seek warning cannot satisfy this regression.');
+    const mark = (await stat(nativeLog)).size;
+    await click('action-forward-30-seconds');
+
+    let evidence;
+    await waitFor(async () => {
+      const clock = await position(); // A generic player error always fails immediately.
+      const requests = await seekEvidenceSince(mark);
+      assert(requests.length <= 1, 'The MKV seek button must issue exactly one native request.');
+      evidence = requests[0];
+      if (!evidence) { return false; }
+      assert(Math.abs(evidence.requested - target) <= 2, 'The native MKV request must match the tested forward target.');
+      if (evidence.outcome === 'accepted') { return Math.abs(clock - target) <= 2; }
+      assert.notEqual(evidence.outcome, 'rejected', 'An unrelated native seek error cannot satisfy the MKV constraint.');
+      if (evidence.outcome !== 'rejected-50004') { return false; }
+      assert(Math.abs(clock - origin) <= 1, 'A rejected seek must not publish a fabricated MKV position.');
+      return await exists(byID('player-seek-warning'));
+    }, 'Require an accepted MKV seek and actual target clock, or a native 50004 rejection and the matching app warning.', 20_000);
+
+    const expected = evidence.outcome === 'accepted' ? target : origin;
+    if (evidence.outcome === 'rejected-50004') {
+      assert.equal(await text('player-seek-warning'), 'That position could not be reached. You can continue from the current position.');
+    } else {
+      assert.equal(await exists(byID('player-seek-warning')), false, 'A confirmed MKV seek must clear the warning.');
+    }
+    await sleep(1500);
+    const paused = await position();
+    assert(Math.abs(paused - expected) <= (evidence.outcome === 'accepted' ? 2 : 1), 'The paused MKV clock must stay at the confirmed position.');
+    assert.deepEqual(await seekEvidenceSince(mark), [evidence], 'No delayed duplicate or retry may move the MKV clock.');
+    await capture('06-mkv-seek-outcome');
+
+    await click('action-play'); await element(byID('action-pause'));
+    await waitFor(async () => await position() >= paused + 1, 'MKV must continue decoding from its actual position.');
+    await click('action-pause'); await element(byID('action-play'));
+    const saved = await position();
+    if (evidence.outcome === 'rejected-50004') {
+      assert(saved < target - 2, 'Recovered playback must not jump to the rejected target.');
+    }
+    await key(158); await element(byID('detail-title')); await element(byID('action-resume'));
+    const resumeMark = (await stat(nativeLog)).size;
+    await click('action-resume');
+    await waitFor(async () => await position() >= 1, 'Reopening the MKV must render and advance.');
+    if (evidence.outcome === 'rejected-50004') {
+      await click('action-pause'); await element(byID('action-play'));
+      const reopened = await position();
+      const resumeRequests = await seekEvidenceSince(resumeMark);
+      assert(reopened <= saved + 2, 'Reopened MKV playback must stay at or before the verified checkpoint.');
+      assert(resumeRequests.every(request => request.requested <= saved + 2),
+        'The saved MKV checkpoint must never request the fabricated seek target on reopen.');
+    }
+    await writeFile(resolve(output, 'mkv-seek-outcome.json'), JSON.stringify({container: 'mkv', origin, target,
+      native: evidence, confirmedPausedPosition: paused, verifiedCheckpoint: saved}, null, 2) + '\n');
+    await key(158); await element(byID('detail-title')); await click('action-back');
   });
   await step('07-continuous-television', async () => {
     await addSource('Playback NAS', endpoint.replace(/MEDIALIBRARY$/, 'MEDIAPLAYBACK'));

@@ -49,7 +49,7 @@ jobs:
       - name: Verify production and simulator package separation
         run: |
           python -m unittest discover -s tools/vega/tests -v
-          node --test vega/e2e/startup-probe.test.mjs vega/e2e/keyboard-clear.test.mjs
+          node --test vega/e2e/*.test.mjs
       - name: Install fixture dependencies
         run: |
           sudo apt-get update

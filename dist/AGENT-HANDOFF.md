@@ -388,8 +388,20 @@ passed the host HTTP and coded-packet checks, then failed waiting for its
 banner. Artifact `15098057008` shows that its packaged React Native
 application registered `VegaSeekProbe`, while the SDK launched
 `com.dineshdevkota.mediavault.seekprobe.main`. The diagnostic now uses the
-manifest component name and checks it before and after packaging. It still
-needs a virtual-device run that reaches all four native media cases.
+manifest component name and checks it before and after packaging.
+
+Corrected stock run `45781527800` at `8cec98cb` executed all four cases
+(artifact `15099740508`). With identical coded streams, MP4 landed near 31s
+and 11s while paused and playing and requested HTTP 206 ranges for both.
+The SDK emitted `seeked` at the old clock before the later verified landing.
+Both MKV cases failed to land and made no new range request. The playing MKV
+case advanced naturally only. That reproduces the MKV seek limit away from
+MediaVault's relay and identifies a separate early-event confirmation issue
+that also affects successful native MP4 seeks. PlayerSession now waits up
+to ten seconds for a verified native landing after early completion events.
+The product fixture retains the full seek and caption journey on packet-
+equivalent MP4 and independently measures MKV playback, the native request,
+the actual clock and its saved resume position.
 
 The current verification branch checks the native clock before saving a seek,
 bounds keyboard-window observation without weakening same-window or field
@@ -398,7 +410,7 @@ probe. Vega's subtitle menu announces and displays the active track, names
 local languages and variants, and keeps Off and explicit track selection stable
 when native tracks arrive or reorder. WebDAV sidecars match the exact media
 filename case. SMB matching remains case-insensitive. Local synthetic
-validation at Node 22.23.5 passed all 83 app/SDK tests, 23 harness tests and 23 Python package
+validation at Node 22.23.5 passed all 85 app/SDK tests, 26 harness tests and 23 Python package
 contracts, plus typecheck and lint (0 errors, 50 existing warnings).
 
 The catalog review found the rendered Home and collection grids still repeated
@@ -411,15 +423,23 @@ The Release matrix now runs its architecture-independent TypeScript, lint and
 Jest checks once, on x86_64, while every native package retains its own SDK
 doctor, native compilation and package content checks. Superseded PR runs may
 cancel without canceling manual diagnostics. The next native step is the
-corrected standalone comparison, followed by full simulator acceptance of
-any verified playback remedy. No release job is authorized.
+full simulator acceptance of the clock-confirmation remedy, with separate MP4
+seek and MKV behavior checks. No release job is authorized.
 
 Dropbox PR #30 merged into development at `312b9ade` after all exact synthetic
 checks passed. OneDrive iPhone PR #24 merged into the iPhone feature parent at
 `03b00e929d33114c5a1760c063c9296aaf2fb3dd` after its exact iPhone and Apple
-TV checks passed. The iPhone parent still has its separate development
-reconciliation. The blocked Fire/Vega drafts must pass their current gates
-before any development merge.
+TV checks passed. Plex iPhone PR #25 then merged into the same feature parent
+at `72e2f197` after 211 iPhone and 219 Apple TV tests, Swift package tests and
+both unsigned releases. Dropbox iPhone PR #27 is testing separately on
+`a0210bfb`.
+
+The combined library and playback PR #19 merged into development at
+`1f819609` after 115 Android TV, 17 Android phone, 256 Apple TV and 245 iPhone
+synthetic tests, Swift core, Android packaging and both unsigned Apple builds.
+That tree includes the base iPhone app. The separate provider touch journeys
+still need reconciliation from the provider feature chain. The blocked Fire
+and Vega work still requires its own product fixture run before merging.
 
 ### Earlier Fire validation and investigations
 

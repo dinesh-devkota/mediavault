@@ -42,14 +42,25 @@ Profile collection isolation waits for the destination collections heading and
 form before checking that another profile's collection is absent. These waits
 acknowledge rendered route state; they do not insert fixed delays.
 
-Journey 06 requires native focus on the ready player's Pause control before
-any helper can assign it. Later isolated media-key checks retain strict native
-control focus. The SDK owns remote forward/back with a configured 10-second interval;
-the harness requires one actual 10-second move in each direction (two seconds
-of tolerance for displayed integer time and native sampling). It separately
-activates the labeled on-screen Forward 30/Back 10 buttons and requires their
-30/10-second moves. The clock must remain stopped during paused seeks, then
-advance again after resume. Native seek rejection still fails this journey.
+Journey `06-mp4-remote-playback` requires native focus on the ready player's
+Pause control before any helper can assign it. It uses `Seek Controls.mp4`,
+a fast-start stream copy of the original H.264 video and both AAC tracks from
+`Controls.mkv`. The same English sidecar must stay selected through the seeks.
+One remote press must move the native clock 10 seconds in each direction. The
+Forward 30 and Back 10 controls must move it 30 and 10 seconds respectively.
+The harness allows two seconds for the displayed integer time and native
+sampling. The clock must stay stopped while paused and advance after resuming.
+Journey 07 still uses the separate MP4 episodes for captions and autoplay.
+
+Journey `06-mkv-seek-constraint` opens the original MKV and requires the
+decoder to advance. The pinned Vega virtual device rejects its in-range
+seek with native code 50004. The app must warn about that seek, keep its
+actual paused position, continue decoding on Play, and reopen without
+requesting the failed target as its saved position. A future SDK can pass
+with successful MKV seeking when native acceptance and the paused target
+clock agree. The independent stock seek probe still runs the original
+paused and playing cases for both containers.
+[Stock probe evidence](https://github.com/dinesh-devkota/mediavault/actions/runs/45781527800)
 
 On a production installation, journey 10 additionally restarts the app, unlocks with the saved PIN, and rescans using saved NAS credentials. Physical Vega hardware is required when the virtual device lacks the native secure-storage service.
 
@@ -57,7 +68,8 @@ On a production installation, journey 10 additionally restarts the app, unlocks 
 
 - `APPIUM_URL`: defaults to `http://127.0.0.1:4723`.
 - `VEGA_DEVICE`: defaults to `vda://default`.
-- `MEDIA_VAULT_E2E_OUTPUT`: evidence directory; use different directories for the production probe and fixture journeys.
+- `MEDIA_VAULT_E2E_OUTPUT` uses different evidence directories for the production probe and fixture journeys.
+- `MEDIA_VAULT_E2E_NATIVE_LOG` points to the live, package-filtered decoder log during the full fixture journey. The virtual-device runner supplies it automatically. When setting up a separate disposable device, start the synthetic NAS with `--vega-seek-controls` and collect the app's live native log before starting the journey.
 - App component: the explicitly selected package ID plus `.main`.
 
 `results.json` records `mode`, `packageId`, `buildKind`, `executedOnDevice`, `fixtureBannerVerified`, `startupProbe`, `libraryJourneyCount`, `secureStorageVerification`, and per-step `results`. A successful probe has one `production-startup-probe` result and zero library journeys. `startupProbe` describes the observed availability/error outcome. `secureStorageVerification` remains `not-verified` unless the full production journey 10 passes. A supported startup outcome alone must not be reported as secure-storage verification.
@@ -128,6 +140,6 @@ The guard records a static error rather than reading the error body.
 
 ## Harness contract tests
 
-Run `node --test vega/e2e/startup-probe.test.mjs vega/e2e/keyboard-clear.test.mjs`. These tests provide a local simulated Appium transport to check accepted/rejected startup states and report fields. They do not execute the app, emulate native storage, or count as device evidence.
+Run `node --test vega/e2e/*.test.mjs`. These tests provide a local simulated Appium transport to check accepted/rejected startup states and report fields. They do not execute the app, emulate native storage, or count as device evidence.
 
 The keyboard transport contracts exercise directional Clear activation when direct focus is ineffective, and reject stale/no movement, ambiguous native focus, keyboard disappearance, and unknown visibility. These contracts never read editor text and are not device evidence.
