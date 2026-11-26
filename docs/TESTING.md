@@ -39,7 +39,8 @@ python3 scripts/nas_fixture.py /tmp/cinevault-nas-fixture
 # In another terminal, with the Android TV emulator running:
 cd android
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2
+  -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
+  -Pandroid.testInstrumentationRunnerArguments.notClass=com.dineshdevkota.cinevault.FamilyNavigationTest
 ```
 
 `10.0.2.2` reaches the emulator host's loopback interface. SMB-only tests skip when
@@ -76,6 +77,45 @@ SubDL client tests use injected responses for account validation, exact title/ep
 identity, malformed responses, request limits, bounded raw downloads, redirects,
 and cancellation. They do not use a real API key or consume a user's download quota.
 A live account connection still needs a key entered by its owner in the app.
+
+## Household profile acceptance
+
+Family controls affect authorization, not just layout. Validate both platforms
+using synthetic libraries and isolated profile stores. Never enable test controls,
+seed histories or reset the owner's installed app for instrumentation.
+
+- Enable profiles without altering existing sources, credentials, metadata or owner
+  history. New viewers have empty histories and no access until granted a folder.
+- Check complete path-component matching, source identity, nested folders, aliases,
+  deleted sources and newly connected sources. Similar folder names must not match.
+- Verify movie and TV certifications separately, restrictive selection when TMDB
+  reports multiple US ratings, unknown/unrated handling and photo/audio folder rules.
+  A manual metadata rematch must not retain an old title's certification.
+- Exercise Admin/protected-viewer PIN entry, cancellation, persisted retry delays,
+  damaged or missing secure storage, relaunch and background relocking. A late PIN
+  calculation must not unlock a session that was locked while it was running.
+- Assert restricted titles, artwork, counts and photos are absent from Home, Library,
+  Search, grouped shows, Watchlist, Continue Watching and bulk actions. Direct detail,
+  photo and playback routes must enforce the same policy.
+- Switch or lock during playback, photo reads, subtitle work and the next-episode
+  countdown. Late work must not display old-profile content or save history to the
+  next profile. Back must not reveal the previous person's navigation stack.
+- Check separate Watchlist/watched/resume state, Admin legacy history, migration
+  preservation, and viewer inability to edit sources, metadata or access rules.
+- Keep commercial playback allowance device-wide. Profile switching, deleting a
+  profile or editing watch history must not reset trial usage or purchases.
+
+Run the full Android runtime suite and full Apple simulator suite for these changes;
+UI-only checks are insufficient. The hosted Android workflow first runs the baseline
+suite excluding `FamilyNavigationTest`, archives its results, then clears only the
+disposable emulator's app data and runs that explicit household journey. Both suites
+are required, with zero failures or skips. `scripts/test_android_runtime.sh` refuses
+to run outside GitHub Actions and verifies an emulator before clearing fixture data.
+The journey itself requires `familyUiFixture=true` and an empty app. Do not run that
+journey on an owner's TV or emulator.
+
+Keep synthetic remote screenshots for the profile
+picker and permission editor so focus, readable labels and empty states are reviewed.
 
 ## Further device testing
 

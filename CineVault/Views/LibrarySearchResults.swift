@@ -89,9 +89,10 @@ enum LibrarySearch {
 
     @MainActor
     static func isAvailable(_ movie: Movie) -> Bool {
+        guard HouseholdStore.shared.allows(movie) else { return false }
         guard !movie.isDeleted, !movie.isMissing, !movie.isHidden else { return false }
         guard let source = movie.source else { return true }
-        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath) &&
+        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath, caseSensitive: source.isWebDAV) &&
             !source.isIgnored(filePath: movie.filePath)
     }
 

@@ -57,11 +57,15 @@ class SourceEditorActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sourceId = intent.getStringExtra(EXTRA_SOURCE_ID)
-        setCineVaultContent { SourceEditorScreen(sourceId, onClose = ::finish) }
+        setCineVaultContent { SourceEditorScreen(sourceId, intent.getStringExtra("source_type") ?: "smb", onClose = ::finish) }
     }
 
     companion object {
         private const val EXTRA_SOURCE_ID = "source_id"
+
+        fun webdav(context: Context) {
+            context.startActivity(Intent(context, SourceEditorActivity::class.java).putExtra("source_type", "webdav"))
+        }
 
         fun start(context: Context, sourceId: String?) {
             context.startActivity(Intent(context, SourceEditorActivity::class.java).putExtra(EXTRA_SOURCE_ID, sourceId))
@@ -70,12 +74,14 @@ class SourceEditorActivity : ComponentActivity() {
 }
 
 @Composable
-private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
+private fun SourceEditorScreen(sourceId: String?, initialType: String, onClose: () -> Unit) {
     val container = LocalContext.current.container
     val scope = rememberCoroutineScope()
     val scanning by container.scanner.isScanning.collectAsStateWithLifecycle()
     val scanStatus by container.scanner.status.collectAsStateWithLifecycle()
     val draftId = remember { UUID.randomUUID().toString() }
+    var sourceType by remember { mutableStateOf(initialType) }
+    val webdav = sourceType == "webdav"
     var existing by remember { mutableStateOf<SourceEntity?>(null) }
     var loaded by remember { mutableStateOf(sourceId == null) }
     var name by remember { mutableStateOf("") }
@@ -103,6 +109,7 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
             return@LaunchedEffect
         }
         existing = source
+        sourceType = source.sourceType
         name = source.name
         host = source.host
         port = source.port?.toString().orEmpty()
@@ -125,17 +132,24 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
         Column(Modifier.padding(ScreenPadding)) { NasStatusPanel("Opening source…", working = true) }
         return
     }
+    val isTv = LocalTvLayout.current
     val firstField = remember { FocusRequester() }
     var firstFieldReady by remember { mutableStateOf(false) }
     var initialFocusSet by remember { mutableStateOf(false) }
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     LaunchedEffect(firstFieldReady, windowFocused) {
-        if (firstFieldReady && windowFocused && !initialFocusSet) initialFocusSet = firstField.requestFocus()
+        if (isTv && firstFieldReady && windowFocused && !initialFocusSet) initialFocusSet = firstField.requestFocus()
     }
 
     // This pure validation also gates browsing, so a malformed nonempty port cannot silently
     // turn into the default port. Keep all draft values unchanged until the user corrects them.
     fun validatedConfig(): SourceConfig {
+        if (webdav) {
+            val address = com.dineshdevkota.cinevault.webdav.DavAddress(host)
+            address.url(rootPath.trim('/'), directory = true)
+            return SourceConfig(existing?.id ?: draftId, address.base.toString(), null, "", rootPath.trim('/'),
+                username.trim(), password, ignoredFolders, ignoredFiles, "webdav")
+        }
         val portText = port.trim()
         val portValue = portText.toIntOrNull()?.takeIf { it in 1..65535 }
         require(portText.isEmpty() || portValue != null) { "Port must be a number from 1 to 65535." }
@@ -211,12 +225,12 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
             .padding(horizontal = ScreenPadding, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        ScreenHeader(if (sourceId == null) "Add NAS" else "Edit NAS", kicker = "SOURCES")
+        ScreenHeader(if (webdav) (if (sourceId == null) "Connect WebDAV" else "Edit WebDAV") else (if (sourceId == null) "Add NAS" else "Edit NAS"), kicker = "SOURCES")
         if (busy) NasStatusPanel(workDescription, working = true)
         else if (scanning) NasStatusPanel("Library scan in progress", scanStatus ?: "You can save these changes after the scan finishes.", working = true)
         message?.let { NasStatusPanel(if (messageIsError) "Connection needs attention" else "Connection verified", it, error = messageIsError) }
-        Row(horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val server: @Composable (Modifier) -> Unit = { modifier ->
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Server", style = MaterialTheme.typography.titleMedium)
                 TvTextField(
                     name,
@@ -228,12 +242,12 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
                 TvTextField(
                     host,
                     { if (host != it) clearExclusionsForSourceChange(); host = it },
-                    "Host or IP (e.g. 192.168.1.20)",
+                    if (webdav) "WebDAV URL (https://nas.example.com:5006/media/)" else "Host or IP (e.g. 192.168.1.20)",
                     Modifier.fillMaxWidth(),
                     keyboardType = KeyboardType.Uri,
                     enabled = !busy,
                 )
-                TvTextField(
+                if (!webdav) TvTextField(
                     port,
                     { if (port != it) clearExclusionsForSourceChange(); port = it },
                     "Port (optional, default 445)",
@@ -241,17 +255,22 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
                     keyboardType = KeyboardType.Number,
                     enabled = !busy,
                 )
+                if (webdav) {
+                    Text("Use the full WebDAV folder address from your NAS settings. HTTPS protects your sign-in.", color = SecondaryText)
+                }
                 Text("Sign in", style = MaterialTheme.typography.titleMedium)
                 TvTextField(username, { message = null; username = it }, "Username (empty for guest)", Modifier.fillMaxWidth(), enabled = !busy)
                 TvTextField(password, { message = null; password = it }, "Password", Modifier.fillMaxWidth(), isPassword = true, enabled = !busy)
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        }
+        val folder: @Composable (Modifier) -> Unit = { modifier ->
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Media folder", style = MaterialTheme.typography.titleMedium)
-                TvTextField(share, { if (share != it) clearExclusionsForSourceChange(); share = it }, "Share (e.g. media)", Modifier.fillMaxWidth(), enabled = !busy)
+                if (!webdav) TvTextField(share, { if (share != it) clearExclusionsForSourceChange(); share = it }, "Share (e.g. media)", Modifier.fillMaxWidth(), enabled = !busy)
                 NasRootFolderPicker(browseConfig, browsingEnabled, ::changeRoot)
                 browseValidation.exceptionOrNull()?.message?.let { Text(it, color = SecondaryText) }
                 OutlinedButton(enabled = idle, onClick = { manualRoot = !manualRoot }) { Text("Enter folder path manually") }
-                if (manualRoot) TvTextField(rootPath, ::changeRoot, "Folder inside share (empty for share root)",
+                if (manualRoot) TvTextField(rootPath, ::changeRoot, if (webdav) "Folder within WebDAV address (optional)" else "Folder inside share (empty for share root)",
                     Modifier.fillMaxWidth(), imeAction = ImeAction.Done, enabled = idle)
                 Text(
                     "Use a NAS account with read access. The password is encrypted on this device.",
@@ -260,10 +279,17 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
                 )
             }
         }
+        if (isTv) Row(horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+            server(Modifier.weight(1f))
+            folder(Modifier.weight(1f))
+        } else {
+            server(Modifier.fillMaxWidth())
+            folder(Modifier.fillMaxWidth())
+        }
         exclusionsNotice?.let { Text(it, color = SecondaryText) }
         IgnoredFoldersEditor(browseConfig, ignoredFolders, ignoredFiles,
             { ignoredFolders = it }, { ignoredFiles = it }, browsingEnabled)
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        AdaptiveActions() {
             OutlinedButton(
                 enabled = idle,
                 onClick = {
@@ -280,6 +306,7 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
                     val c = config() ?: return@Button
                     val savedName = name.trim().ifEmpty { c.host }
                     launchWork("Saving source…") {
+                        if (webdav) container.smb.testConnection(c)
                         val sealed = if (c.username.isEmpty()) "" else withContext(Dispatchers.Default) {
                             container.secrets.encrypt(c.password)
                         }
@@ -295,10 +322,11 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
                             lastScanAt = existing?.lastScanAt,
                             ignoredFolders = c.ignoredFolders,
                             ignoredFiles = c.ignoredFiles,
+                            sourceType = c.sourceType, allowInsecureHttp = c.allowInsecureHttp,
                         )
                         // Saving and queueing its scan form one operation after the commit begins.
                         withContext(NonCancellable) {
-                            container.database.saveSourceWithExclusions(entity)
+                            container.database.saveSourceWithExclusions(entity) { container.family.requireAdmin() }
                             container.smb.reset(entity.id)
                             container.photos.resetSource(entity.id)
                             container.scope.launch { container.scanner.scan(entity.id) }
@@ -321,13 +349,14 @@ private fun SourceEditorScreen(sourceId: String?, onClose: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Text("Remove ${existing?.name.orEmpty()}?", style = MaterialTheme.typography.headlineSmall)
                 Text("This removes its library entries and saved playback progress from this device. Media files stay on the NAS.", color = SecondaryText)
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                AdaptiveActions() {
                     Button(onClick = { confirmRemoval = false }) { Text("Keep source") }
                     OutlinedButton(onClick = {
                         confirmRemoval = false
                         val source = existing ?: return@OutlinedButton
                         launchWork("Removing source…") {
                             container.database.withTransaction {
+                                container.family.requireAdmin()
                                 container.database.movies().deleteForSource(source.id)
                                 container.database.sources().delete(source.id)
                             }

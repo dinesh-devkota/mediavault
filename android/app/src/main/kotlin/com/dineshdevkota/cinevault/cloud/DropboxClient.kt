@@ -19,12 +19,12 @@ import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
-/** Dropbox's manual PKCE flow lets a viewer complete browser approval on another device. */
+/** Dropbox's manual PKCE flow lets the source owner complete approval on another device. */
 internal class DropboxClient(private val appKey: String, http: OkHttpClient? = null) {
     private val transport = http?.let(::CloudHttp) ?: CloudHttp()
 
     init {
-        require(appKey.isNotBlank()) { "A registered Dropbox app key is required." }
+        require(APP_KEY.matches(appKey)) { "Enter a valid registered Dropbox app key." }
     }
 
     class Approval internal constructor(
@@ -44,11 +44,13 @@ internal class DropboxClient(private val appKey: String, http: OkHttpClient? = n
 
     @Serializable
     data class Entry(
-        @SerialName(".tag") val kind: String,
+        @SerialName(".tag") val kind: String = "file",
         val name: String,
         val id: String? = null,
         @SerialName("path_display") val displayPath: String? = null,
         val size: Long? = null,
+        @SerialName("rev") val revision: String? = null,
+        @SerialName("is_downloadable") val downloadable: Boolean = true,
     )
 
     @Serializable
@@ -87,11 +89,19 @@ internal class DropboxClient(private val appKey: String, http: OkHttpClient? = n
         api("auth/token/revoke", accessToken)
     }
 
-    suspend fun listFolder(path: String, accessToken: String, onPage: suspend (List<Entry>) -> Unit) {
+    suspend fun metadata(path: String, accessToken: String): Entry =
+        decode(api("files/get_metadata", accessToken, mapOf("path" to path)))
+
+    suspend fun listFolder(
+        path: String, accessToken: String,
+        authorize: () -> Unit = {}, onPage: suspend (List<Entry>) -> Unit,
+    ) {
+        authorize()
         var page = decode<Page>(api("files/list_folder", accessToken, mapOf("path" to path)))
         val seen = mutableSetOf<String>()
         while (true) {
             currentCoroutineContext().ensureActive()
+            authorize()
             if (page.hasMore && (page.cursor.isBlank() || seen.size >= 10_000 || !seen.add(page.cursor))) {
                 throw CloudClientException("Dropbox returned an invalid catalog cursor.")
             }
@@ -102,13 +112,32 @@ internal class DropboxClient(private val appKey: String, http: OkHttpClient? = n
     }
 
     suspend fun read(id: String, offset: Long, length: Int, accessToken: String): ByteArray {
-        require(FILE_ID.matches(id)) { "Invalid Dropbox file ID." }
+        require(validId(id)) { "Invalid Dropbox file ID." }
+        return download(id, offset, length, accessToken).verifiedRange(offset, rangeEnd(offset, length), length)
+    }
+
+    /** Reject ranges from a moved file or a different revision at the same path. */
+    suspend fun read(file: Entry, offset: Long, length: Int, accessToken: String): ByteArray {
+        val revision = file.revision?.takeIf(REVISION::matches)
+            ?: throw CloudClientException("Dropbox did not return a valid file revision.")
+        val path = file.displayPath ?: throw CloudClientException("Dropbox did not return a valid file path.")
+        val response = download(path, offset, length, accessToken)
+        val result = response.headers["Dropbox-API-Result"]?.let { decode<Entry>(it.encodeToByteArray()) }
+        if (result == null || result.id != file.id || result.revision != revision || result.size != file.size ||
+            !result.displayPath.equals(path, ignoreCase = true) ||
+            response.headers["Content-Range"]?.substringAfterLast('/')?.toLongOrNull() != file.size) {
+            throw CloudClientException("The Dropbox file changed. Reopen it and try again.")
+        }
+        return response.verifiedRange(offset, rangeEnd(offset, length), length)
+    }
+
+    private suspend fun download(reference: String, offset: Long, length: Int, accessToken: String): CloudResponse {
         val end = rangeEnd(offset, length)
         val request = Request.Builder().url("https://content.dropboxapi.com/2/files/download").bearer(accessToken)
-            .header("Dropbox-API-Arg", json.encodeToString(mapOf("path" to id)))
+            .header("Dropbox-API-Arg", headerArgument(reference))
             .header("Range", "bytes=$offset-$end").header("Accept-Encoding", "identity")
             .post(emptyBody).build()
-        return transport.exchange(request, status = 206, limit = length).verifiedRange(offset, end, length)
+        return transport.exchange(request, status = 206, limit = length)
     }
 
     private suspend fun token(vararg fields: Pair<String, String>): Credentials {
@@ -126,18 +155,29 @@ internal class DropboxClient(private val appKey: String, http: OkHttpClient? = n
         return transport.exchange(request).data
     }
 
+    private fun headerArgument(path: String): String = buildString {
+        for (char in json.encodeToString(mapOf("path" to path))) {
+            if (char.code < 127) append(char)
+            else append("\\u").append(char.code.toString(16).padStart(4, '0'))
+        }
+    }
+
     private inline fun <reified T> decode(bytes: ByteArray): T = try {
         json.decodeFromString(bytes.decodeToString())
     } catch (_: SerializationException) {
         throw CloudClientException("Dropbox returned an invalid response.")
     }
 
-    private companion object {
-        val random = SecureRandom()
-        val base64 = Base64.getUrlEncoder().withoutPadding()
-        val FILE_ID = Regex("id:[A-Za-z0-9_-]{1,253}")
-        val json = Json { ignoreUnknownKeys = true }
-        val jsonType = "application/json; charset=utf-8".toMediaType()
-        val emptyBody = byteArrayOf().toRequestBody()
+    companion object {
+        private val random = SecureRandom()
+        private val base64 = Base64.getUrlEncoder().withoutPadding()
+        private val APP_KEY = Regex("[A-Za-z0-9_-]{1,128}")
+        private val FILE_ID = Regex("id:[A-Za-z0-9_-]{1,253}")
+        private val REVISION = Regex("[A-Fa-f0-9]{9,128}")
+        private val json = Json { ignoreUnknownKeys = true }
+        private val jsonType = "application/json; charset=utf-8".toMediaType()
+        private val emptyBody = byteArrayOf().toRequestBody()
+
+        fun validId(id: String?): Boolean = id != null && FILE_ID.matches(id)
     }
 }

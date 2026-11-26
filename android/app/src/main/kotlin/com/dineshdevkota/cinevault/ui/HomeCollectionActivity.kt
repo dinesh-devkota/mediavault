@@ -44,8 +44,8 @@ class HomeCollectionActivity : ComponentActivity() {
 private fun HomeCollectionScreen(collection: HomeCollection) {
     val context = LocalContext.current
     val container = context.container
-    val movies by remember { container.database.movies().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val movies by remember { container.library.observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(initialValue = null)
     val ready = movies != null && sources != null
     val items = remember(collection, movies, sources) { homeCollectionItems(collection, movies.orEmpty(), sources.orEmpty()) }
     val continuing = remember(collection, movies, sources) {

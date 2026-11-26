@@ -33,7 +33,7 @@ final class TVMetadataTests: XCTestCase {
             case "/3/search/tv":
                 body = #"{"results":[{"id":42,"name":"Example","first_air_date":"2022-01-01"}]}"#
             case "/3/tv/42":
-                body = #"{"id":42,"name":"Example","first_air_date":"2022-01-01","poster_path":"/show.jpg","genres":[{"name":"Documentary"}]}"#
+                body = #"{"id":42,"name":"Example","first_air_date":"2022-01-01","poster_path":"/show.jpg","genres":[{"name":"Documentary"}],"content_ratings":{"results":[{"iso_3166_1":"US","rating":"TV-14"}]}}"#
             case "/3/tv/42/season/1":
                 body = #"{"season_number":1,"poster_path":"/season.jpg","episodes":[{"season_number":1,"episode_number":1,"name":"Pilot","runtime":30,"still_path":"/pilot.jpg"},{"season_number":1,"episode_number":2,"name":"Next","runtime":40},{"season_number":1,"episode_number":3,"name":"Not on NAS"}]}"#
             default:
@@ -53,6 +53,9 @@ final class TVMetadataTests: XCTestCase {
         XCTAssertEqual(first.seasonPosterPath, "/season.jpg")
         XCTAssertEqual(first.backdropPath, "/pilot.jpg")
         XCTAssertEqual(first.mediaKind, .tvShow)
+        XCTAssertEqual(first.usContentRating, "TV-14")
+        XCTAssertEqual(second.usContentRating, "TV-14")
+        XCTAssertEqual(first.usContentRatingFetched, true)
         XCTAssertEqual(first.playbackPosition, 90)
         XCTAssertTrue(first.isWatchlisted)
     }

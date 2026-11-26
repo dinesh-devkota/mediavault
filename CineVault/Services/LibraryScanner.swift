@@ -45,6 +45,10 @@ final class LibraryScanner: ObservableObject {
         status = "Scanning \(source.name)…"
         do {
             let config = try source.config()
+            if config.isJellyfin {
+                try await scanJellyfin(source, config: config, context: context)
+                return
+            }
             let state = LibraryScanState(source: source, context: context, config: config, saveContext: saveContext)
             let scannedFiles: [RemoteFile]
             if let scanWithProgress {
@@ -56,12 +60,12 @@ final class LibraryScanner: ObservableObject {
             try Task.checkCancellation()
             try state.verifySource()
             let files = scannedFiles.filter { !config.excludesFile($0.path) && MediaFile.shouldIndex(path: $0.path, size: $0.size) }
-            var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { a, _ in a })
+            var existing = Dictionary(source.movies.map { (Data($0.filePath.utf8), $0) }, uniquingKeysWith: { a, _ in a })
             let previous = existing.values.map { ($0, $0.isMissing, $0.fileSize) }
             let previousScanDate = source.lastScanDate
             var finalInsertions: [Movie] = []
             for file in files {
-                if let movie = existing.removeValue(forKey: file.path) {
+                if let movie = existing.removeValue(forKey: Data(file.path.utf8)) {
                     movie.isMissing = false
                     movie.fileSize = file.size
                     continue
@@ -101,6 +105,88 @@ final class LibraryScanner: ObservableObject {
         }
     }
 
+    private func scanJellyfin(_ source: MediaSource, config: SourceConfig, context: ModelContext) async throws {
+        let household = HouseholdStore.shared
+        let session = household.sessionToken
+        guard household.isAdmin, JellyfinSourceConnection.validItemID(config.share) else { throw HouseholdError.denied }
+        let connection = try JellyfinSourceConnection(config: config)
+        var catalog: [(String, JellyfinCatalogItem)] = []
+        var seriesTMDBIDs: [String: Int] = [:]
+        try await connection.client.catalog(connection.account, libraryID: config.share) { items in
+            guard household.sessionIsCurrent(session), household.isAdmin else { throw HouseholdError.denied }
+            for item in items {
+                if item.type == "Series", let id = item.tmdbID { seriesTMDBIDs[item.id] = id }
+                if let path = JellyfinSourceConnection.mediaPath(item) { catalog.append((path, item)) }
+            }
+            self.status = "Scanning \(source.name): \(catalog.count) items…"
+        }
+        try Task.checkCancellation()
+        guard household.sessionIsCurrent(session), household.isAdmin,
+              !source.isDeleted, try source.config() == config else { throw SMBError.sourceChanged }
+
+        let indexed = source.movies.compactMap { movie -> (String, Movie)? in
+            guard let id = try? JellyfinSourceConnection.itemID(for: movie.filePath) else { return nil }
+            return (id, movie)
+        }
+        var existing = Dictionary(indexed, uniquingKeysWith: { first, _ in first })
+        let date = source.lastScanDate
+        var inserted: [Movie] = []
+        var undo: [() -> Void] = []
+        for (path, item) in catalog {
+            let movie: Movie
+            if let current = existing.removeValue(forKey: item.id) {
+                let previous = (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
+                                current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
+                                current.providerImageTag, current.tmdbID, current.seriesTMDBID)
+                undo.append {
+                    (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
+                     current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
+                     current.providerImageTag, current.tmdbID, current.seriesTMDBID) = previous
+                }
+                movie = current
+            } else {
+                movie = Movie(filePath: path, fileSize: 0, source: source)
+                movie.fileName = item.name
+                movie.parsedTitle = item.name
+                movie.setTitle(item.name)
+                movie.parsedYear = item.year
+                movie.year = item.year
+                movie.overview = item.overview
+                movie.metadataFetched = true
+                context.insert(movie)
+                inserted.append(movie)
+            }
+            movie.filePath = path
+            movie.isMissing = false
+            movie.seriesTitle = item.seriesName
+            movie.providerSeriesID = item.seriesID
+            movie.seasonNumber = item.season
+            movie.episodeNumber = item.number
+            movie.usContentRating = item.rating
+            movie.usContentRatingFetched = true
+            movie.providerImageTag = item.primaryImage?["Primary"]
+            if item.type == "Movie", movie.tmdbID == nil {
+                movie.tmdbID = item.tmdbID
+            }
+            if item.type == "Episode", movie.seriesTMDBID == nil, let seriesID = item.seriesID {
+                movie.seriesTMDBID = seriesTMDBIDs[seriesID]
+            }
+        }
+        for movie in existing.values where !movie.isMissing {
+            undo.append { movie.isMissing = false }
+            movie.isMissing = true
+        }
+        source.lastScanDate = Date()
+        do { try saveContext(context) }
+        catch {
+            for restore in undo.reversed() { restore() }
+            source.lastScanDate = date
+            for movie in inserted { context.delete(movie) }
+            throw error
+        }
+        status = "\(source.name): \(catalog.count) items (\(inserted.count) new)"
+    }
+
     func scanAll(context: ModelContext) async {
         do {
             let sources = try context.fetch(FetchDescriptor<MediaSource>())
@@ -118,15 +204,15 @@ private final class LibraryScanState {
     let context: ModelContext
     let config: SourceConfig
     private(set) var added = 0
-    private var foundPaths: Set<String> = []
+    private var foundPaths: Set<Data> = []
     var foundCount: Int { foundPaths.count }
-    private var indexed: [String: Movie]
+    private var indexed: [Data: Movie]
     private let saveContext: (ModelContext) throws -> Void
     init(source: MediaSource, context: ModelContext, config: SourceConfig,
          saveContext: @escaping (ModelContext) throws -> Void) {
         self.source = source; self.context = context; self.config = config
         self.saveContext = saveContext
-        indexed = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { a, _ in a })
+        indexed = Dictionary(source.movies.map { (Data($0.filePath.utf8), $0) }, uniquingKeysWith: { a, _ in a })
     }
     func verifySource() throws {
         try Task.checkCancellation()
@@ -140,7 +226,7 @@ private final class LibraryScanState {
         var previous: [(Movie, Bool, Int64)] = []
         var inserted: [Movie] = []
         for file in files {
-            if let movie = indexed[file.path], !movie.isDeleted {
+            if let movie = indexed[Data(file.path.utf8)], !movie.isDeleted {
                 previous.append((movie, movie.isMissing, movie.fileSize))
                 movie.isMissing = false; movie.fileSize = file.size
             } else { inserted.append(insert(file)) }
@@ -148,11 +234,11 @@ private final class LibraryScanState {
         do { try saveContext(context) }
         catch {
             for (movie, missing, size) in previous.reversed() { movie.isMissing = missing; movie.fileSize = size }
-            for movie in inserted { indexed.removeValue(forKey: movie.filePath); context.delete(movie) }
+            for movie in inserted { indexed.removeValue(forKey: Data(movie.filePath.utf8)); context.delete(movie) }
             added -= inserted.count
             throw error
         }
-        foundPaths.formUnion(files.map(\.path))
+        foundPaths.formUnion(files.map { Data($0.path.utf8) })
     }
     @discardableResult
     func insert(_ file: RemoteFile) -> Movie {
@@ -167,7 +253,7 @@ private final class LibraryScanState {
         movie.year = localOnly ? nil : parsed.year
         movie.metadataFetched = localOnly
         context.insert(movie)
-        indexed[file.path] = movie
+        indexed[Data(file.path.utf8)] = movie
         added += 1
         return movie
     }

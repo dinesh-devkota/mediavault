@@ -86,21 +86,24 @@ final class SubtitleAutoplayRemoteTests: XCTestCase {
         defer { capture("Native transport test final state", app: app) }
         let remote = XCUIRemote.shared
         let subtitles = app.cells["Subtitles"].firstMatch
-        // This fixture uses the real native transport, without test-only focusable buttons.
-        XCTAssertTrue(subtitles.waitForExistence(timeout: 40), app.debugDescription)
-        // Start normally, then pause with the native remote command. Programmatic
-        // fixture pausing does not engage AVKit's visible transport interface.
-        remote.press(.playPause)
+        // Test the real native transport after playback has advanced. Accessing a cell
+        // before AVKit starts can expose its label while its focus hierarchy is still unavailable.
+        XCTAssertTrue(app.staticTexts["fixture-native-playback-ready"].waitForExistence(timeout: 40), app.debugDescription)
+        remote.press(.select)
+        XCTAssertTrue(subtitles.waitForExistence(timeout: 15), app.debugDescription)
         capture("Native transport after remote pause", app: app)
-        // Remaining-time text can be absent when paused before the first decoded
-        // frame. Actual focus and opening the subtitle sheet prove menu access.
-        for attempt in 0..<8 {
+        let directions: [XCUIRemote.Button] = [.up, .right, .down, .left]
+        var fallback = 0
+        for attempt in 0..<12 {
             if subtitles.hasFocus { break }
             let focusedCell = app.cells.matching(NSPredicate(format: "hasFocus == YES")).firstMatch
             if focusedCell.exists {
                 remote.press(focusedCell.frame.midX > subtitles.frame.midX ? .left : .right)
             } else {
-                remote.press(attempt < 2 || attempt % 2 == 1 ? .down : .up)
+                // AVKit can initially focus the scrubber or the overlay itself, neither of
+                // which is a cell. Navigate out of those states with the actual clickpad.
+                remote.press(directions[fallback % directions.count])
+                fallback += 1
             }
             if attempt == 1 { capture("Native transport after revealing controls", app: app) }
         }

@@ -25,7 +25,7 @@ fun NasRootFolderPicker(config: SourceConfig, enabled: Boolean, onSelect: (Strin
             if (!expanded) return@LaunchedEffect
             loading = true; ready = false; error = null; folders = emptyList(); page = 0
             try {
-                require(config.host.isNotBlank() && config.share.isNotBlank()) { "Enter the NAS address and share first." }
+                require(config.host.isNotBlank() && (config.isWebDav || config.share.isNotBlank())) { "Enter the NAS address and share first." }
                 folders = NasBrowser().listFolders(config.copy(rootPath = path))
                 ready = true
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -33,15 +33,15 @@ fun NasRootFolderPicker(config: SourceConfig, enabled: Boolean, onSelect: (Strin
             finally { loading = false }
         }
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Scan folder: ${config.rootPath.ifBlank { "Share root (all folders)" }}")
+            Text("Scan folder: ${config.rootPath.ifBlank { if (config.isWebDav) "WebDAV root (all folders)" else "Share root (all folders)" }}")
             OutlinedButton(enabled = enabled, onClick = { expanded = !expanded }) {
                 Text(if (expanded) "Close folder dropdown ▴" else "Choose scan folder ▾")
             }
             if (expanded) {
-                Text("Browsing: ${path.ifBlank { "Share root" }}", color = SecondaryText)
+                Text("Browsing: ${path.ifBlank { if (config.isWebDav) "WebDAV root" else "Share root" }}", color = SecondaryText)
                 Text("Changing the scan folder clears its old ignore rules. Choose new rules before saving.", color = SecondaryText)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(enabled = enabled && !loading && path.isNotEmpty(), onClick = { path = "" }) { Text("Share root") }
+                    OutlinedButton(enabled = enabled && !loading && path.isNotEmpty(), onClick = { path = "" }) { Text(if (config.isWebDav) "WebDAV root" else "Share root") }
                     OutlinedButton(enabled = enabled && !loading && path.isNotEmpty(), onClick = { path = path.substringBeforeLast('/', "") }) { Text("Up") }
                 }
                 Button(enabled = enabled && !loading && ready, onClick = { expanded = false; onSelect(path) }) { Text("Use this folder") }

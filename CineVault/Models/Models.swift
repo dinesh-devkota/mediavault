@@ -7,6 +7,7 @@ final class MediaSource {
     var id: UUID = UUID()
     var name: String = ""
     var host: String = ""
+    var sourceProtocol: String?
     var port: Int?
     var share: String = ""
     /// Folder inside the share to scan, e.g. "Movies". Empty scans the whole share.
@@ -29,6 +30,9 @@ final class MediaSource {
         self.username = username
     }
 
+    var isWebDAV: Bool { sourceProtocol == "webdav" }
+    var isJellyfin: Bool { sourceProtocol == "jellyfin" }
+
     private var passwordAccount: String { "source-\(id.uuidString)" }
 
     func password() throws -> String {
@@ -43,23 +47,26 @@ final class MediaSource {
         var secret = ""
         if !username.isEmpty { secret = try password() }
         return SourceConfig(id: id, host: host, port: port, share: share, rootPath: rootPath,
-                            username: username, password: secret, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [])
+                            username: username, password: secret, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [],
+                            isWebDAV: isWebDAV, isJellyfin: isJellyfin)
     }
 
     func isIgnored(filePath: String) -> Bool {
         ScanExclusions.isFileExcluded(path: filePath, rootPath: rootPath,
-                                      ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [])
+                                      ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [], caseSensitive: isWebDAV)
     }
 
     /// Keep records and playback history; a later scan restores files that are no longer ignored.
     func applyIgnoredPaths(folders: [String], files: [String]) throws {
         func normalize(_ paths: [String], folder: Bool) throws -> [String] {
             var normalized: [String] = []
-            var seen: Set<String> = []
+            var seen: Set<Data> = []
             for path in paths {
-                guard let value = folder ? ScanExclusions.normalizeFolder(path: path) : ScanExclusions.normalizeFile(path: path)
-                    else { throw IgnoredFolderError.invalidPath }
-                if seen.insert(value.lowercased()).inserted { normalized.append(value) }
+                let candidate = isWebDAV
+                    ? (WebDAVAddress.contains(path, within: "") ? path : nil)
+                    : (folder ? ScanExclusions.normalizeFolder(path: path) : ScanExclusions.normalizeFile(path: path))
+                guard let value = candidate else { throw IgnoredFolderError.invalidPath }
+                if seen.insert(Data((isWebDAV ? value : value.lowercased()).utf8)).inserted { normalized.append(value) }
             }
             return normalized
         }
@@ -89,24 +96,27 @@ struct SourceConfig: Sendable, Hashable {
     let password: String
     let ignoredFolders: [String]
     let ignoredFiles: [String]
+    let isWebDAV: Bool
+    let isJellyfin: Bool
 
     init(id: UUID, host: String, port: Int? = nil, share: String, rootPath: String,
-         username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = []) {
+         username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = [],
+         isWebDAV: Bool = false, isJellyfin: Bool = false) {
         self.id = id; self.host = host; self.port = port; self.share = share; self.rootPath = rootPath
         self.username = username; self.password = password; self.ignoredFolders = ignoredFolders
-        self.ignoredFiles = ignoredFiles
+        self.ignoredFiles = ignoredFiles; self.isWebDAV = isWebDAV; self.isJellyfin = isJellyfin
     }
 
     func excludesDirectory(_ path: String) -> Bool {
-        ScanExclusions.isDirectoryExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders)
+        ScanExclusions.isDirectoryExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, caseSensitive: isWebDAV)
     }
 
     func excludesFile(_ path: String) -> Bool {
-        ScanExclusions.isFileExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles)
+        ScanExclusions.isFileExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles, caseSensitive: isWebDAV)
     }
 
     var serverURL: URL? {
-        (try? NASAddress.parse(host, port: port))?.serverURL
+        isJellyfin ? nil : (try? NASAddress.parse(host, port: port))?.serverURL
     }
 }
 
@@ -127,6 +137,7 @@ final class Movie {
     }
     var seriesKey: String? {
         guard let info = episodeInfo else { return nil }
+        if let providerSeriesID, let source { return "jellyfin:\(source.id.uuidString):\(providerSeriesID)" }
         if let seriesTMDBID { return "tmdb:\(seriesTMDBID)" }
         return "local:\(TitleMatcher.normalize(info.seriesTitle))|\(info.year.map(String.init) ?? "")"
     }
@@ -145,6 +156,8 @@ final class Movie {
     var tmdbID: Int?
     var seriesTitle: String?
     var seriesTMDBID: Int?
+    var providerSeriesID: String?
+    var providerImageTag: String?
     var seasonNumber: Int?
     var episodeNumber: Int?
     var seasonPosterPath: String?
@@ -153,6 +166,10 @@ final class Movie {
     var genres: [String] = []
     var runtimeMinutes: Int?
     var rating: Double?
+    /// US content certification, independent of the audience score above.
+    var usContentRating: String?
+    /// Nil/false needs a lookup; true with no rating means TMDB returned no known US rating.
+    var usContentRatingFetched: Bool?
     var metadataFetched: Bool = false
     /// User renamed / re-matched manually; rescans and auto-match won't overwrite.
     var isLocked: Bool = false
@@ -167,6 +184,7 @@ final class Movie {
     var isWatchlisted: Bool = false
 
     var source: MediaSource?
+    @Transient var householdRevision: Int = 0
 
     init(filePath: String, fileSize: Int64, source: MediaSource) {
         self.filePath = filePath
@@ -178,10 +196,10 @@ final class Movie {
     var displayYear: String { year.map(String.init) ?? "" }
 
     var progress: Double {
-        duration > 0 ? min(playbackPosition / duration, 1) : 0
+        duration > 0 ? min(householdPosition / duration, 1) : 0
     }
 
-    var isInProgress: Bool { !isWatched && playbackPosition > 30 }
+    var isInProgress: Bool { !householdWatched && householdPosition > 30 }
 
     func setTitle(_ newTitle: String) {
         title = newTitle
@@ -209,6 +227,8 @@ final class Movie {
         genres = []
         runtimeMinutes = nil
         rating = nil
+        usContentRating = nil
+        usContentRatingFetched = nil
         metadataFetched = localOnly
     }
 

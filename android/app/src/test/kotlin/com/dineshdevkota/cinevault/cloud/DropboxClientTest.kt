@@ -8,9 +8,11 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DropboxClientTest {
@@ -78,5 +80,44 @@ class DropboxClientTest {
         assertArrayEquals("56789".toByteArray(), data)
         assertThrows(CloudClientException::class.java) { runBlocking { client.read(id, 2, 5, "fixture") } }
         assertThrows(IllegalArgumentException::class.java) { runBlocking { client.read("/wrong", 0, 1, "fixture") } }
+    }
+
+    @Test
+    fun scopedRangeRequiresTheOriginalIdentityRevisionAndLength() {
+        val path = "/Movies/Café.mp4"
+        val expected = DropboxClient.Entry("file", "Café.mp4", "id:media", path, 10, "abc123def")
+        val client = DropboxClient("fixture-app", OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            val argument = requireNotNull(request.header("Dropbox-API-Arg"))
+            assertTrue(argument.all { it.code < 127 })
+            assertEquals(path, kotlinx.serialization.json.Json.decodeFromString<Map<String, String>>(argument)["path"])
+            val revision = if (request.header("Range") == "bytes=5-9") "abc123def" else "def123abc"
+            val start = if (revision == "abc123def") 5 else 0
+            val result = """{"name":"Caf\u00e9.mp4","path_display":"/Movies/Caf\u00e9.mp4","id":"id:media","size":10,"rev":"$revision"}"""
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(206).message("Fixture")
+                .header("Content-Range", "bytes $start-${start + 4}/10").header("Dropbox-API-Result", result)
+                .body("abcde".toResponseBody()).build()
+        }.build())
+        assertArrayEquals("abcde".toByteArray(), runBlocking { client.read(expected, 5, 5, "fixture") })
+        assertThrows(CloudClientException::class.java) { runBlocking { client.read(expected, 0, 5, "fixture") } }
+    }
+
+    @Test
+    fun refreshRetriesOnceAndLeavesDropboxFolderBoundariesIntact() = runBlocking {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val client = DropboxClient("fixture-app", OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            val result = """{"access_token":"fixture-${calls.incrementAndGet()}","expires_in":14400}"""
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("Fixture")
+                .body(result.toResponseBody()).build()
+        }.build())
+        val access = DropboxAccess(client, "fixture-refresh")
+        val read = access.run({}) { token -> if (token == "fixture-1") throw CloudClientException("Expired", 401) else token }
+        assertEquals("fixture-2", read)
+        assertEquals("fixture-2", access.run({}) { it })
+        assertEquals(2, calls.get())
+        assertTrue(DropboxPath.contains("Media/Film.mp4", "media"))
+        assertFalse(DropboxPath.contains("MediaPrivate/Film.mp4", "media"))
+        assertFalse(DropboxPath.contains("Media/../Film.mp4", "media"))
     }
 }
