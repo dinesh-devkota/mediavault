@@ -17,6 +17,12 @@ source’s path rules. Optional SubDL search and download use the owner’s sepa
 API key. The development revision and hosted test results are recorded at the top
 of the [agent handoff](../dist/AGENT-HANDOFF.md).
 
+The tested Fire OS and Vega package branch merged at `a79f627`. Fire OS shares
+Android's provider support. Vega currently connects to SMB, WebDAV and Jellyfin.
+Both Fire TV variants still need physical-device qualification. The draft
+[deployment preparation](https://github.com/dinesh-devkota/mediavault/pull/32)
+records unsigned packages and what each distribution path requires.
+
 ## User request and order
 
 The user requested WebDAV on a new branch, then asked to implement all assessed
