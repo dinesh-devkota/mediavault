@@ -131,6 +131,95 @@ final class SMBIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testOneDriveFolderScanSidecarAndPlaybackSeek() async throws {
+        let mediaURL = try XCTUnwrap(Bundle(for: SMBIntegrationTests.self).url(forResource: "playback", withExtension: "mp4"))
+        let video = try Data(contentsOf: mediaURL)
+        let captions = Data("1\n00:00:00,000 --> 00:00:02,000\nFixture caption\n".utf8)
+        let transport = CloudFileTransport(rootID: "one-drive-root", children: { id, check in
+            try check()
+            return id == "one-drive-root"
+                ? [.init(id: "movies", name: "Movies", isDirectory: true, size: 0)]
+                : [.init(id: "film", name: "Film.mp4", isDirectory: false, size: Int64(video.count)),
+                   .init(id: "captions", name: "Film.en.srt", isDirectory: false, size: Int64(captions.count))]
+        }, rangeRead: { item, offset, count, check in
+            try check()
+            let bytes = item.id == "film" ? video : captions
+            return bytes.subdata(in: Int(offset)..<(Int(offset) + count))
+        })
+        let service = SMBService(cloudTransport: { _, _ in transport })
+        let config = SourceConfig(id: UUID(), host: "12345678-1234-1234-1234-123456789ABC",
+                                  share: transport.rootID, rootPath: "", username: "fixture-drive",
+                                  password: "", cloudFileProvider: .oneDrive)
+        let files = try await service.scanMedia(config) { _ in }
+        XCTAssertEqual(files.map(\.path), ["Movies/Film.mp4"])
+        let movie = try XCTUnwrap(files.first)
+        let sidecars = try await LocalSubtitleService.discover(config: config, videoPath: movie.path) {
+            try await service.listEntries($0, directory: $1)
+        }
+        let sidecar = try XCTUnwrap(sidecars.first)
+        XCTAssertEqual(sidecar.path, "Movies/Film.en.srt")
+        let document = try await LocalSubtitleService.read(sidecar, config: config,
+            size: { try await service.fileSize($0, path: $1) },
+            read: { try await service.read($0, path: $1, offset: 0, length: $2) })
+        XCTAssertEqual(document.cues.first?.text, "Fixture caption")
+
+        try await verifyCloudFilePlayback(config: config, movie: movie, service: service)
+    }
+
+    #if DEBUG && os(iOS) && targetEnvironment(simulator)
+    @MainActor
+    func testOneDriveGraphHTTPSPlaybackAndSeek() async throws {
+        let clientID = OneDrivePhoneFixtureProtocol.clientID
+        let client = try OneDriveClient(clientID: clientID, session: OneDrivePhoneFixtureProtocol.session)
+        let challenge = try await client.beginSignIn()
+        XCTAssertEqual(challenge.user_code, "OD-PHONE")
+        let credentials = try await client.completeSignIn(challenge)
+        let drive = try await client.identifyDrive(accessToken: credentials.access_token)
+        let root = try await client.rootFolder(accessToken: credentials.access_token)
+        let folders = try await OneDriveFileSource.folders(client: client, driveID: drive, folderID: root.id,
+                                                           access: credentials.access_token)
+        let folder = try XCTUnwrap(folders.first { $0.name == "Movies" && $0.isDirectory })
+        let binding = try OneDriveSourceBinding(clientID: clientID, driveID: drive, folderID: folder.id)
+        let config = SourceConfig(id: UUID(), host: binding.clientID, share: binding.folderID, rootPath: "",
+                                  username: binding.driveID, password: "", cloudFileProvider: .oneDrive)
+        let account = OneDriveAccountStore()
+        try await account.install(credentials, binding: binding, id: config.id)
+        addTeardownBlock { try await account.remove(id: config.id) }
+        let service = SMBService(cloudTransport: { _, config in
+            try OneDriveFileSource.transport(config, account: account, client: client)
+        })
+        let files = try await service.scanMedia(config) { _ in }
+        XCTAssertEqual(files.map(\.path), ["OneDrive Journey.mp4"])
+        let movie = try XCTUnwrap(files.first)
+        let header = try await service.read(config, path: movie.path, offset: 4, length: 4)
+        XCTAssertEqual(header, Data("ftyp".utf8))
+        let filesWithCaptions = try await LocalSubtitleService.discover(config: config, videoPath: movie.path) {
+            try await service.listEntries($0, directory: $1)
+        }
+        let caption = try XCTUnwrap(filesWithCaptions.first)
+        let document = try await LocalSubtitleService.read(caption, config: config,
+            size: { try await service.fileSize($0, path: $1) },
+            read: { try await service.read($0, path: $1, offset: 0, length: $2) })
+        XCTAssertEqual(document.cues.first?.text, "OneDrive fixture subtitle.")
+        try await verifyCloudFilePlayback(config: config, movie: movie, service: service)
+    }
+    #endif
+
+    @MainActor
+    private func verifyCloudFilePlayback(config: SourceConfig, movie: RemoteFile, service: SMBService) async throws {
+        let loader = SMBResourceLoader(config: config, path: movie.path, reader: .init(
+            size: { try await service.fileSize(config, path: movie.path) },
+            read: { try await service.read(config, path: movie.path, offset: $0, length: $1) }))
+        let player = AVPlayer(playerItem: AVPlayerItem(asset: loader.makeAsset()))
+        defer {
+            player.pause()
+            player.replaceCurrentItem(with: nil)
+            withExtendedLifetime(loader) {}
+        }
+        try await verifyPlayerSeek(player)
+    }
+
+    @MainActor
     private func verifyPlayback(config: SourceConfig, movie: RemoteFile) async throws {
         let source = MediaSource(name: "Fixture", host: config.host, port: config.port, share: config.share,
                                  rootPath: config.rootPath, username: config.username)
@@ -147,6 +236,14 @@ final class SMBIntegrationTests: XCTestCase {
             player.replaceCurrentItem(with: nil)
         }
 
+        try await verifyPlayerSeek(player)
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        await SMBService.shared.reset(config)
+    }
+
+    @MainActor
+    private func verifyPlayerSeek(_ player: AVPlayer) async throws {
         player.play()
         try await waitForPlayback(player, past: 0.5)
 
@@ -159,10 +256,6 @@ final class SMBIntegrationTests: XCTestCase {
         await fulfillment(of: [seekFinished], timeout: 30)
         player.play()
         try await waitForPlayback(player, past: 8.5)
-
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        await SMBService.shared.reset(config)
     }
 
     @MainActor

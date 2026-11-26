@@ -66,7 +66,7 @@ jobs:
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-phone" \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
-      - name: Test against local SMB, WebDAV, and Jellyfin fixtures
+      - name: Test against local SMB, WebDAV, Jellyfin, and OneDrive fixtures
         run: |
           set -euo pipefail
           DEVICE='${{ steps.simulator.outputs.device }}'
@@ -79,6 +79,21 @@ jobs:
           bash scripts/start_jellyfin_tvos_fixture.sh "$RUNNER_TEMP/jellyfin-fixture"
           JELLYFIN_PID=$(cat "$RUNNER_TEMP/jellyfin-fixture/server.pid")
           trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" 2>/dev/null || true' EXIT
+          python3 scripts/onedrive_iphone_fixture.py "$RUNNER_TEMP/webdav-fixture" > "$RUNNER_TEMP/onedrive-iphone.log" 2>&1 &
+          ONEDRIVE_PID=$!
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$ONEDRIVE_PID" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl --noproxy 127.0.0.1 --silent --fail --connect-timeout 1 --max-time 2 \
+              --cacert "$RUNNER_TEMP/webdav-fixture/fixture.pem" https://127.0.0.1:18897/health --output /dev/null; then break; fi
+            if ! kill -0 "$ONEDRIVE_PID" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if ! curl --noproxy 127.0.0.1 --silent --fail --connect-timeout 1 --max-time 2 \
+            --cacert "$RUNNER_TEMP/webdav-fixture/fixture.pem" https://127.0.0.1:18897/health --output /dev/null; then
+            echo "::error::The disposable OneDrive fixture was not ready."
+            cat "$RUNNER_TEMP/onedrive-iphone.log" >&2
+            exit 1
+          fi
           for attempt in {1..30}; do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               cat "$RUNNER_TEMP/nas-fixture.log" >&2
@@ -122,6 +137,8 @@ jobs:
               tests = set(passed(json.load(source)["testNodes"]))
           required = {
               "testConnectAndImportWebDAVFromSources",
+              "testConnectOneDriveDeviceCodeAndImportSelectedFolder",
+              "testOneDriveGraphHTTPSPlaybackAndSeek",
               "testNativePlaybackAndSubtitleControls",
               "testViewerOnlySeesAllowedTitlesOnPhone",
               "testPlaybackAndSeekStreamTheScannedMovie",
@@ -159,3 +176,4 @@ jobs:
             ${{ runner.temp }}/nas-fixture.log
             ${{ runner.temp }}/webdav-fixture/server.log
             ${{ runner.temp }}/jellyfin-fixture/server.log
+            ${{ runner.temp }}/onedrive-iphone.log

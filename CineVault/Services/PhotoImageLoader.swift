@@ -118,13 +118,13 @@ actor PhotoImageLoader {
         let session = household.sessionToken
         func checkAccess() throws {
             guard household.sessionIsCurrent(session),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else { throw PhotoLoadingError.unavailable }
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths) else { throw PhotoLoadingError.unavailable }
         }
         try checkAccess()
         try Task.checkCancellation()
         let isArtwork = config.isJellyfin && artworkTag?.isEmpty == false
         guard isArtwork || MediaFile.isPhoto(path: path) && MediaFile.shouldIndex(path: path, size: 1),
-              PhotoLocation.contains(path: path, root: config.rootPath, caseSensitive: config.isWebDAV || config.isJellyfin), !config.excludesFile(path) else { throw PhotoLoadingError.unavailable }
+              PhotoLocation.contains(path: path, root: config.rootPath, caseSensitive: config.caseSensitivePaths), !config.excludesFile(path) else { throw PhotoLoadingError.unavailable }
         guard knownSize <= Self.maximumEncodedBytes else { throw PhotoLoadingError.tooLarge }
         let pixels = min(Self.viewingPixels, max(1, maxPixelSize))
         let key = CacheKey(config, path, knownSize, pixels, revision, artworkTag)
