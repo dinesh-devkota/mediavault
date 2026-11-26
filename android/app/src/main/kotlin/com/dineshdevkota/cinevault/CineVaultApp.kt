@@ -16,8 +16,14 @@ import com.dineshdevkota.cinevault.library.LibraryEditor
 import com.dineshdevkota.cinevault.library.LibraryScanner
 import com.dineshdevkota.cinevault.metadata.MetadataService
 import com.dineshdevkota.cinevault.metadata.TmdbClient
+import com.dineshdevkota.cinevault.nfs.NFS
+import com.dineshdevkota.cinevault.nfs.NfsDevelopment
+import com.dineshdevkota.cinevault.nfs.NfsMedia
+import com.dineshdevkota.cinevault.nfs.NfsStoredAccess
+import com.dineshdevkota.cinevault.nfs.NfsViewer
 import com.dineshdevkota.cinevault.playback.PlaybackProgressWriter
 import com.dineshdevkota.cinevault.photos.NasPhotoLoader
+import com.dineshdevkota.cinevault.smb.FileSourceTransport
 import com.dineshdevkota.cinevault.smb.SmbService
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -54,7 +60,23 @@ class AppContainer(context: Context) {
     internal val googleDriveSources = GoogleDriveSourceStore(
         context, database, secrets, googleDriveDocuments)
     internal val oneDrive = OneDriveMedia(AndroidOneDriveAccountStore(context, secrets))
-    private val fileSources = mapOf(ONEDRIVE to oneDrive, GOOGLE_DRIVE_DOCUMENTS to googleDriveDocuments)
+    internal val nfs = if (NfsDevelopment.available) {
+        val access = NfsStoredAccess(
+            enabled = { NfsDevelopment.available },
+            viewer = {
+                val epoch = family.authenticationEpoch
+                NfsViewer(family.current, epoch)
+            },
+            source = { id -> database.sources().get(id)?.config(secrets) },
+            items = { id, path -> database.movies().nfsItemsForPath(id, path).mapNotNull { library.get(it.id) } },
+        )
+        NfsMedia(authorize = access::authorize)
+    } else null
+    private val fileSources = buildMap<String, FileSourceTransport> {
+        put(ONEDRIVE, oneDrive)
+        put(GOOGLE_DRIVE_DOCUMENTS, googleDriveDocuments)
+        nfs?.let { put(NFS, it) }
+    }
     val smb = SmbService(fileSources = fileSources)
     val photos = NasPhotoLoader(context, database, secrets, NasPhotoLoader.photoService(fileSources), family = family)
     val playbackProgress = PlaybackProgressWriter(scope)

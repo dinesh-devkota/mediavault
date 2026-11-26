@@ -57,7 +57,9 @@ import com.dineshdevkota.cinevault.emby.EmbyException
 import com.dineshdevkota.cinevault.emby.EmbyHlsDataSource
 import com.dineshdevkota.cinevault.emby.EmbyVideo
 import com.dineshdevkota.cinevault.emby.embyConnection
+import com.dineshdevkota.cinevault.emby.embyFailure
 import com.dineshdevkota.cinevault.emby.embyItemId
+import com.dineshdevkota.cinevault.emby.embyPlaybackReadMessage
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.JellyfinConnection
 import com.dineshdevkota.cinevault.jellyfin.JellyfinException
@@ -535,8 +537,11 @@ class PlayerActivity : ComponentActivity() {
                 EmbyVideo(emby.connection, direct, checkNotNull(emby.length)) { requirePlaybackAccess(target.movie) }
             }
         } else DataSource.Factory { SmbDataSource(authorize = {
-            val active = this.target?.movie
-            check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
+            if (target.config?.sourceType == com.dineshdevkota.cinevault.nfs.NFS) authorizeProviderRead()
+            else {
+                val active = this.target?.movie
+                check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
+            }
         }) {
             check(container.family.isCurrent(householdSession) && container.family.permits(target.movie)) { "Your household session has locked." }
             target.plex?.let { PlexRemoteHandle(it.client, it.part, authorizeProviderRead) } ?: run {
@@ -1050,9 +1055,8 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun safeEmbyError(error: Throwable): String =
-        generateSequence(error) { it.cause }.take(8).filterIsInstance<EmbyException>().firstOrNull()?.let {
-            if (it.status == 401) "Reconnect this Emby source in Sources." else it.message
-        } ?: "Unable to play this Emby item. Check the server and its direct-play formats."
+        error.embyFailure()?.let { it.reconnectMessage ?: it.message }
+            ?: "Unable to play this Emby item. Check the server and its direct-play formats."
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
@@ -1136,9 +1140,12 @@ class PlayerActivity : ComponentActivity() {
 
     private fun errorMessage(error: PlaybackException): String = when (error.errorCode / 1000) {
         // Media3 groups error codes by category in thousands: 2xxx I/O, 3xxx parsing, 4xxx decoding, 5xxx audio.
-        2 -> if (target?.plex != null) "Could not read this Plex stream."
-            else if (target?.connection != null) "Could not read this Jellyfin stream."
-            else error.cause?.let { SmbService.describe(it) } ?: "Could not read the file from the NAS."
+        2 -> when {
+            target?.emby != null -> embyPlaybackReadMessage(error)
+            target?.plex != null -> "Could not read this Plex stream."
+            target?.connection != null -> "Could not read this Jellyfin stream."
+            else -> error.cause?.let { SmbService.describe(it) } ?: "Could not read the file from the NAS."
+        }
         3 -> "This file's format isn't supported, or the file is damaged."
         4, 5 -> "This device can't play this file's video or audio format."
         else -> error.message ?: "Playback failed."
@@ -1176,6 +1183,10 @@ class PlayerActivity : ComponentActivity() {
             }
             if (config.sourceType == ONEDRIVE) return Uri.Builder().scheme(ONEDRIVE).authority(config.id)
                 .apply { path.split('/').forEach(::appendPath) }.build()
+            if (config.sourceType == com.dineshdevkota.cinevault.nfs.NFS) {
+                return Uri.Builder().scheme("nfs").authority("media")
+                    .apply { path.split('/').forEach(::appendPath) }.build()
+            }
             if (config.isDropbox) {
                 return Uri.Builder().scheme("dropbox").authority("media")
                     .apply { path.split('/').forEach(::appendPath) }.build()

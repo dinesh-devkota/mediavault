@@ -30,6 +30,7 @@ struct LibraryChoiceSheet<Value: Hashable>: View {
                 Text(title).font(.largeTitle.bold())
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .tvOSBorderedAction()
                 if all != nil {
                     Button("Apply") {
                         apply(draft)
@@ -91,6 +92,7 @@ struct LibraryChoiceSheet<Value: Hashable>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .tvOSBorderedAction()
         .focused($focus, equals: row)
         .accessibilityAddTraits(checked ? .isSelected : [])
         .id(row)

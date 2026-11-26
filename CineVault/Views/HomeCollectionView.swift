@@ -95,6 +95,7 @@ private struct HomeSeeAllButton: View {
         } label: {
             Label("See all", systemImage: "chevron.right")
         }
+        .tvOSBorderedAction()
         .focused($focused)
         .accessibilityLabel("See all \(collection.title)")
         .accessibilityIdentifier("home-see-all-\(collection.id)")

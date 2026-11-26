@@ -19,7 +19,16 @@ import okhttp3.Response
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-class EmbyException(message: String, val status: Int? = null) : IOException(message)
+class EmbyException(message: String, val status: Int? = null) : IOException(message) {
+    internal val reconnectMessage: String?
+        get() = if (status == 401) "Reconnect this Emby source in Sources." else null
+}
+
+internal fun Throwable.embyFailure(): EmbyException? =
+    generateSequence(this) { it.cause }.take(8).filterIsInstance<EmbyException>().firstOrNull()
+
+internal fun embyPlaybackReadMessage(error: Throwable): String =
+    error.embyFailure()?.reconnectMessage ?: "Could not read this Emby stream."
 
 class EmbyClient internal constructor(
     endpoint: String,

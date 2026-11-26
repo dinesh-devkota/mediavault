@@ -67,6 +67,15 @@ enum CinemaTheme {
 }
 
 extension View {
+    @ViewBuilder func tvOSBorderedAction() -> some View {
+        #if os(tvOS)
+        // The unfocused tvOS fill uses the accent color, so a tinted label can disappear.
+        self.buttonStyle(.bordered).foregroundStyle(.black)
+        #else
+        self
+        #endif
+    }
+
     @ViewBuilder func horizontalControlsOnPhone() -> some View {
         #if os(iOS)
         ScrollView(.horizontal) { self }

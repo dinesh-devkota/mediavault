@@ -1,6 +1,7 @@
 package com.dineshdevkota.cinevault.smb
 
 import com.dineshdevkota.cinevault.core.NasAddress
+import com.dineshdevkota.cinevault.nfs.NFS
 import com.hierynomus.msfscc.FileAttributes
 import com.hierynomus.mssmb2.SMBApiException
 import com.hierynomus.protocol.commons.EnumWithValue.EnumUtils
@@ -55,6 +56,7 @@ class NasBrowser {
     }
 
     private fun <T> withSession(config: SourceConfig, block: (Session) -> T): T {
+        if (config.sourceType == NFS) throw SmbException("This source is unavailable.")
         val address = NasAddress.parse(config.host, config.port)
         val contexts = if (config.username.isBlank()) {
             listOf(AuthenticationContext.anonymous(), AuthenticationContext.guest())

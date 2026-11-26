@@ -1,5 +1,7 @@
 package com.dineshdevkota.cinevault.emby
 
+import com.dineshdevkota.cinevault.playback.SmbDataSource
+import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -110,6 +112,33 @@ class EmbyPlaybackTest {
             }
             assertEquals(4, socket.requestCount)
         }
+    }
+
+    @Test fun expiredAuthenticatedRangePromptsReconnectThroughPlayerErrorWrappers() {
+        MockWebServer().use { socket ->
+            socket.enqueue(playbackResponse())
+            socket.enqueue(MockResponse().setResponseCode(401).setBody("expired fixture credential"))
+            val client = client(socket)
+            val account = EmbyClient.Account("fixture-token", EmbyClient.User("viewer", "Viewer"))
+            val playback = runBlocking { client.directPlayback(account, "movie-a", setOf("mp4")) }
+            val expired = assertThrows(EmbyException::class.java) {
+                client.readBlocking(account, playback, 5, 4)
+            }
+            val wrapped = IOException("Failed media load", SmbDataSource.asDataSourceException(expired))
+            assertEquals("Reconnect this Emby source in Sources.", embyPlaybackReadMessage(wrapped))
+            socket.takeRequest() // Negotiation
+            val range = socket.takeRequest()
+            assertEquals("bytes=5-8", range.getHeader("Range"))
+            assertEquals("fixture-token", range.getHeader("X-Emby-Token"))
+            assertFalse(range.path.orEmpty().contains("fixture-token"))
+        }
+    }
+
+    @Test fun otherPlaybackReadErrorsUseSafeGenericMessage() {
+        val generic = "Could not read this Emby stream."
+        val raw = "https://emby.fixture.invalid/stream?credential=fixture-token"
+        assertEquals(generic, embyPlaybackReadMessage(IOException("HTTP 401 for $raw")))
+        assertEquals(generic, embyPlaybackReadMessage(IOException("Playback failed", EmbyException(raw, 403))))
     }
 
     @Test fun unsupportedContainerCannotBecomeDirectPlay() {

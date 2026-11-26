@@ -36,6 +36,25 @@ class LibraryScannerTest {
     @After
     fun tearDown() = database.close()
 
+    @Test
+    fun unavailableNfsLeavesPersistedLibraryUntouched() = runBlocking {
+        org.junit.Assume.assumeFalse(com.dineshdevkota.cinevault.nfs.NfsDevelopment.available)
+        val source = SourceEntity(name = "Saved NFS", host = "localhost", share = "/media",
+            sourceType = com.dineshdevkota.cinevault.nfs.NFS, lastScanAt = 15L)
+        val indexed = MovieEntity(
+            sourceId = source.id, filePath = "Saved.mp4", fileName = "Saved.mp4", fileSize = 120_000,
+            parsedTitle = "Saved", parsedYear = null, title = "Saved", year = null,
+        )
+        database.sources().upsert(source)
+        database.movies().insert(indexed)
+        val scanner = LibraryScanner(database, SecretBox(), scanVideos = { error("Unavailable source must never scan") })
+        scanner.scan(source.id)
+        assertEquals("Could not scan Saved NFS. NFS is unavailable in this build.", scanner.status.value)
+        scanner.scanAll()
+        assertEquals(listOf(indexed), database.movies().forSource(source.id))
+        assertEquals(source, database.sources().get(source.id))
+    }
+
     @Test fun concertVideoKeepsItsParsedYearAndRemainsEligibleForMetadata() = runBlocking {
         val source = SourceEntity(name = "Media", host = "localhost", share = "Media")
         database.sources().upsert(source)

@@ -44,6 +44,7 @@ import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.nfs.NFS
 import com.dineshdevkota.cinevault.plex.PLEX
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -77,10 +78,11 @@ fun SourcesTab(movies: List<MovieEntity>) {
                 OutlinedButton(onClick = { OneDriveSetupActivity.start(context) }) { Text("Connect OneDrive") }
                 OutlinedButton(onClick = { DropboxSetupActivity.start(context) }) { Text("Connect Dropbox") }
                 if (driveAvailable) OutlinedButton(onClick = { GoogleDriveSetupActivity.start(context) }) { Text("Add Google Drive") }
+                if (container.nfs != null) OutlinedButton(onClick = { NfsSetupActivity.start(context) }) { Text("Connect NFS") }
                 OutlinedButton(onClick = { EmbySetupActivity.start(context) }) { Text("Connect Emby") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
-                    enabled = !scanning && sources.isNotEmpty(),
+                    enabled = !scanning && sources.any { it.sourceType != NFS || container.nfs != null },
                 ) {
                     Text(if (scanning) "Scanning…" else "Rescan All")
                 }
@@ -103,6 +105,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
                 source,
                 count = counts[source.id] ?: 0,
                 scanning = scanning,
+                available = source.sourceType != NFS || container.nfs != null,
                 onScan = { container.scope.launch { container.scanner.scan(source.id) } },
                 onEdit = {
                     when (source.sourceType) {
@@ -111,6 +114,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
                         ONEDRIVE -> OneDriveSetupActivity.start(context, source.id)
                         DROPBOX -> DropboxSetupActivity.start(context, source.id)
                         GOOGLE_DRIVE_DOCUMENTS -> GoogleDriveSetupActivity.start(context, source.id)
+                        NFS -> NfsSetupActivity.start(context, source.id)
                         EMBY -> EmbySetupActivity.start(context, source.id)
                         else -> SourceEditorActivity.start(context, source.id)
                     }
@@ -121,21 +125,22 @@ fun SourcesTab(movies: List<MovieEntity>) {
 }
 
 @Composable
-private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onScan: () -> Unit, onEdit: () -> Unit) {
+private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, available: Boolean, onScan: () -> Unit, onEdit: () -> Unit) {
     val details: @Composable (Modifier) -> Unit = { modifier ->
         Column(modifier) {
             Text(source.name, style = MaterialTheme.typography.titleMedium)
             Text(sourceUrl(source), style = MaterialTheme.typography.bodyMedium, color = SecondaryText)
             Text(
-                "$count items · ${source.lastScanAt?.let { "Last scanned ${formatDate(it)}" } ?: "Ready for first scan"}",
+                if (available) "$count items · ${source.lastScanAt?.let { "Last scanned ${formatDate(it)}" } ?: "Ready for first scan"}"
+                else "Unavailable in this build",
                 style = MaterialTheme.typography.labelMedium,
                 color = SecondaryText,
             )
         }
     }
     val controls: @Composable () -> Unit = {
-        OutlinedButton(onClick = onScan, enabled = !scanning) { Text("Scan") }
-        OutlinedButton(onClick = onEdit) { Text("Edit") }
+        OutlinedButton(onClick = onScan, enabled = !scanning && available) { Text("Scan") }
+        OutlinedButton(onClick = onEdit, enabled = available) { Text("Edit") }
     }
     val card = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(SurfaceColor).padding(20.dp)
     if (LocalTvLayout.current) Row(
@@ -156,6 +161,8 @@ fun sourceUrl(source: SourceEntity): String {
     if (source.sourceType == GOOGLE_DRIVE_DOCUMENTS) return "Google Drive · Android file picker"
     if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
+    if (source.sourceType == NFS) return "nfs://${address.authority}" +
+        if (source.rootPath.isEmpty()) source.share else "${source.share.trimEnd('/')}/${source.rootPath}"
     return "smb://" + listOf(address.authority, source.share, source.rootPath).filter { it.isNotEmpty() }.joinToString("/")
 }
 

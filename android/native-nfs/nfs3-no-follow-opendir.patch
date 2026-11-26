@@ -1,0 +1,5 @@
+--- a/lib/nfs_v3.c
++++ b/lib/nfs_v3.c
+@@ -3100 +3100 @@
+-                                  nfsdir, free, 0) != 0) {
++                                  nfsdir, free, O_NOFOLLOW) != 0) {

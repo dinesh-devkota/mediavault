@@ -3,12 +3,13 @@ package com.dineshdevkota.cinevault.data
 import androidx.room.withTransaction
 import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.core.ScanExclusions
+import com.dineshdevkota.cinevault.nfs.NFS
 import com.dineshdevkota.cinevault.webdav.DavAddress
 import java.util.Locale
 
 /** Save the rule change and hide indexed exclusions together, without deleting history. */
 suspend fun CineVaultDatabase.saveSourceWithExclusions(source: SourceEntity, authorize: () -> Unit = {}) {
-    val caseSensitive = source.sourceType in setOf("webdav", ONEDRIVE)
+    val caseSensitive = source.sourceType in setOf("webdav", ONEDRIVE, NFS)
     fun normalize(paths: List<String>, folder: Boolean): List<String> = paths.map { path ->
         val normalized = when {
             caseSensitive -> path.takeIf { DavAddress.contains(it, "") }

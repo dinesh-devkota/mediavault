@@ -48,6 +48,9 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND filePath IN (:paths)")
     suspend fun forPaths(sourceId: String, paths: List<String>): List<MovieEntity>
 
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND (filePath = :path OR localPosterPath = :path OR localBackdropPath = :path OR localSeasonPosterPath = :path)")
+    suspend fun nfsItemsForPath(sourceId: String, path: String): List<MovieEntity>
+
     @Query("SELECT * FROM movies")
     fun observeAll(): Flow<List<MovieEntity>>
 
