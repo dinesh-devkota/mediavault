@@ -158,7 +158,7 @@ const MediaVaultApp = () => {
       {...(current.viewing[value.id] ?? {position: 0, duration: 0}), watched, updatedAt: Date.now()}]))}}));
   };
   const openGroup = (value: MediaGroup): void => {
-    if (selecting) { toggleSelection(value.items); return; }
+    if (route.page === 'home' && selecting) { toggleSelection(value.items); return; }
     if (value.items[0]!.kind === 'episode' || value.items.length > 1) { navigate({page: 'group', id: value.id}); }
     else { navigate({page: value.items[0]!.kind === 'photo' ? 'photo' : 'detail', id: value.items[0]!.id}); }
   };

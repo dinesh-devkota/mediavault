@@ -246,6 +246,14 @@ try {
     await enter('field-collection-name', 'Movie Night', 'Weekend'); await click('action-save-name');
     await click('action-manage-titles'); await click('action-library-sequel'); await click('action-done');
     await element(byID(feature)); assert.equal(await exists(byID(sequel)), false, 'Removing a title must immediately update the collection.');
+    // Home bulk selection stays active, but collection posters must open their titles.
+    await click(feature);
+    await clickXPath('//*[starts-with(@test_id,"item-open-") and contains(@test_id,"Directors Cut.mp4")]');
+    assert.equal(await text('detail-title'), 'Library Feature');
+    await click('action-back'); await click('action-back');
+    const collectionName = await element(byID('field-collection-name') + "//*[@editable='true']");
+    assert.equal(await call('GET', `/element/${collectionName}/text`), 'Movie Night', 'Back must return to the same collection.');
+    await element(byID(feature)); assert.equal(await exists(byID(sequel)), false);
     await click('action-back'); await click('action-back'); await click('action-done-selecting');
   });
   await step('04-show-season-episode', async () => {
