@@ -35,6 +35,7 @@ import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.playback.PlayerActivity
 import com.dineshdevkota.cinevault.ui.GoogleDriveSetupActivity
+import com.dineshdevkota.cinevault.ui.MovieDetailActivity
 import com.dineshdevkota.cinevault.ui.isTelevision
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -141,16 +142,17 @@ class AndroidPhoneNavigationTest {
                 val player = view.player
                 player != null && player.isPlaying && player.currentPosition in 7_500L..11_000L
             }
-            assertTrue("Leave the native player", device.pressBack())
+            device.executeShellCommand("input keyevent KEYCODE_BACK")
             compose.waitUntil(timeoutMillis = 10_000) {
-                var mainResumed = false
+                var detailResumed = false
                 instrumentation.runOnMainSync {
-                    mainResumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
-                        .any { it is MainActivity }
+                    val resumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                    detailResumed = resumed.any { it is MovieDetailActivity } && resumed.none { it is PlayerActivity }
                 }
-                mainResumed
+                detailResumed
             }
             visible(hasText("Feature") and !hasClickAction())
+            visible((hasText("Play") or hasText("Resume ", substring = true)) and hasClickAction())
         }
     }
 
