@@ -753,8 +753,8 @@ struct PosterView: View {
                         .lineLimit(3)
                         .padding(.horizontal, 18)
                 }
-                if let tag = movie.providerImageTag, movie.source?.isJellyfin == true {
-                    JellyfinPosterArtwork(movie: movie, tag: tag)
+                if let tag = movie.providerImageTag, let source = movie.source, source.isJellyfin || source.isPlex {
+                    ProviderPosterArtwork(movie: movie, tag: tag)
                 } else {
                     AsyncImage(url: TMDB.imageURL(movie.posterPath, size: "w342")) { image in
                         image.resizable().aspectRatio(contentMode: .fill)
@@ -803,7 +803,7 @@ struct PosterView: View {
 }
 
 
-private struct JellyfinPosterArtwork: View {
+private struct ProviderPosterArtwork: View {
     let movie: Movie
     let tag: String
     @ObservedObject private var household = HouseholdStore.shared
@@ -819,13 +819,14 @@ private struct JellyfinPosterArtwork: View {
             image = nil
             let session = household.sessionToken
             guard LibrarySearch.isAvailable(movie), let source = movie.source,
-                  let config = try? source.config(), config.isJellyfin else { return }
+                  let config = try? source.config(), config.isJellyfin || config.isPlex else { return }
             let path = movie.filePath
             guard let decoded = try? await PhotoImageLoader.shared.image(
                 config: config, path: path, knownSize: 0, maxPixelSize: PhotoImageLoader.thumbnailPixels,
                 revision: source.lastScanDate, artworkTag: tag),
                 !Task.isCancelled, household.sessionIsCurrent(session),
-                LibrarySearch.isAvailable(movie), movie.filePath == path, movie.providerImageTag == tag else { return }
+                LibrarySearch.isAvailable(movie), movie.filePath == path, movie.providerImageTag == tag,
+                (try? movie.source?.config()) == config else { return }
             image = decoded
         }
     }

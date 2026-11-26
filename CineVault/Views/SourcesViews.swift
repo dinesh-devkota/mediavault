@@ -11,11 +11,17 @@ struct SourcesView: View {
     @Query(sort: \MediaSource.name) private var sources: [MediaSource]
     @State private var editing: MediaSource?
     @State private var adding = false
+    @State private var addingPlex = false
+    @ObservedObject private var household = HouseholdStore.shared
 
     var body: some View {
         List {
             Section {
                 Button { adding = true } label: { Label("Add NAS", systemImage: "plus") }.buttonStyle(.borderedProminent)
+                if household.isAdmin {
+                    Button { addingPlex = true } label: { Label("Connect Plex", systemImage: "play.rectangle") }
+                        .accessibilityIdentifier("source-add-plex")
+                }
                 if sources.isEmpty {
                     Text("Connect a NAS, choose your media folder, and MediaVault will add its movies, shows, music and photos.")
                         .foregroundStyle(.secondary)
@@ -56,9 +62,11 @@ struct SourcesView: View {
         }
         .navigationTitle("Sources")
         .sheet(isPresented: $adding) { NASSetupView() }
+        .sheet(isPresented: $addingPlex) { NavigationStack { PlexSourceEditor(source: nil) } }
         .sheet(item: $editing) { source in
             NavigationStack {
-                if source.cloudFileProvider == .oneDrive { OneDriveSourceEditor(source: source) }
+                if source.isPlex { PlexSourceEditor(source: source) }
+                else if source.cloudFileProvider == .oneDrive { OneDriveSourceEditor(source: source) }
                 else if source.isJellyfin { JellyfinSourceEditor(source: source) }
                 else { SourceEditorView(source: source) }
             }
@@ -66,6 +74,7 @@ struct SourcesView: View {
     }
 
     private func location(of source: MediaSource) -> String {
+        if source.isPlex { return "Plex · " + (URL(string: source.host)?.host ?? "Server") }
         if let provider = source.cloudFileProvider { return provider.title }
         if source.isJellyfin { return source.host }
         if source.isWebDAV { return [source.host, source.rootPath].filter { !$0.isEmpty }.joined(separator: " / ") }

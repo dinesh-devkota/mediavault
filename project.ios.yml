@@ -44,7 +44,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
-        NSLocalNetworkUsageDescription: MediaVault connects to your NAS on the local network to browse and play media.
+        NSLocalNetworkUsageDescription: MediaVault connects to your NAS and media servers on the local network to browse and play your media.
         NSBonjourServices: ["_smb._tcp"]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
