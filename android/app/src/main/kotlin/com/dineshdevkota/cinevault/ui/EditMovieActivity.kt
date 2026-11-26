@@ -50,6 +50,7 @@ import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.core.TmdbMovieSummary
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.metadata.TmdbClient
+import com.dineshdevkota.cinevault.plex.PLEX
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -81,6 +82,11 @@ private fun EditMovieScreen(movieId: String, onClose: () -> Unit) {
         container.library.observe(movieId).collect { if (it == null) onClose() else value = it }
     }
     val current = movie ?: return
+    val sourceType by produceState<String?>(null, current.sourceId) {
+        container.database.sources().observeAll().collect { sources ->
+            value = sources.firstOrNull { it.id == current.sourceId }?.sourceType
+        }
+    }
     if (current.isPhoto) {
         LaunchedEffect(current.id) { onClose() }
         return
@@ -164,7 +170,7 @@ private fun EditMovieScreen(movieId: String, onClose: () -> Unit) {
                     ) {
                         Text("Reset Progress")
                     }
-                    OutlinedButton(
+                    if (sourceType != null && sourceType != PLEX) OutlinedButton(
                         enabled = !busy,
                         onClick = {
                             launchWork {

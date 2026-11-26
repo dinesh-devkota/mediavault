@@ -108,6 +108,7 @@ final class HouseholdStore: ObservableObject {
     static let shared: HouseholdStore = {
         #if DEBUG
         if HouseholdPreview.isEnabled { return HouseholdPreview.store }
+        if LibraryFeaturesPreview.isEnabled { return LibraryFeaturesPreview.household }
         #endif
         return HouseholdStore()
     }()

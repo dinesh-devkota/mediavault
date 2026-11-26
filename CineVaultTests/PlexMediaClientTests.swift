@@ -9,6 +9,13 @@ final class PlexMediaClientTests: XCTestCase {
         let client = try PlexAccountClient(deviceID: deviceID) { request, _, status in
             let url = try XCTUnwrap(request.url)
             XCTAssertEqual(url.host, "plex.tv")
+            #if os(iOS)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Platform"), "iOS")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Device"), "iPhone")
+            #else
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Platform"), "tvOS")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Device"), "Apple TV")
+            #endif
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Client-Identifier"), "388619aa-451b-4ef5-8f08-990485839914")
             XCTAssertFalse(url.absoluteString.contains("account-token"))
             let body: String
@@ -52,6 +59,13 @@ final class PlexMediaClientTests: XCTestCase {
             let url = try XCTUnwrap(request.url)
             XCTAssertEqual(url.host, "fixture.example")
             XCTAssertEqual(url.port, 32400)
+            #if os(iOS)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Platform"), "iOS")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Device"), "iPhone")
+            #else
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Platform"), "tvOS")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Device"), "Apple TV")
+            #endif
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Plex-Token"), "server-token")
             XCTAssertNil(url.query)
             let data: Data

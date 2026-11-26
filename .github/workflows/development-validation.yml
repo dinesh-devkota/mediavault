@@ -137,15 +137,15 @@ jobs:
           # Install the ephemeral fixture's trust anchor only on this simulator.
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/plex-fixture/fixture.cer"
-          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/jellyfin-fixture/fixture.cer"
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/dropbox-fixture/fixture.cer"
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/jellyfin-fixture/fixture.cer"
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
             -destination "id=$DEVICE" -configuration Debug \
             -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
             -resultBundlePath "$RUNNER_TEMP/nas-results.xcresult" \
-            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES test-without-building \
-            | tee "$RUNNER_TEMP/tvos-test-output.log" | tail -n 200
+            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES test-without-building | tee "$RUNNER_TEMP/tvos-test-output.log" | tail -n 200
           grep -F "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek]' passed" "$RUNNER_TEMP/tvos-test-output.log"
+          grep -F "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot]' passed" "$RUNNER_TEMP/tvos-test-output.log"
       - name: Report simulator test results
         if: always()
         run: |

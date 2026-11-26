@@ -67,7 +67,7 @@ internal fun CollectionRow(
             items(collection, key = { it.id }) { item ->
                 when (item) {
                     is CollectionItem.Movie -> PosterCard(item.movie, onClick = { onOpen(item.movie) }, modifier = Modifier.width(PosterWidth))
-                    is CollectionItem.Show -> TVArtworkCard(item.show.title, "${item.show.seasons.size} seasons", item.show.posterPath,
+                    is CollectionItem.Show -> TVArtworkCard(item.show.title, "${item.show.seasons.size} seasons", item.show.posterPath, artworkMovie = item.show.episodes.firstOrNull(),
                         modifier = Modifier.width(PosterWidth), onClick = { onShow(item.show.id) })
                 }
             }
@@ -82,7 +82,7 @@ internal fun TVShowRow(episodes: List<MovieEntity>, onSeeAll: (() -> Unit)? = nu
         HomeShelfHeader("TV Shows", onSeeAll)
         LazyRow(contentPadding = PaddingValues(horizontal = ScreenPadding, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
             items(shows, key = { it.id }) { show ->
-                TVArtworkCard(show.title, "${show.seasons.size} seasons", show.posterPath,
+                TVArtworkCard(show.title, "${show.seasons.size} seasons", show.posterPath, artworkMovie = show.episodes.firstOrNull(),
                     modifier = Modifier.width(PosterWidth), onClick = { onShow(show.id) })
             }
         }
@@ -131,7 +131,7 @@ internal fun TVShowBrowser(
     val requestedSeason = season
     val resolvedId = show?.id
     val availableSeasons = show?.seasons.orEmpty()
-    LaunchedEffect(requestedShow, resolvedId, requestedSeason, availableSeasons) {
+    LaunchedEffect(requestedShow, resolvedId, requestedSeason, availableSeasons, restoreNavigationFocus) {
         if (showId != requestedShow || season != requestedSeason) return@LaunchedEffect
         if (requestedShow != null && resolvedId == null && restoreNavigationFocus && onExit != null) {
             onExit()
@@ -173,13 +173,13 @@ internal fun TVShowBrowser(
     val requestedPending = focusPending
     val requestedPlaced = placed
     fun requestIsCurrent() = focusRequest == request && showId == requestedShow && season == requestedSeason && lastEpisode == requestedEpisode
-    LaunchedEffect(windowFocused) { if (restoreNavigationFocus && windowFocused) { focusRequest++; focusPending = true } }
-    LaunchedEffect(show?.id, requestedSeason, targetKey, requestedPending, request) {
+    LaunchedEffect(windowFocused, restoreNavigationFocus) { if (restoreNavigationFocus && windowFocused) { focusRequest++; focusPending = true } }
+    LaunchedEffect(show?.id, requestedSeason, targetKey, requestedPending, request, restoreNavigationFocus) {
         if (restoreNavigationFocus && requestedPending && requestIsCurrent() && targetIndex >= 0 && grid.layoutInfo.visibleItemsInfo.none { it.key == targetKey }) {
             grid.scrollToItem(targetIndex)
         }
     }
-    LaunchedEffect(requestedPlaced, requestedPending, windowFocused, request) {
+    LaunchedEffect(requestedPlaced, requestedPending, windowFocused, request, restoreNavigationFocus) {
         if (restoreNavigationFocus && requestedPlaced && requestedPending && windowFocused && requestIsCurrent() && targetFocus.requestFocus()) {
             focusPending = false
             holdingFocus = false
@@ -213,7 +213,7 @@ internal fun TVShowBrowser(
                     else EmptyState("No matching TV shows", "Try another filter or check your sources.")
                 }
                 items(shows, key = { it.id }) { item ->
-                    TVArtworkCard(item.title, "${item.seasons.size} seasons", item.posterPath,
+                    TVArtworkCard(item.title, "${item.seasons.size} seasons", item.posterPath, artworkMovie = item.episodes.firstOrNull(),
                         selected = selectionFor(item.episodes),
                         cardModifier = focusModifier(item.id == targetKey, "tv-show:${item.id}"),
                         onClick = {
@@ -225,6 +225,7 @@ internal fun TVShowBrowser(
                 items(show.seasons, key = { it }) { number ->
                     val children = show.episodes.filter { tvSeason(it) == number }
                     TVArtworkCard(tvSeasonTitle(number), "${children.size} episodes", children.firstNotNullOfOrNull { it.seasonPosterPath },
+                        artworkMovie = children.firstOrNull(), seasonArtwork = true,
                         selected = selectionFor(children),
                         cardModifier = focusModifier(number == targetSeason, "tv-season:${show.id}:$number"),
                         onClick = {
@@ -254,7 +255,7 @@ internal fun TVShowBrowser(
 internal fun TVArtworkCard(
     title: String, subtitle: String, path: String?, modifier: Modifier = Modifier,
     wide: Boolean = false, cardModifier: Modifier = Modifier, selected: Boolean? = null,
-    artworkMovie: MovieEntity? = null, onClick: () -> Unit,
+    artworkMovie: MovieEntity? = null, seasonArtwork: Boolean = false, onClick: () -> Unit,
 ) {
     Column(modifier) {
         Card(onClick = onClick,
@@ -263,7 +264,8 @@ internal fun TVArtworkCard(
             shape = CardDefaults.shape(RoundedCornerShape(10.dp))) {
             Box(Modifier.fillMaxSize()) {
                 val tmdb = Tmdb.imageUrl(path, if (wide) "w780" else "w342")
-                if (artworkMovie != null) MediaArtwork(artworkMovie, tmdb, title, Modifier.fillMaxSize(), width = 780)
+                if (artworkMovie != null) MediaArtwork(artworkMovie, tmdb, title, Modifier.fillMaxSize(), width = 780,
+                    kind = if (wide) com.dineshdevkota.cinevault.jellyfin.JellyfinImage.Backdrop else com.dineshdevkota.cinevault.jellyfin.JellyfinImage.Primary, seasonArtwork = seasonArtwork)
                 else Artwork(tmdb, title, Modifier.fillMaxSize())
                 selected?.let { SelectionBadge(it, Modifier.align(Alignment.TopStart).padding(8.dp)) }
             }

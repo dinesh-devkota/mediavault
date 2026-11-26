@@ -86,9 +86,22 @@ private fun MediaGuideScreen() {
             GuideSection(
                 "Posters, details, and categories",
                 "Enter your free personal-use TMDB API key or read access token in Settings, then save and " +
-                    "fetch missing metadata. Without a key, new items use filename/folder information and " +
-                    "placeholder artwork. Matched metadata takes priority over folder guesses. Correct " +
+                    "fetch missing metadata. Or keep a matching .nfo or .xml file beside a video, such as Arrival (2016).nfo. " +
+                    "Local titles, descriptions, genres and age ratings take priority; online matching fills missing details. " +
+                    "Use Arrival (2016)-poster.jpg and Arrival (2016)-fanart.jpg for local artwork. " +
+                    "PNG and JPEG also work. A single-movie folder can use movie.nfo, poster.jpg and fanart.jpg. Correct " +
                     "ambiguous matches using the title and year. Keep your key in the app, not in chat.",
+            )
+        }
+        item {
+            GuideSection(
+                "Collections and versions",
+                "Open Collections from Home or Library. Create a named collection, then add or remove titles from their details. " +
+                    "Select several items in Library to add them together. Collections belong to your current household profile. " +
+                    "Movie series appear automatically from an NFO set or TMDB when you have at least two movies; " +
+                    "Find movie series checks previously matched titles. Versions with the same movie ID, or the exact same title and year, " +
+                    "share one poster. Choose Version in details to select a cut or resolution; each file keeps its own progress. " +
+                    "For shows, use tvshow.nfo and poster.jpg in the show folder, season01-poster.jpg for a season, and matching episode NFO files.",
             )
         }
         item {

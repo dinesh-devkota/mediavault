@@ -156,7 +156,7 @@ struct LibraryView: View {
                     Spacer()
                     Button("Clear filters") { preferences.clearFilters() }
                         .disabled(!hasFilters)
-                    Text("\(results.count) \(resultKind)\(results.count == 1 ? "" : "s")")
+                    Text("\(MovieVersions.groups(results).count) \(resultKind)\(MovieVersions.groups(results).count == 1 ? "" : "s")")
                         .font(.callout)
                         .foregroundStyle(CinemaTheme.secondaryText)
                 }
@@ -173,6 +173,8 @@ struct LibraryView: View {
                     filterButton(.section, value: kind.label)
                 }.horizontalControlsOnPhone()
 
+                NavigationLink { MediaCollectionsView() } label: { Label("Collections", systemImage: "rectangle.stack") }
+                    .accessibilityIdentifier("library-collections")
                 BulkWatchControl(title: "Select", scope: "\(kind.label) · current results", movies: results,
                                  startsSelected: false, groupShows: true, includeHidden: preferences.filter == .hidden)
 
@@ -500,7 +502,7 @@ private struct SearchResultsView: View {
                 let key = "show:\(result.id)"
                 NavigationLink(value: SearchShowSelection(result.show)) {
                     TVShowArtwork(title: result.show.title, subtitle: result.subtitle,
-                        path: result.show.posterPath, focused: focusedResult == key)
+                        path: result.show.posterPath, localMovie: result.show.episodes.first(where: { $0.localPosterPath != nil }), localPath: result.show.episodes.compactMap(\.localPosterPath).first, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -512,7 +514,7 @@ private struct SearchResultsView: View {
                 let key = "episode:\(result.id)"
                 NavigationLink(value: result.movie) {
                     TVShowArtwork(title: result.movie.title, subtitle: result.subtitle,
-                        path: result.movie.backdropPath, wide: true, focused: focusedResult == key)
+                        path: result.movie.backdropPath, localMovie: result.movie, localPath: result.movie.localBackdropPath, wide: true, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -520,9 +522,10 @@ private struct SearchResultsView: View {
 
     private func titleGrid(_ movies: [Movie]) -> some View {
         LazyVGrid(columns: posterColumns, spacing: 55) {
-            ForEach(movies) { movie in
+            ForEach(MovieVersions.groups(movies)) { group in
+                let movie = group.representative
                 let key = "title:\(movie.id)"
-                NavigationLink(value: movie) { PosterView(movie: movie, isFocused: focusedResult == key) }
+                VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedResult == key)
                     .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -555,14 +558,12 @@ struct PosterGrid: View {
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 55) {
-            ForEach(movies) { movie in
-                NavigationLink(value: movie) {
-                    PosterView(movie: movie, isFocused: focusedMovie == movie.id)
-                }
+            ForEach(MovieVersions.groups(movies)) { group in
+                let movie = group.representative
+                VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedMovie == movie.id)
                 .buttonStyle(ArtworkButtonStyle())
                 .focusEffectDisabled()
                 .focused($focusedMovie, equals: movie.id)
-                .accessibilityLabel(movie.title)
             }
         }
         .padding(.vertical, 24)
@@ -581,10 +582,9 @@ struct PosterRow: View {
                 HomeShelfHeader(title: title, collection: collection)
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 42) {
-                        ForEach(movies) { movie in
-                            NavigationLink(value: movie) {
-                                PosterView(movie: movie, isFocused: focusedMovie == movie.id)
-                            }
+                        ForEach(MovieVersions.groups(movies)) { group in
+                            let movie = group.representative
+                            VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedMovie == movie.id)
                             .buttonStyle(ArtworkButtonStyle())
                             .focusEffectDisabled()
                             .focused($focusedMovie, equals: movie.id)
@@ -737,6 +737,7 @@ struct ContinueWatchingCard: View {
 struct PosterView: View {
     let movie: Movie
     var isFocused = false
+    var compact = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -753,7 +754,9 @@ struct PosterView: View {
                         .lineLimit(3)
                         .padding(.horizontal, 18)
                 }
-                if let tag = movie.providerImageTag, let source = movie.source, source.isJellyfin || source.isPlex {
+                if let path = movie.localPosterPath {
+                    LocalArtworkView(movie: movie, path: path)
+                } else if let tag = movie.providerImageTag, let source = movie.source, source.isJellyfin || source.isPlex {
                     ProviderPosterArtwork(movie: movie, tag: tag)
                 } else {
                     AsyncImage(url: TMDB.imageURL(movie.posterPath, size: "w342")) { image in
@@ -789,11 +792,11 @@ struct PosterView: View {
             .shadow(color: .black.opacity(isFocused ? 0.6 : 0.25), radius: isFocused ? 20 : 8, y: 10)
 
             Text(movie.title)
-                .font(.system(size: 23, weight: .semibold))
+                .font(.system(size: compact ? 15 : 23, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Text(movie.displayYear.isEmpty ? "Movie" : movie.displayYear)
-                .font(.system(size: 19))
+                .font(.system(size: compact ? 13 : 19))
                 .foregroundStyle(CinemaTheme.secondaryText)
         }
         .frame(width: CinemaTheme.posterWidth, alignment: .leading)

@@ -162,9 +162,13 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   setup, library import and protected direct playback. Apple app integration,
   HLS, and other provider media types still need work.
   [Emby](https://github.com/dinesh-devkota/mediavault/pull/3)
-- Plex has protected account PIN, server discovery, catalog, and byte reads
-  in provider clients. Full TV setup, protected player wiring and a signed-in
-  QA account are still needed.
+- The Android Plex draft connects an owner’s Plex account by PIN, then stores
+  only the selected HTTPS server credential encrypted for each local library.
+  Android TV and phone share the setup, catalog, and player. Imports support
+  movies, episode grouping and photos. Reading video, artwork and text subtitles
+  rechecks the household session. Playback supports single-file direct streams.
+  Hosted emulator checks use a disposable HTTPS fixture. Signed-in QA on a real
+  Plex server and provider transcoding remain open.
   [Plex](https://github.com/dinesh-devkota/mediavault/pull/5)
 - NFS has loopback tests and an opt-in Android debug bridge for four ABIs.
   The app source, both TV playback journeys, tvOS packaging and distribution
@@ -228,7 +232,7 @@ The separate Android phone workflow runs a clean API 36 phone emulator against t
 ## iPhone
 
 The iPhone integration candidate is on `codex/mediavault-ios-integration`.
-It shares the public app’s SMB, HTTPS WebDAV, and Jellyfin setup, household
+It shares the public app’s SMB, HTTPS WebDAV, Jellyfin, and Plex setup, household
 rules, database, and native playback code. The iPhone target uses iOS 17 and
 later, with touch navigation for administrative settings and
 subtitle controls. The app treats each device’s household and library as local.
@@ -237,14 +241,47 @@ It does not sync profiles or progress across devices.
 Generate the iPhone Xcode project with `xcodegen generate --spec project.ios.yml`.
 The `CineVaultPhone` scheme builds the app and runs shared tests and iPhone UI
 tests. The hosted `iPhone simulator` workflow builds an unsigned release with iOS SDK 26 or later and runs
-simulator setup and playback tests against temporary SMB, WebDAV, and Jellyfin fixtures.
+simulator setup and playback tests against temporary SMB, WebDAV, Jellyfin, and Plex fixtures.
 This app branch needs a green simulator run before merge. Physical iPhone testing,
 signing, export-compliance confirmation, App Store Connect setup, and App Review
 are separate release steps.
 
 [Original iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)
 
-### Plex on Apple TV
+## Dropbox on Android and Apple TV
+
+Development includes Dropbox setup and playback on Android TV, Android phones, and Apple TV through [PR #30](https://github.com/dinesh-devkota/mediavault/pull/30). The owner enters
+a public Dropbox app key and approves with a one-time code using Dropbox's
+documented PKCE flow. The phone can open the approval in its browser. A QR code
+lets TV owners approve from a second device. The app stores the refresh
+credential with Android Keystore encryption and keeps access credentials in
+memory. A reconnect keeps the original app key, Dropbox account, and folder.
+Sign-out removes local credentials and requests revocation at Dropbox.
+
+The iPhone setup flow is tracked separately in [PR #27](https://github.com/dinesh-devkota/mediavault/pull/27).
+
+The Android app scans the selected folder and its subfolders into the local
+library. The existing player, photo loader, and subtitle selector use bounded
+HTTPS reads. File metadata and the response range must match before data is
+returned. Household viewers need an explicit grant and cannot use a buffered
+read after a session locks. Each source keeps the existing local history and
+Watchlist behavior. Dropbox filenames match case-insensitively on Android.
+
+The Android TV and phone workflows require the Dropbox fixture to exercise
+one-time code exchange, refreshed credentials, paginated import, photo decode,
+matching captions, playback with a rendered seek, and household access. The TV
+suite also requires the remote-control approval screen test. Only the synthetic
+test client trusts the fixture certificate. The QR code uses the Apache-2.0
+licensed ZXing Core dependency.
+
+Real-account validation needs a registered Dropbox app and eligible test
+account. No account credentials or app secret are included in the project.
+Apple app review and Dropbox production access are separate steps.
+[Dropbox OAuth](https://developers.dropbox.com/oauth-guide) ·
+[Dropbox HTTP API](https://www.dropbox.com/developers/documentation/http/documentation) ·
+[ZXing license](https://github.com/zxing/zxing/blob/master/LICENSE)
+
+## Plex on Apple TV
 
 The isolated `codex/mediavault-plex-tvos` branch starts at development commit `942b1f2`.
 An owner can link using the code shown in Sources, choose an advertised Plex Media Server and choose one movie, TV, or photo library. Reconnect preserves the server and library identity. The source stores its server token in Keychain. Removing the source clears its local catalog and credential. Household profiles need an explicit whole-library grant and keep their local watched, resume and Watchlist records separate from the Plex account.
@@ -253,19 +290,31 @@ The implementation supports protected Plex artwork, photo thumbnails, native MP4
 
 Before shipping, validate a real Plex server and account against Apple TV hardware. Plex transcoding, Relay-only connections, and full-size original Plex photos are pending. Apple simulator and unsigned release checks require no distribution credentials. App Store submission and approval require the owner's separate Apple process.
 
-### Plex on iPhone
+### Android OneDrive application checkpoint
 
-The separate iPhone Plex branch reuses the Apple TV catalog, credential scope, photos, subtitles and range-backed player. The iPhone shows its own device name and uses touch source setup from Manage. The simulator CI starts disposable Plex services and requires both the shared import, playback, seek and subtitle tests and a touch test covering PIN linking, server selection, and library import. Live Plex accounts, signing and physical-device checks remain separate.
+[Android OneDrive PR #4](https://github.com/dinesh-devkota/mediavault/pull/4)
+and [Apple OneDrive PR #22](https://github.com/dinesh-devkota/mediavault/pull/22)
+track their platform runtime checks independently.
 
-## Dropbox iPhone draft
+The Android OneDrive feature branch integrates a personal account through Microsoft's
+device authorization, a public client ID, and a read-only Graph connection.
+Admin selects the drive root or an explicit folder before saving. The app stages
+credentials in memory until approval and folder selection complete. Android
+Keystore seals the device refresh record under the local source UUID. Reconnect
+checks that the Microsoft drive still matches. Disconnect clears local credentials,
+invalidates open handles, and removes the source and its indexed history.
 
-The iPhone Dropbox port uses the same Keychain, folder binding, library,
-photo, subtitle, and AVPlayer transport as the Apple TV draft. On a phone the
-owner can open Dropbox in a Safari sheet, copy the one-time code, and select a
-media folder. A QR code is also available for approval on a second device.
-The disposable iPhone workflow requires the real touch setup and a separate
-HTTPS scan, caption, photo, and AVPlayer seek test. The release build uses the
-live Dropbox hosts. The simulator-only fixture is removed at compile time.
+Android TV and phone share the existing scanner, photo viewer, playback,
+subtitle and household paths. OneDrive uses exact relative names inside the
+selected folder. Each media range resolves the current path to the expected
+Graph item ID before following a fresh download grant without the Graph bearer.
+The household UI can grant selected subfolders. New sources require explicit
+viewer grants. The scanner keeps the existing Android file-path history behavior.
+
+Hosted fixtures are synthetic. Live testing still requires an Entra public
+application configured for personal Microsoft accounts and public client device
+flow with delegated Files.Read, plus a dedicated OneDrive test account. See
+`docs/TESTING.md` for the app setting and build property.
 
 ## Google Drive through Files on iPhone
 

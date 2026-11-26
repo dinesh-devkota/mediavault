@@ -37,7 +37,7 @@ struct PlexSourceEditor: View {
                 }
                 if let message { Text(message).foregroundStyle(.secondary) }
                 if let code {
-                    Section("Link \(PlexAccountClient.deviceName)") {
+                    Section("Link MediaVault") {
                         Text("On another device, open plex.tv/link and enter this code.")
                         Text(code).font(.title).accessibilityIdentifier("plex-link-code")
                     }
@@ -97,7 +97,7 @@ struct PlexSourceEditor: View {
     }
 
     private func accountClient() throws -> PlexAccountClient {
-        #if DEBUG
+        #if DEBUG && os(iOS) && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--ui-test-empty-library"),
            ProcessInfo.processInfo.arguments.contains("--ui-test-plex-fixture") {
             return try PlexAccountClient(deviceID: id.uuidString) { request, limit, status in

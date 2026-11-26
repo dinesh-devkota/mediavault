@@ -20,7 +20,7 @@ object PlaybackValidator {
     }
 
     private fun includes(config: SourceConfig, path: String): Boolean =
-        if (config.isWebDav) {
+        if (config.caseSensitivePaths) {
             DavAddress.contains(path, config.rootPath) &&
                 !ScanExclusions.isFileExcluded(path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = true)
         } else {

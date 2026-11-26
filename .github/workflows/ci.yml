@@ -22,6 +22,7 @@ jobs:
       - name: Test commercial build helpers
         run: |
           python3 -m unittest discover -s scripts/tests -p 'test_commercial_*.py'
+          python3 -m unittest discover -s scripts/tests -p test_webdav_fixture.py
           ruby -c fastlane/Fastfile
 
   build:
@@ -29,6 +30,11 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Cache pinned Apple playback dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/apple-packages
+          key: apple-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('project.yml', 'project.ios.yml') }}
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate project
@@ -37,8 +43,33 @@ jobs:
           xcodegen generate
       - name: Build
         run: |
-          set -o pipefail
+          set -euo pipefail
+          xcodebuild -version
+          sdk=$(xcrun --sdk appletvos --show-sdk-version)
+          echo "Apple TV device SDK $sdk"
+          sdk_major=$(printf '%s' "$sdk" | cut -d. -f1)
+          if (( sdk_major < 26 )); then
+            echo "::error::This release validation requires tvOS SDK 26 or later."
+            exit 1
+          fi
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
             -destination 'generic/platform=tvOS' \
             -configuration Release \
-            CODE_SIGNING_ALLOWED=NO build | tail -n 200
+            -derivedDataPath "$RUNNER_TEMP/cinevault-tv-release" \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/tvos-release.log" | tail -n 200
+      - name: Verify privacy resources in the Apple TV app
+        run: |
+          APP="$RUNNER_TEMP/cinevault-tv-release/Build/Products/Release-appletvos/CineVault.app"
+          plutil -lint "$APP/PrivacyInfo.xcprivacy"
+          cmp docs/PRIVACY.md "$APP/PRIVACY.md"
+      - name: Report release compiler errors
+        if: failure()
+        run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/tvos-release.log" || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: tvos-release-build-log
+          path: ${{ runner.temp }}/tvos-release.log
+          if-no-files-found: ignore
+          retention-days: 7

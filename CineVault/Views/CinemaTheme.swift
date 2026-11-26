@@ -143,10 +143,14 @@ struct MovieBackdrop: View {
                     .font(.system(size: 120, weight: .ultraLight))
                     .foregroundStyle(.white.opacity(0.08))
 
-                AsyncImage(url: TMDB.imageURL(artworkPath, size: "w1280")) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Color.clear
+                Group {
+                    if let path = movie.localBackdropPath ?? (usePosterFallback ? movie.localPosterPath : nil) {
+                        LocalArtworkView(movie: movie, path: path, wide: true)
+                    } else {
+                        AsyncImage(url: TMDB.imageURL(artworkPath, size: "w1280")) { image in
+                            image.resizable().aspectRatio(contentMode: .fill)
+                        } placeholder: { Color.clear }
+                    }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .clipped()

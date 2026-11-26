@@ -159,7 +159,10 @@ struct SourceEditorView: View {
             if busy || message != nil || scanner.isScanning {
                 Section {
                     if busy { ProgressView(progress) }
-                    if let message { Text(message).foregroundStyle(.secondary) }
+                    if let message {
+                        Text(message).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("source-connection-message")
+                    }
                     if scanner.isScanning { Text("A library scan is running. Editing will be available when it finishes.").foregroundStyle(.secondary) }
                 }
             }
@@ -479,11 +482,10 @@ struct SettingsView: View {
                 Text(appVersion).font(.caption).foregroundStyle(.secondary)
                     .focusable()
                     .accessibilityIdentifier("app-version")
-                Text("MediaVault plays MP4/M4V/MOV directly from your NAS over SMB. Other video containers require conversion to a supported container and compatible codecs.")
+                Text("Play movies, shows, music and photos from your connected sources. Format support varies by device.")
                     .font(.caption)
-                #if os(iOS)
-                PhonePrivacyPolicyLink()
-                #endif
+                NavigationLink("Playback library & license") { PlaybackAcknowledgementsView() }
+                NavigationLink("Privacy policy") { MediaPrivacyPolicyView() }
                 Text("This product uses the TMDB API but is not endorsed or certified by TMDB.").font(.caption)
             }
         }

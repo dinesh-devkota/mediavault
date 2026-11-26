@@ -46,7 +46,7 @@ enum HomeCollection: Hashable, Identifiable {
 
     @MainActor
     func items(in library: [Movie]) -> [CollectionRowItem] {
-        CollectionRowItem.grouped(movies(in: library), limit: .max)
+        CollectionRowItem.grouped(movies(in: library), limit: .max, groupVersions: true)
     }
 }
 
@@ -220,14 +220,12 @@ struct HomeCollectionView: View {
     @ViewBuilder private func collectionCard(_ item: CollectionRowItem) -> some View {
         switch item {
         case .movie(let movie):
-            NavigationLink(value: movie) {
-                PosterView(movie: movie, isFocused: focusedItem == item.id)
-            }.accessibilityLabel(movie.title)
+            VersionAwareMovieLink(movie: movie, candidates: collection.movies(in: library), isFocused: focusedItem == item.id)
         case .show(let show):
             NavigationLink(value: SearchShowSelection(show)) {
                 TVShowArtwork(title: show.title,
                               subtitle: "\(show.seasons.count) \(show.seasons.count == 1 ? "season" : "seasons")",
-                              path: show.posterPath, focused: focusedItem == item.id)
+                              path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedItem == item.id)
             }.accessibilityLabel("\(show.title), \(show.seasons.count) \(show.seasons.count == 1 ? "season" : "seasons")")
         }
     }

@@ -86,6 +86,22 @@ final class PlaybackSubtitles: ObservableObject {
         let read: (SubtitleFile) async throws -> SubtitleDocument
     }
     var providerTracks: ProviderTracks?
+    struct ExternalEmbedded: Identifiable, Equatable {
+        let id: String
+        let label: String
+        let language: String?
+        var preference: String { "engine|" + (language ?? label) }
+    }
+    struct ExternalPlayback {
+        let time: () -> Double
+        let tracks: () -> [ExternalEmbedded]
+        let selected: () -> String?
+        let select: (String?) -> Void
+    }
+    var externalPlayback: ExternalPlayback?
+    @Published private(set) var externalEmbedded: [ExternalEmbedded] = []
+    private var externalTimer: Task<Void, Never>?
+    private var externalPreferenceRestored = false
 
     @Published private(set) var local: [SubtitleFile] = []
     @Published private(set) var embedded: [Embedded] = []
@@ -123,7 +139,35 @@ final class PlaybackSubtitles: ObservableObject {
     }
 
     func start() {
-        guard !started, !stopped, let item = player.currentItem else { return }
+        guard !started, !stopped else { return }
+        if let externalPlayback {
+            started = true; loading = true; nativeLoaded = true
+            externalTimer = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                    guard let self, !self.stopped else { return }
+                    let tracks = externalPlayback.tracks()
+                    if self.externalEmbedded != tracks { self.externalEmbedded = tracks }
+                    if !tracks.isEmpty, !self.externalPreferenceRestored, !self.loading {
+                        self.externalPreferenceRestored = true
+                        self.restorePreference()
+                    }
+                    self.updateCaption()
+                }
+            }
+            task = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    self.local = try await LocalSubtitleService.discover(config: self.config, videoPath: self.path, preferredLanguage: self.preferredLanguage)
+                    try Task.checkCancellation()
+                    guard self.sourceUnchanged else { throw SMBError.sourceChanged }
+                    self.externalEmbedded = externalPlayback.tracks(); self.loading = false; self.restorePreference()
+                } catch is CancellationError { }
+                catch { guard !self.stopped else { return }; self.loading = false; self.message = "Local subtitles could not be read. Playback can continue."; self.restorePreference() }
+            }
+            return
+        }
+        guard let item = player.currentItem else { return }
         started = true; loading = true
         observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateCaption() }
@@ -173,11 +217,14 @@ final class PlaybackSubtitles: ObservableObject {
         if preference == "off" { select("off", remember: false) }
         else if let file = local.first(where: { $0.preference == preference }) { select(file.path, remember: false) }
         else if let native = embedded.first(where: { $0.preference == preference }) { select("embedded:\(native.id)", remember: false) }
+        else if let native = externalEmbedded.first(where: { $0.preference == preference }) { select("engine:\(native.id)", remember: false) }
         else if preference != "system" || defaults.bool(forKey: SubtitleSettings.enabledKey) {
             if let file = local.first(where: { Self.sameLanguage($0.language, preferredLanguage) && !$0.forced && !$0.hearingImpaired }) ?? local.first(where: { Self.sameLanguage($0.language, preferredLanguage) }) {
                 select(file.path, remember: false)
             } else if let native = embedded.first(where: { Self.sameLanguage($0.option.extendedLanguageTag ?? $0.option.locale?.identifier, preferredLanguage) }) {
                 select("embedded:\(native.id)", remember: false)
+            } else if let native = externalEmbedded.first(where: { Self.sameLanguage($0.language, preferredLanguage) }) {
+                select("engine:\(native.id)", remember: false)
             } else if defaults.bool(forKey: SubtitleSettings.enabledKey) {
                 select("system", remember: false)
                 findOnline(automatically: true)
@@ -201,7 +248,7 @@ final class PlaybackSubtitles: ObservableObject {
         #endif
         guard !stopped else { return }
         generation = UUID(); loadTask?.cancel(); loadTask = nil
-        if remember { searchTask?.cancel(); searchTask = nil; searching = false }
+        if remember { searchTask?.cancel(); searchTask = nil; searching = false; externalPreferenceRestored = true }
         document = nil; caption = ""; localPreference = nil; delay = 0
         loading = false
         if remember { message = nil }
@@ -219,6 +266,9 @@ final class PlaybackSubtitles: ObservableObject {
             guard disableNative() else { return }
             selection = id
             if remember { defaults.set(id, forKey: Self.preferenceKey) }
+        } else if let native = externalEmbedded.first(where: { "engine:\($0.id)" == id }), let externalPlayback {
+            selection = id; externalPlayback.select(native.id)
+            if remember { defaults.set(native.preference, forKey: Self.preferenceKey) }
         } else if let native = embedded.first(where: { "embedded:\($0.id)" == id }), let group {
             selection = id
             selectNative(native.option)
@@ -255,6 +305,7 @@ final class PlaybackSubtitles: ObservableObject {
     }
 
     private func disableNative() -> Bool {
+        if let externalPlayback { externalPlayback.select(nil); return true }
         guard nativeLoaded else {
             if message == nil { message = "Subtitles are still being checked. Try again in a moment." }
             return false
@@ -306,8 +357,8 @@ final class PlaybackSubtitles: ObservableObject {
     private func updateCaption() {
         guard !stopped else { return }
         // A native choice always wins, even before its change notification is delivered.
-        let nativeSelected = group.map { player.currentItem?.currentMediaSelection.selectedMediaOption(in: $0) != nil } ?? false
-        let text = nativeSelected ? "" : document?.text(at: player.currentTime().seconds - delay) ?? ""
+        let nativeSelected = externalPlayback.map { $0.selected() != nil } ?? group.map { player.currentItem?.currentMediaSelection.selectedMediaOption(in: $0) != nil } ?? false
+        let text = nativeSelected ? "" : document?.text(at: (externalPlayback?.time() ?? player.currentTime().seconds) - delay) ?? ""
         if caption != text { caption = text }
     }
 
@@ -423,6 +474,7 @@ final class PlaybackSubtitles: ObservableObject {
     func stop() {
         guard !stopped else { return }
         stopped = true; generation = UUID(); task?.cancel(); loadTask?.cancel(); searchTask?.cancel(); caption = ""; document = nil
+        externalTimer?.cancel(); externalTimer = nil; externalEmbedded = []
         presented = false; local = []; embedded = []; online = []; message = nil; onlineMessage = nil
         if let observer { player.removeTimeObserver(observer) }; observer = nil
         if let mediaObserver { NotificationCenter.default.removeObserver(mediaObserver) }; mediaObserver = nil
@@ -460,6 +512,7 @@ struct SubtitleSelectionView: View {
                     choice("Off", id: "off")
                     choice("Automatic", id: "system")
                     ForEach(subtitles.embedded) { track in choice(track.label + " · Embedded", id: "embedded:\(track.id)") }
+                    ForEach(subtitles.externalEmbedded) { track in choice(track.label + " · Embedded", id: "engine:\(track.id)") }
                 }
                 Section("From this video’s folder") {
                     if subtitles.loading { ProgressView("Loading subtitles…") }
@@ -517,15 +570,34 @@ struct SubtitleSelectionView: View {
 
 struct LocalCaptionOverlay: View {
     @ObservedObject var subtitles: PlaybackSubtitles
+    var bottomInset: CGFloat? = nil
+    static var defaultBottomInset: CGFloat {
+        #if os(tvOS)
+        return 140
+        #else
+        return 92
+        #endif
+    }
     var body: some View {
         VStack {
             Spacer()
             if !subtitles.caption.isEmpty {
-                Text(subtitles.caption).font(.system(size: 34, weight: .semibold))
+                Text(subtitles.caption)
+                    #if os(tvOS)
+                    .font(.system(size: 34, weight: .semibold))
+                    #else
+                    .font(.system(size: 19, weight: .semibold))
+                    #endif
                     .multilineTextAlignment(.center).foregroundStyle(.white)
                     .padding(.horizontal, 20).padding(.vertical, 10)
                     .background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
-                    .frame(maxWidth: 1400).padding(.horizontal, 100).padding(.bottom, 140)
+                    .frame(maxWidth: 1400)
+                    #if os(tvOS)
+                    .padding(.horizontal, 100)
+                    #else
+                    .padding(.horizontal, 16)
+                    #endif
+                    .padding(.bottom, bottomInset ?? Self.defaultBottomInset)
                     .accessibilityIdentifier("local-subtitle-caption")
             }
         }.allowsHitTesting(false)

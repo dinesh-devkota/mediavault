@@ -70,6 +70,8 @@ internal fun BulkWatchControls(
     var toolbarPlaced by remember { mutableStateOf(false) }
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     var saving by remember { mutableStateOf(false) }
+    var chooseCollection by remember { mutableStateOf(false) }
+    if (chooseCollection) CollectionPicker(selected) { chooseCollection = false }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(available) {
         if (selection.ids.isNotEmpty() && selected.isEmpty()) restoreFocus = true
@@ -89,7 +91,7 @@ internal fun BulkWatchControls(
         restoreFocus = true
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        AdaptiveActions(12.dp) {
             // A stable button remains attached when watched filters remove every selected card.
             OutlinedButton(
                 modifier = Modifier.focusRequester(actionFocus).onGloballyPositioned { toolbarPlaced = true }
@@ -102,6 +104,7 @@ internal fun BulkWatchControls(
                 },
             ) { Text(if (selection.selecting) "Done selecting" else "Select") }
             if (selection.selecting) {
+                OutlinedButton(enabled = selected.isNotEmpty(), onClick = { chooseCollection = true }) { Text("Collections") }
                 OutlinedButton(enabled = available.isNotEmpty(),
                     onClick = { selection.ids = available }) { Text("Select all results") }
                 OutlinedButton(onClick = { selection.ids = emptySet() }) { Text("Clear") }
@@ -143,7 +146,7 @@ internal fun BulkWatchControls(
                 style = MaterialTheme.typography.bodyMedium)
             if (targets.isEmpty()) Text("These files are no longer in the current results.", color = SecondaryText)
             error?.let { Text(it, color = ErrorText) }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            AdaptiveActions(12.dp) {
                 for (watched in listOf(true, false)) {
                     Button(enabled = !saving && targets.isNotEmpty(), onClick = {
                         // Preserve the parent window's focus before a watched filter removes

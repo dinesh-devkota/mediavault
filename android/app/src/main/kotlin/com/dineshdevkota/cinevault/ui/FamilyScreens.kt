@@ -16,10 +16,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.family.*
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.plex.PLEX
 import com.dineshdevkota.cinevault.smb.NasBrowser
 import com.dineshdevkota.cinevault.smb.SmbService
 import kotlinx.coroutines.CancellationException
@@ -267,7 +269,7 @@ private fun ProfileEditor(original: HouseholdProfile, onClose: () -> Unit) {
                 }
             } }
             sources.forEach { source -> item(key = source.id) { PermissionFolderPicker(source) { folder ->
-                val grant = FolderAccess(source.id, folder, caseSensitive = source.sourceType in setOf("webdav", JELLYFIN))
+                val grant = FolderAccess(source.id, folder, caseSensitive = source.sourceType in setOf("webdav", JELLYFIN, PLEX, ONEDRIVE))
                 if (grant !in draft.folders) draft = draft.copy(folders = draft.folders + grant)
             } } }
             item { RatingSelector("US movies", FamilyPolicy.movieRatings, draft.movieLimit) { draft = draft.copy(movieLimit = it) } }
@@ -317,8 +319,9 @@ private fun RatingSelector(label: String, values: List<String>, selected: String
 
 @Composable
 private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> Unit) {
-    if (source.sourceType == JELLYFIN) {
-        OutlinedButton(onClick = { onSelect("") }) { Text("Allow Jellyfin library · ${source.name}") }
+    if (source.sourceType == JELLYFIN || source.sourceType == PLEX) {
+        val provider = if (source.sourceType == PLEX) "Plex" else "Jellyfin"
+        OutlinedButton(onClick = { onSelect("") }) { Text("Allow $provider library · ${source.name}") }
         return
     }
     val container = LocalContext.current.container
@@ -333,8 +336,13 @@ private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> U
         loading = true; ready = false; error = null; folders = emptyList()
         try {
             container.family.requireAdmin()
-            val config = withContext(Dispatchers.IO) { source.config(container.secrets).copy(rootPath = path) }
-            folders = NasBrowser().listFolders(config)
+            val config = withContext(Dispatchers.IO) { source.config(container.secrets) }
+            folders = when {
+                source.sourceType == ONEDRIVE -> container.oneDrive.childFolders(config, path)
+                config.isDropbox -> container.smb.browseDropbox(config, path, container.family::requireAdmin)
+                    .filter { it.isDirectory }.map { it.name }
+                else -> NasBrowser().listFolders(config.copy(rootPath = path))
+            }
             container.family.requireAdmin(); ready = true
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { error = SmbService.describe(failure) }

@@ -23,10 +23,10 @@ private final class PlexRedirectDelegate: NSObject, URLSessionTaskDelegate {
 struct PlexAccountClient: Sendable {
     #if os(iOS)
     static let platform = "iOS"
-    static let deviceName = "iPhone"
+    static let device = "iPhone"
     #else
     static let platform = "tvOS"
-    static let deviceName = "Apple TV"
+    static let device = "Apple TV"
     #endif
 
     struct LinkCode: Decodable, Sendable {
@@ -124,7 +124,7 @@ struct PlexAccountClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("MediaVault", forHTTPHeaderField: "X-Plex-Product")
         request.setValue(Self.platform, forHTTPHeaderField: "X-Plex-Platform")
-        request.setValue(Self.deviceName, forHTTPHeaderField: "X-Plex-Device")
+        request.setValue(Self.device, forHTTPHeaderField: "X-Plex-Device")
         request.setValue(deviceID, forHTTPHeaderField: "X-Plex-Client-Identifier")
         if let token {
             guard Self.isValidToken(token) else {

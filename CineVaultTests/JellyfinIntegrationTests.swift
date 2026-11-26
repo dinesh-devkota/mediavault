@@ -146,16 +146,13 @@ final class JellyfinIntegrationTests: XCTestCase {
             if asset.url.scheme == SMBResourceLoader.scheme { return false }
             XCTAssertEqual(asset.url.host, "127.0.0.1")
             XCTAssertFalse(asset.url.absoluteString.contains(account.token))
-            do { return try await asset.load(.isPlayable) }
-            catch {
-                throw Self.fixturePlaybackFailure(error, phase: "Opening the authenticated HLS asset")
-            }
+            return try await asset.load(.isPlayable)
         })
         let playback = try XCTUnwrap(controller)
         defer { playback.stop() }
         let player = playback.player
         player.play()
-        try await waitForPlayback(player, past: 0.5, phase: "Initial HLS playback")
+        try await waitForPlayback(player, past: 0.5)
         let sought = expectation(description: "HLS seeks")
         player.seek(to: CMTime(seconds: 8, preferredTimescale: 600),
                     toleranceBefore: .zero, toleranceAfter: .zero) { completed in
@@ -164,7 +161,7 @@ final class JellyfinIntegrationTests: XCTestCase {
         }
         await fulfillment(of: [sought], timeout: 25)
         player.play()
-        try await waitForPlayback(player, past: 8.5, phase: "HLS playback after seeking")
+        try await waitForPlayback(player, past: 8.5)
     }
 
     private func verifyOnlineCaption(_ query: SubDLSearchQuery) async throws {
@@ -187,23 +184,13 @@ final class JellyfinIntegrationTests: XCTestCase {
         XCTAssertEqual(try SubtitleDocument.parse(data).text(at: 1.5), "Downloaded fixture caption")
     }
 
-    private static func fixturePlaybackFailure(_ error: Error, phase: String, player: AVPlayer? = nil) -> NSError {
-        let native = error as NSError
-        let underlying = native.userInfo[NSUnderlyingErrorKey] as? NSError
-        let nested = underlying.map { " Underlying error \($0.domain) \($0.code)." } ?? ""
-        let httpStatuses = player?.currentItem?.errorLog()?.events.map(\.errorStatusCode) ?? []
-        return NSError(domain: "MediaVault.JellyfinFixture", code: native.code, userInfo: [
-            NSLocalizedDescriptionKey: "\(phase) failed with \(native.domain) \(native.code).\(nested) Player error statuses \(httpStatuses).",
-        ])
-    }
-
-    private func waitForPlayback(_ player: AVPlayer, past target: Double, phase: String = "Direct playback") async throws {
+    private func waitForPlayback(_ player: AVPlayer, past target: Double) async throws {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(35))
         while clock.now < deadline {
             let time = player.currentTime().seconds
             if time.isFinite, time > target { return }
-            if let error = player.error ?? player.currentItem?.error { throw Self.fixturePlaybackFailure(error, phase: phase, player: player) }
+            if let error = player.error ?? player.currentItem?.error { throw error }
             try await clock.sleep(for: .milliseconds(150))
         }
         let status = player.currentItem?.status.rawValue ?? -1

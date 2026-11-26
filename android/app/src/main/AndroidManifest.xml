@@ -46,6 +46,10 @@
             android:name=".ui.HomeCollectionActivity"
             android:exported="false" />
         <activity
+            android:name=".ui.MediaCollectionsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".ui.PhotoViewerActivity"
             android:exported="false" />
         <activity
@@ -55,8 +59,17 @@
             android:name=".ui.NasSetupActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.PlexSetupActivity" android:exported="false" />
         <activity
             android:name=".ui.JellyfinSetupActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.OneDriveSetupActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.DropboxSetupActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
