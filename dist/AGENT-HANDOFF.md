@@ -9,25 +9,46 @@ below retain their original names. Development work remains on
 
 ## Active library/playback work — November 25, 2026
 
-Current integration checkpoint: public `96df268` passed Apple TV 242/242,
-Android TV 110/110 and Android phone 12/12. The iPhone run `45740845578` and
-core/unsigned-TV run `45740845630` are still in progress or queued. Apple TV
-screenshots show captions clear of playback details. The new Plex filename-reset
-regression passed. The earlier merged iPhone `86bcb09` passed 230/230 and unsigned
-Release, before the final reset safeguard.
+Current public candidate: `d5a9ab6` on `codex/mediavault-library-playback`,
+draft PR19. It includes development's `c6d83d2` OneDrive integration, Plex,
+WebDAV/Jellyfin, broader playback, local artwork/metadata, collections and versions.
+The latest change fixes unreadable Apple TV secondary button labels and exercises
+Watchlist changes while preserving the selected edition's resume point. The style
+change is tvOS-only; iPhone's existing readable appearance is retained. Apple TV run `45752854370` passed all 251 cases with zero skips; inspected
+screenshots show readable secondary labels and preserved Resume 1:30 after
+Watchlist add/remove. MKV captions remain clear of controls. iPhone run
+`45752854417` passed all 241 cases with zero failures/skips and its unsigned
+Release build. Its detail, OneDrive setup and caption screenshots were reviewed.
 
-Development subsequently advanced to `c6d83d2` with personal OneDrive. The current
-merge retains local-library/Plex playback and adds that source. Android phone
-retains its library and metadata checks alongside incoming OneDrive journeys;
-Apple phone and TV require both OneDriveClientTests and CloudFileTransportTests.
+Verified platform results:
+- Apple TV `d5a9ab6`: 251/251, zero failures/skips, run `45752854370`;
+  evidence and reviewed screenshots are in `.artifacts/apple-tv-d5a9ab6`.
+- iPhone `d5a9ab6`: 241/241, zero failures/skips, run `45752854417`; unsigned
+  Release packaging also passed. Evidence: `.artifacts/apple-phone-d5a9ab6`.
+- Base Android TV `7bfc5b5`: 113/113, run `45745610565`; Android phone: 16/16,
+  run `45745610574`. Android source/tests/workflows are unchanged at `d5a9ab6`.
+- Core/unsigned-TV CI `d5a9ab6`: run `45752854407` succeeded.
+
+The Apple OneDrive collection fixture now records ignored files relative to the
+saved source root (`Feature.mp4`, not `Movies/Feature.mp4`). Product path guards
+were unchanged. All OneDrive/cloud transport suites passed on both Apple targets,
+including real scan/seek, exact-path local artwork and the phone setup-form journey.
+Android OneDrive tests verify NFO/artwork import, preserved standalone photos,
+playback/seek and folder/age access restrictions. Live owner accounts were not used.
+Current Apple evidence is under the `d5a9ab6` artifact folders above; the
+Android evidence remains attached to its stated successful runs. Never test disposable fixtures on the owner's
+installed emulator or real NAS. Do not transfer passing counts to changed code.
+
+### Implementation and earlier validation history
+
+OneDrive imports use the guarded Android provider and exact Apple cloud paths.
 Local validation passed 101 core and 151 app Android tests (two existing Jellyfin
-cases need their loopback fixture), instrumentation compilation and debug lint.
-OneDrive now participates in Android local NFO/artwork imports using its guarded
-provider. Apple sidecar and collection matching use exact cloud paths. New
-regressions cover local artwork, authoritative file identity and household access.
-The phone runner requires 16 Android cases and a new real iPhone setup-form journey.
-Seven XCTest-report checks and workflow lint pass. Hosted runtime verification is
-still required; do not transfer results from `96df268` to this merge.
+cases require their loopback fixture), instrumentation compilation and debug lint.
+The phone runner requires 16 Android cases and a real iPhone setup-form journey;
+Apple phone and TV require OneDriveClientTests and CloudFileTransportTests.
+Seven XCTest-report checks and workflow lint passed. Pre-OneDrive `96df268` passed
+Apple TV 242/242, iPhone 231/231 plus unsigned Release, Android TV 110/110 and
+Android phone 12/12. The checkpoints below are historical, not current blockers.
 
 Follow-up review found that Plex's synthetic identifiers could be treated as
 filenames by the metadata editor. Apple `7363654` and Android `79c5754` hide and
