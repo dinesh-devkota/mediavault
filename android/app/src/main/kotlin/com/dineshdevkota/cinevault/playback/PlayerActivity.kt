@@ -44,6 +44,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.ui.PlayerView
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.data.MovieEntity
@@ -546,7 +547,11 @@ class PlayerActivity : ComponentActivity() {
         val language = container.settings.subtitleLanguage
         val discovery = container.scope.async(Dispatchers.IO) {
             try {
-                val found = smb.readSubtitleSidecars(checkNotNull(loaded.config), loaded.movie.filePath, language)
+                val found = smb.readSubtitleSidecars(checkNotNull(loaded.config), loaded.movie.filePath, language) {
+                    check(container.family.isCurrent(householdSession) && container.family.permits(loaded.movie)) {
+                        "Your household session has locked."
+                    }
+                }
                 found.files.mapNotNull(SubtitleTracks::configuration) to found.truncated
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { emptyList<PreparedSubtitle>() to false }
@@ -986,6 +991,8 @@ class PlayerActivity : ComponentActivity() {
             if (config.isWebDav) {
                 return Uri.parse(DavAddress(config.host, config.allowInsecureHttp).url(path).toString())
             }
+            if (config.sourceType == ONEDRIVE) return Uri.Builder().scheme(ONEDRIVE).authority(config.id)
+                .apply { path.split('/').forEach(::appendPath) }.build()
             return Uri.Builder()
                 .scheme("smb")
                 .authority(SmbService.normalizedHost(config.host))

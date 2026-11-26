@@ -80,6 +80,33 @@ import XCTest
         XCTAssertNil(movie.localMetadataImported)
     }
 
+    func testOneDriveSidecarsRequireExactNamesBeforeChangingRatingOrHidingPhotos() async throws {
+        let (container, source, movie) = try fixture()
+        source.sourceProtocol = CloudFileProvider.oneDrive.rawValue
+        movie.usContentRating = "R"; movie.usContentRatingFetched = true
+        let unrelatedPhoto = Movie(filePath: "Movies/film (2020)-poster.png", fileSize: 10, source: source)
+        container.mainContext.insert(unrelatedPhoto); try container.mainContext.save()
+        let bytes = Data("<movie><title>Exact match</title><mpaa>G</mpaa></movie>".utf8)
+        var exact = false
+        var reads = 0
+        let service = LocalMetadataService(list: { _, _ in
+            let stem = exact ? "Film (2020)" : "film (2020)"
+            return [NASDirectoryEntry(name: stem + ".nfo", isDirectory: false),
+                    NASDirectoryEntry(name: stem + "-poster.png", isDirectory: false)]
+        }, size: { _, _ in Int64(bytes.count) }, read: { _, _, _ in reads += 1; return bytes })
+        let unmatched = try await service.importFiles(source: source, context: container.mainContext, config: source.config())
+        XCTAssertTrue(unmatched.isEmpty); XCTAssertEqual(reads, 0)
+        XCTAssertEqual(movie.usContentRating, "R"); XCTAssertNil(movie.localPosterPath)
+        XCTAssertFalse(unrelatedPhoto.isMissing)
+
+        exact = true
+        let matched = try await service.importFiles(source: source, context: container.mainContext, config: source.config())
+        XCTAssertEqual(matched, ["Movies/Film (2020)-poster.png"]); XCTAssertEqual(reads, 1)
+        XCTAssertEqual(movie.title, "Exact match"); XCTAssertEqual(movie.usContentRating, "G")
+        XCTAssertEqual(movie.localPosterPath, "Movies/Film (2020)-poster.png")
+        XCTAssertFalse(unrelatedPhoto.isMissing, "A different cloud photo is not the recognized companion artwork")
+    }
+
     func testDelayedSidecarCannotApplyAfterSourceChanges() async throws {
         let (container, source, movie) = try fixture()
         let bytes = Data("<movie><title>Wrong source</title></movie>".utf8)

@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.smb.NasBrowser
 import com.dineshdevkota.cinevault.smb.NasEntry
@@ -26,10 +27,11 @@ fun IgnoredFoldersEditor(
     onFoldersChange: (List<String>) -> Unit,
     onFilesChange: (List<String>) -> Unit,
     enabled: Boolean,
+    listCloudEntries: (suspend (String) -> List<NasEntry>)? = null,
 ) {
     // Reset browsing when the connection or selected root changes, but retain it when rules change.
     val connection = config.copy(ignoredFolders = emptyList(), ignoredFiles = emptyList())
-    key(connection) { IgnoredFoldersPanel(connection, ignoredFolders, ignoredFiles, onFoldersChange, onFilesChange, enabled) }
+    key(connection) { IgnoredFoldersPanel(connection, ignoredFolders, ignoredFiles, onFoldersChange, onFilesChange, enabled, listCloudEntries) }
 }
 
 @Composable
@@ -40,6 +42,7 @@ private fun IgnoredFoldersPanel(
     onFoldersChange: (List<String>) -> Unit,
     onFilesChange: (List<String>) -> Unit,
     enabled: Boolean,
+    listCloudEntries: (suspend (String) -> List<NasEntry>)?,
 ) {
     val browser = remember { NasBrowser() }
     var manual by remember { mutableStateOf("") }
@@ -55,13 +58,13 @@ private fun IgnoredFoldersPanel(
         .filter(String::isNotBlank).joinToString("/")
     fun add(value: String, directory: Boolean) {
         val folder = when {
-            config.isWebDav -> value.takeIf { com.dineshdevkota.cinevault.webdav.DavAddress.contains(it, "") }
+            config.caseSensitivePaths -> value.takeIf { com.dineshdevkota.cinevault.webdav.DavAddress.contains(it, "") }
             directory -> ScanExclusions.normalizeFolder(value)
             else -> ScanExclusions.normalizeFile(value)
         }
         if (folder == null) { error = "Enter a relative path inside the media folder, without . or .. segments."; return }
-        if (directory && ignoredFolders.none { it.equals(folder, ignoreCase = !config.isWebDav) }) onFoldersChange(ignoredFolders + folder)
-        if (!directory && ignoredFiles.none { it.equals(folder, ignoreCase = !config.isWebDav) }) onFilesChange(ignoredFiles + folder)
+        if (directory && ignoredFolders.none { it.equals(folder, ignoreCase = !config.caseSensitivePaths) }) onFoldersChange(ignoredFolders + folder)
+        if (!directory && ignoredFiles.none { it.equals(folder, ignoreCase = !config.caseSensitivePaths) }) onFilesChange(ignoredFiles + folder)
         manual = ""
         error = null
     }
@@ -72,9 +75,10 @@ private fun IgnoredFoldersPanel(
         entries = emptyList()
         page = 0
         try {
-            require(config.host.isNotBlank() && (config.isWebDav || config.share.isNotBlank())) { "Enter the NAS address and share first." }
+            require(config.host.isNotBlank() && (config.caseSensitivePaths || config.share.isNotBlank())) { "Enter the NAS address and share first." }
             require(config.port == null || config.port in 1..65535) { "Enter a valid NAS port." }
-            entries = browser.listEntries(config.copy(rootPath = joined(path)))
+            entries = if (config.sourceType == ONEDRIVE) checkNotNull(listCloudEntries)(path)
+                else browser.listEntries(config.copy(rootPath = joined(path)))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -113,10 +117,10 @@ private fun IgnoredFoldersPanel(
             entries.drop(page * 12).take(12).forEach { entry ->
                 val relative = listOf(path, entry.name).filter(String::isNotEmpty).joinToString("/")
                 val rules = if (entry.isDirectory) ignoredFolders else ignoredFiles
-                val direct = rules.any { it.equals(relative, ignoreCase = !config.isWebDav) }
+                val direct = rules.any { it.equals(relative, ignoreCase = !config.caseSensitivePaths) }
                 val inherited = !direct && if (entry.isDirectory)
-                    ScanExclusions.isDirectoryExcluded(joined(relative), config.rootPath, ignoredFolders, caseSensitive = config.isWebDav)
-                    else ScanExclusions.isFileExcluded(joined(relative), config.rootPath, ignoredFolders, caseSensitive = config.isWebDav)
+                    ScanExclusions.isDirectoryExcluded(joined(relative), config.rootPath, ignoredFolders, caseSensitive = config.caseSensitivePaths)
+                    else ScanExclusions.isFileExcluded(joined(relative), config.rootPath, ignoredFolders, caseSensitive = config.caseSensitivePaths)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (entry.isDirectory) OutlinedButton(enabled = enabled && !busy, modifier = Modifier.weight(1f), onClick = { path = relative }) { Text("Folder: ${entry.name} ▸") }
                     else Text("File: ${entry.name}", modifier = Modifier.weight(1f))
@@ -125,7 +129,7 @@ private fun IgnoredFoldersPanel(
                         enabled = enabled && !busy && !inherited,
                         onClick = {
                             if (direct) {
-                                val remaining = rules.filterNot { it.equals(relative, ignoreCase = !config.isWebDav) }
+                                val remaining = rules.filterNot { it.equals(relative, ignoreCase = !config.caseSensitivePaths) }
                                 if (entry.isDirectory) onFoldersChange(remaining) else onFilesChange(remaining)
                             } else add(relative, entry.isDirectory)
                         },

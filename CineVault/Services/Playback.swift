@@ -121,7 +121,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     private func verifyRead() async throws {
         if let allowsRead, await !allowsRead() { throw PlaybackPreparationError.fileUnavailable }
         guard household.sessionIsCurrent(householdSession),
-              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin,
+              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths,
                                    entireSourceOnly: config.isPlex) else { throw PlaybackPreparationError.fileUnavailable }
     }
 
@@ -203,7 +203,7 @@ final class PlaybackController: ObservableObject {
         guard isPlaybackCandidate(movie) else { throw PlaybackPreparationError.unsupportedFormat }
         guard let source = movie.source else { return nil }
         guard household.allows(movie), LibrarySearch.isAvailable(movie), !source.isIgnored(filePath: movie.filePath),
-              (source.isWebDAV
+              (source.caseSensitivePaths
                 ? WebDAVAddress.contains(movie.filePath, within: source.rootPath)
                 : SubtitleFile.safePath(movie.filePath, within: source.rootPath) != nil) else { throw PlaybackPreparationError.fileUnavailable }
         return source

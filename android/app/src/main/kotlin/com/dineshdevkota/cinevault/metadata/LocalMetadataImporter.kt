@@ -1,6 +1,7 @@
 package com.dineshdevkota.cinevault.metadata
 
 import androidx.room.withTransaction
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.core.LocalMediaMetadata
 import com.dineshdevkota.cinevault.core.LocalMetadataParser
 import com.dineshdevkota.cinevault.core.MediaFile
@@ -27,7 +28,7 @@ class LocalMetadataImporter(private val database: CineVaultDatabase, private val
     private val open: (SourceConfig, String) -> RemoteHandle = SmbService()::open) {
     suspend fun importSource(sourceId: String) = withContext(Dispatchers.IO) {
         val source = database.sources().get(sourceId) ?: return@withContext
-        if (source.sourceType !in setOf("smb", "webdav")) return@withContext
+        if (source.sourceType !in setOf("smb", "webdav", ONEDRIVE)) return@withContext
         val config = source.config(secrets)
         val media = database.movies().forSource(sourceId).filter { !it.isMissing && !it.isPhoto && !MediaFile.isAudio(it.filePath) }
         val byFolder = media.groupBy { it.filePath.substringBeforeLast('/', "") }
@@ -50,7 +51,7 @@ class LocalMetadataImporter(private val database: CineVaultDatabase, private val
             var preferred: String? = null
             for (candidate in candidates) {
                 val name = names.firstOrNull { it == candidate }
-                    ?: if (!config.isWebDav) names.firstOrNull { it.equals(candidate, ignoreCase = true) } else null
+                    ?: if (!config.caseSensitivePaths) names.firstOrNull { it.equals(candidate, ignoreCase = true) } else null
                 if (name != null) {
                     val path = listOf(folder, name).filter(String::isNotEmpty).joinToString("/")
                     if (source.includesFile(path)) {
@@ -101,7 +102,7 @@ class LocalMetadataImporter(private val database: CineVaultDatabase, private val
             val details = readSidecar(detailsPath)
             val episode = movie.episodeInfo != null || details?.kind == "episodedetails"
             val parent = folder.substringBeforeLast('/', "")
-            val parentWithinSource = parent == source.rootPath || (source.rootPath.isEmpty() || parent.startsWith(source.rootPath + "/", !config.isWebDav))
+            val parentWithinSource = parent == source.rootPath || (source.rootPath.isEmpty() || parent.startsWith(source.rootPath + "/", !config.caseSensitivePaths))
             val show = if (episode) readSidecar(find(folder, listOf("tvshow.nfo")))
                 ?: if (parentWithinSource) readSidecar(find(parent, listOf("tvshow.nfo"))) else null else null
             val season = if (episode) readSidecar(find(folder, listOf("season.nfo"))) else null

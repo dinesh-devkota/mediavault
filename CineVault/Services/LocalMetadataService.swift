@@ -35,7 +35,7 @@ final class LocalMetadataService {
             guard !source.isDeleted, source.modelContext != nil, try source.config() == config else { throw SMBError.sourceChanged }
         }
         func allowed(_ path: String, directory: Bool = false) -> Bool {
-            PhotoLocation.contains(path: path, root: config.rootPath, caseSensitive: config.isWebDAV) &&
+            PhotoLocation.contains(path: path, root: config.rootPath, caseSensitive: config.caseSensitivePaths) &&
                 (directory ? !config.excludesDirectory(path) : !config.excludesFile(path))
         }
         func directoryEntries(_ directory: String) async throws -> [String] {
@@ -50,11 +50,11 @@ final class LocalMetadataService {
             return paths
         }
         func find(_ candidates: [String], in values: [String]) -> String? {
-            candidates.lazy.compactMap { wanted in values.first { config.isWebDAV ? Data($0.utf8) == Data(wanted.utf8) : $0.caseInsensitiveCompare(wanted) == .orderedSame } }.first
+            candidates.lazy.compactMap { wanted in values.first { config.caseSensitivePaths ? Data($0.utf8) == Data(wanted.utf8) : $0.caseInsensitiveCompare(wanted) == .orderedSame } }.first
         }
         func recognized(_ candidates: [String], in values: [String]) -> [String] {
-            let lookup = Dictionary(values.map { (Data((config.isWebDAV ? $0 : $0.lowercased()).utf8), $0) }, uniquingKeysWith: { first, _ in first })
-            return candidates.compactMap { lookup[Data((config.isWebDAV ? $0 : $0.lowercased()).utf8)] }
+            let lookup = Dictionary(values.map { (Data((config.caseSensitivePaths ? $0 : $0.lowercased()).utf8), $0) }, uniquingKeysWith: { first, _ in first })
+            return candidates.compactMap { lookup[Data((config.caseSensitivePaths ? $0 : $0.lowercased()).utf8)] }
         }
         func metadata(_ path: String?) async throws -> LocalMediaMetadata? {
             guard let path else { return nil }

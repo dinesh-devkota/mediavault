@@ -9,6 +9,26 @@ below retain their original names. Development work remains on
 
 ## Active library/playback work — November 25, 2026
 
+Current integration checkpoint: public `96df268` passed Apple TV 242/242,
+Android TV 110/110 and Android phone 12/12. The iPhone run `45740845578` and
+core/unsigned-TV run `45740845630` are still in progress or queued. Apple TV
+screenshots show captions clear of playback details. The new Plex filename-reset
+regression passed. The earlier merged iPhone `86bcb09` passed 230/230 and unsigned
+Release, before the final reset safeguard.
+
+Development subsequently advanced to `c6d83d2` with personal OneDrive. The current
+merge retains local-library/Plex playback and adds that source. Android phone
+retains its library and metadata checks alongside incoming OneDrive journeys;
+Apple phone and TV require both OneDriveClientTests and CloudFileTransportTests.
+Local validation passed 101 core and 151 app Android tests (two existing Jellyfin
+cases need their loopback fixture), instrumentation compilation and debug lint.
+OneDrive now participates in Android local NFO/artwork imports using its guarded
+provider. Apple sidecar and collection matching use exact cloud paths. New
+regressions cover local artwork, authoritative file identity and household access.
+The phone runner requires 16 Android cases and a new real iPhone setup-form journey.
+Seven XCTest-report checks and workflow lint pass. Hosted runtime verification is
+still required; do not transfer results from `96df268` to this merge.
+
 Follow-up review found that Plex's synthetic identifiers could be treated as
 filenames by the metadata editor. Apple `7363654` and Android `79c5754` hide and
 reject that reset, preserve imported server ratings during manual metadata edits,

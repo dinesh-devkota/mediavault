@@ -4,7 +4,7 @@ Add one parent NAS folder to build your Movies, Documentaries, TV Shows, Music, 
 
 A personal media library for **Apple TV, iPhone, Android TV, and Android phones**
 that plays movies, shows and music and displays photo albums from SMB, HTTPS
-WebDAV, Jellyfin, and Plex sources. Built with SwiftUI on Apple devices and Compose
+WebDAV, Jellyfin, Plex, and personal OneDrive sources. Built with SwiftUI on Apple devices and Compose
 on Android, with remote controls on TVs and touch navigation on phones.
 
 The **1.5.0, build 7** feature branch adds local NFO/XML details and artwork,

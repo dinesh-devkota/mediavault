@@ -45,7 +45,7 @@ struct SourceExclusionsEditor: View {
     }
 
     private func add(_ path: String, folder: Bool) {
-        let normalizedPath = configuration.isWebDAV
+        let normalizedPath = configuration.caseSensitivePaths
             ? (WebDAVAddress.contains(path, within: "") ? path : nil)
             : (folder ? ScanExclusions.normalizeFolder(path: path) : ScanExclusions.normalizeFile(path: path))
         guard let normalized = normalizedPath else {
@@ -53,9 +53,9 @@ struct SourceExclusionsEditor: View {
             return
         }
         if folder {
-            if !folders.contains(where: { configuration.isWebDAV ? WebDAVAddress.sameComponent($0, normalized) : $0.caseInsensitiveCompare(normalized) == .orderedSame }) { folders.append(normalized) }
+            if !folders.contains(where: { configuration.caseSensitivePaths ? WebDAVAddress.sameComponent($0, normalized) : $0.caseInsensitiveCompare(normalized) == .orderedSame }) { folders.append(normalized) }
         } else {
-            if !files.contains(where: { configuration.isWebDAV ? WebDAVAddress.sameComponent($0, normalized) : $0.caseInsensitiveCompare(normalized) == .orderedSame }) { files.append(normalized) }
+            if !files.contains(where: { configuration.caseSensitivePaths ? WebDAVAddress.sameComponent($0, normalized) : $0.caseInsensitiveCompare(normalized) == .orderedSame }) { files.append(normalized) }
         }
         manualPath = ""; errorText = nil
     }
@@ -87,7 +87,7 @@ struct NASPathPicker: View {
     var body: some View {
         List {
             Section {
-                Text(path.isEmpty ? (configuration.isWebDAV ? "WebDAV root" : configuration.share) : path)
+                Text(path.isEmpty ? (configuration.cloudFileProvider?.title ?? (configuration.isWebDAV ? "WebDAV root" : configuration.share)) : path)
                 if busy { ProgressView("Reading folder…") }
                 if let errorText { Text(errorText).foregroundStyle(.red) }
                 if mode == .household {
@@ -137,7 +137,7 @@ struct NASPathPicker: View {
         .onAppear {
             if !loaded {
                 loaded = true
-                if configuration.isWebDAV {
+                if configuration.caseSensitivePaths {
                     browse(configuration.rootPath)
                     return
                 }
@@ -169,21 +169,22 @@ struct NASPathPicker: View {
     private func browse(_ selectedPath: String) {
         cancel()
         let token = requestID
-        let config = SourceConfig(id: UUID(), host: configuration.host, port: configuration.port,
+        let cloud = configuration.cloudFileProvider != nil
+        let config = cloud ? configuration : SourceConfig(id: UUID(), host: configuration.host, port: configuration.port,
             share: configuration.share, rootPath: selectedPath, username: configuration.username, password: configuration.password,
             isWebDAV: configuration.isWebDAV)
-        let service = SMBService(timeout: 10)
+        let service = cloud ? SMBService.shared : SMBService(timeout: 10)
         path = selectedPath; ready = false; busy = true; errorText = nil; entries = []
         request = Task { @MainActor in
             do {
-                let result = try await service.listEntries(config)
+                let result = try await service.listEntries(config, directory: cloud ? selectedPath : nil)
                 try Task.checkCancellation()
                 if requestID == token { entries = result; ready = true }
             } catch is CancellationError { /* The next folder or closed picker owns the state. */ }
             catch {
                 if requestID == token && !Task.isCancelled { errorText = error.localizedDescription }
             }
-            await service.reset(config)
+            if !cloud { await service.reset(config) }
             if requestID == token { busy = false; request = nil }
         }
     }

@@ -17,13 +17,14 @@ PHONE_CASES=com.dineshdevkota.cinevault.AndroidPhoneNavigationTest
 LIBRARY_CASES=com.dineshdevkota.cinevault.LibraryFeaturesNavigationTest,com.dineshdevkota.cinevault.library.LocalLibraryIntegrationTest
 PLAYBACK_CASES=com.dineshdevkota.cinevault.playback.SmbPlaybackTest#mkvPlaybackAndSeekFromNas
 PLEX_CASES=com.dineshdevkota.cinevault.plex.PlexTlsIntegrationTest
+ONEDRIVE_CASES=com.dineshdevkota.cinevault.cloud.OneDriveSetupNavigationTest,com.dineshdevkota.cinevault.cloud.OneDriveMediaIntegrationTest,com.dineshdevkota.cinevault.cloud.OneDriveAccountStoreInstrumentedTest
 METADATA_TEST=com.dineshdevkota.cinevault.metadata.MetadataMutationTest
 METADATA_CASES="$METADATA_TEST#plexManualMovieMatchKeepsTheRatingUpdatedWhileItsReplyWasPending,$METADATA_TEST#plexManualTvMatchPreservesRestrictedAndUnknownServerRatings,$METADATA_TEST#plexResetAndAutomaticMetadataCannotDiscardServerIdentityOrClassification"
 cd android
 status=0
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
-  -Pandroid.testInstrumentationRunnerArguments.class="$PHONE_CASES,$LIBRARY_CASES,$PLAYBACK_CASES,$PLEX_CASES,$METADATA_CASES" \
+  -Pandroid.testInstrumentationRunnerArguments.class="$PHONE_CASES,$LIBRARY_CASES,$PLAYBACK_CASES,$PLEX_CASES,$ONEDRIVE_CASES,$METADATA_CASES" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   -Pandroid.testInstrumentationRunnerArguments.plexCertificate="$PLEX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.libraryUiFixture=true \
@@ -48,14 +49,25 @@ expected = {
     "mkvPlaybackAndSeekFromNas",
     "invalidSidecarsClearOldRatingButTemporaryReadFailurePreservesIt",
     "touchNavigationOpensPlexLinking",
+    "touchNavigationOpensOneDriveSetupAlongsidePlex",
     "ownerConnectsOverTlsAndReadsCatalogAndMediaRange",
     "plexManualMovieMatchKeepsTheRatingUpdatedWhileItsReplyWasPending",
     "plexManualTvMatchPreservesRestrictedAndUnknownServerRatings",
     "plexResetAndAutomaticMetadataCannotDiscardServerIdentityOrClassification",
+    "ownerCanOpenOneDriveSetupAndRecoverFromInvalidPublicApplicationId",
+    "stagedSignInImportsSelectedFolderAndPlaysWithBoundedReadsAndCaptions",
+    "refreshRecordIsEncryptedOnDiskAndRemovable",
 }
+failures = 0
+for case in cases:
+    outcome = next((tag for tag in ("failure", "error", "skipped") if case.find(tag) is not None), "passed")
+    print(f"{case.get('classname')}.{case.get('name')} {outcome}")
+    failures += outcome != "passed"
 if len(cases) != len(expected) or {case.get("name") for case in cases} != expected:
-    raise SystemExit("Every required phone library, playback and touch journey must execute on exactly one emulator.")
-if any(case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")):
+    raise SystemExit("Every expected phone runtime test must execute on exactly one emulator.")
+if failures:
     raise SystemExit("Phone runtime journeys failed or skipped.")
-print(f"Android phone: {len(cases)} library, playback, Plex and touch journeys passed.")
+print(f"Android phone: {len(cases)} runtime tests passed.")
 PY
+
+exit "$status"

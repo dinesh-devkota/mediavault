@@ -161,11 +161,12 @@ jobs:
                   detail = (problem.get("message", "") + "\n" + (problem.text or ""))[:4000]
                   detail = detail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
                   print(f"::error title=Android runtime test::{case.get('classname')}.{case.get('name')}: {detail}")
-              elif case.find("skipped") is None and case.get("classname", "").endswith(".JellyfinAndroidIntegrationTest"):
+              elif case.find("skipped") is None and case.get("classname", "").endswith((".JellyfinAndroidIntegrationTest", ".OneDriveMediaIntegrationTest")):
                   print(f"{case.get('classname')}.{case.get('name')} passed")
           required = {"TVNavigationTest", "SecretBoxInstrumentedTest", "LibraryDatabaseTest", "MetadataMutationTest",
                       "LibraryScannerTest", "SmbDataSourceContractTest", "SmbIntegrationTest", "SmbPlaybackTest",
                       "JellyfinAndroidIntegrationTest", "JellyfinSetupNavigationTest",
+                      "OneDriveMediaIntegrationTest", "OneDriveSetupNavigationTest", "OneDriveAccountStoreInstrumentedTest",
                       "WatchlistMigrationTest", "WatchlistNavigationTest", "NasBrowserIntegrationTest",
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",

@@ -90,6 +90,21 @@ import XCTest
         try await household.unlockAsync(admin, pin: "328614", intent: household.authenticationToken)
         XCTAssertEqual(store.collections.map(\.name), ["Private adult collection"])
     }
+
+    func testOneDriveCollectionEntriesRespectExactRootAndExclusions() {
+        let suite = "MediaVault.CloudCollectionTests.\(UUID())", defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let household = HouseholdStore(defaults: defaults, read: { nil }, write: { _ in })
+        let source = MediaSource(name: "Cloud", host: "fixture.invalid", share: "folder", rootPath: "Movies", username: "")
+        source.sourceProtocol = CloudFileProvider.oneDrive.rawValue
+        let item = movie("Movies/Feature.mp4", source: source)
+        XCTAssertTrue(LibraryCollectionsStore.available(item, household: household))
+        item.filePath = "movies/Feature.mp4"
+        XCTAssertFalse(LibraryCollectionsStore.available(item, household: household))
+        item.filePath = "Movies/Feature.mp4"
+        source.ignoredFiles = [item.filePath]
+        XCTAssertFalse(LibraryCollectionsStore.available(item, household: household))
+    }
     func testLocalMetadataAndVersionHistoryPersistAcrossDatabaseReopen() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("mediavault-local-\(UUID())", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
