@@ -307,28 +307,43 @@ async function enter(id, value, previous = '') {
 }
 async function text(id) { return call('GET', `/element/${await element(byID(id))}/text`); }
 const sourcesHeading = "//*[@role='text' and text='Your sources']";
-async function requirePlaybackHome(message, section) {
+const sourcesProfileAction = byID('action-set-up-household-profiles');
+async function requirePlaybackHome(message, {section, allowEmpty = false} = {}) {
   const sectionAction = section === undefined ? null : byID('library-section') + `[@description=${literal(section)}]`;
   await waitFor(async () => await homePresent() && await exists(byID('action-sources'))
-    && !await exists(sourcesHeading) && !await exists(byID('action-add-source')) && !await exists(byID('source-name'))
-    && (!sectionAction || await exists(sectionAction)), message);
+    && !await exists(sourcesHeading) && !await exists(byID('source-name')) && !await exists(sourcesProfileAction)
+    && (allowEmpty || !await exists(byID('action-add-source'))) && (!sectionAction || await exists(sectionAction)), message);
 }
 async function addSource(name, address) {
-  await requirePlaybackHome(`Home must be active before opening Sources to add ${name}.`);
+  await requirePlaybackHome(`Home must be active before opening Sources to add ${name}.`, {allowEmpty: true});
   await click('action-sources'); await element(sourcesHeading);
   await click('action-add-source'); await click('action-nas-smb');
   await enter('source-name', name); await enter('source-address', address);
   await enter('source-username', 'cinevault'); await enter('source-password', 'fixture-only');
   await click('source-connect'); await click('source-save');
+  const sourcesOpen = async () => await exists(sourcesProfileAction) && !await exists(byID('source-name'));
+  await waitFor(async () => await sourcesOpen() && await exists(sourcesHeading),
+    `Saving ${name} must close the form and return to Sources.`);
   const scanStatus = byID(`source-scan-${name}`);
+  const scanDeadline = Date.now() + 120_000;
+  if (!await exists(scanStatus)) {
+    // The Sources scroll view only publishes rows near its viewport. Reveal
+    // the exact row by moving focus to its Scan action without activating it.
+    const scanAction = `//*[@role='button' and @description=${literal(`Scan ${name}`)}]`;
+    const scanBusy = `//*[@role='text' and (text=${literal(`Scanning ${name}…`)} or starts-with(text,${literal(`Scanning ${name} · `)}))]`;
+    await waitFor(async () => await sourcesOpen() && !await exists(scanBusy),
+      `The ${name} scan must stop disabling its action before revealing the clipped row.`, Math.max(1, scanDeadline - Date.now()));
+    await focusVisible(scanAction);
+  }
   await waitFor(async () => {
-    if (!await exists(sourcesHeading) || await exists(byID('source-name'))) { return false; }
+    // This action is outside the scroll view and remains when the heading is clipped.
+    if (!await sourcesOpen()) { return false; }
     const matches = await call('POST', '/elements', {using: 'xpath', value: scanStatus});
     if (matches.length !== 1) { return false; }
     const status = await call('GET', `/element/${matches[0][elementKey]}/text`);
     return typeof status === 'string' && /^SMB · Last scan: (?!Never\s*$)\S/.test(status)
       && !await exists(byID('action-stop-scan'));
-  }, `The new ${name} source must finish its first scan on Sources without pressing Scan again.`, 120_000);
+  }, `The new ${name} source must finish its first scan on Sources without pressing Scan again.`, Math.max(1, scanDeadline - Date.now()));
   // Back leaves the verified Sources route without retargeting a focusable header button.
   await key(158);
   await requirePlaybackHome(`Back from the finished ${name} scan must return to Home and close Sources.`);
@@ -740,7 +755,7 @@ try {
   await step('07-continuous-television', async () => {
     await addSource('Playback NAS', endpoint.replace(/MEDIALIBRARY$/, 'MEDIAPLAYBACK'));
     await click('library-section'); await element("//*[@role='text' and text='Choose a section']");
-    await click('action-tv-shows'); await requirePlaybackHome('The TV shows section must reopen Home.', 'TV shows');
+    await click('action-tv-shows'); await requirePlaybackHome('The TV shows section must reopen Home.', {section: 'TV shows'});
     await click('media-group-show:fixture show|');
     await waitFor(async () => await exists("//*[@role='text' and text='Fixture Show']")
       && await exists("//*[@role='text' and text='Choose a season']"), 'The exact Fixture Show must open its season picker.');
