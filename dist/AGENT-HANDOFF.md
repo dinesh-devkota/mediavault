@@ -75,6 +75,20 @@ without their server. Hosted modern Android TV passed 110/110 (run `45709711876`
 and phone passed 7/7 (run `45709711901`). Never run disposable test fixtures
 against the owner's installed emulator or real NAS.
 
+The expanded mixed-corrupt/unavailable-sidecar regression in `369c890` passed
+on base Android TV (103/103, run `45728286881`), Fire-branch Android TV
+(110/110, `45728952433`), and Fire API 22/25/28 (13/13 each, `45728952307`).
+It also passed in phone run `45728952327` (6/7 overall). That phone run failed
+before tapping Play: `AndroidPhoneNavigationTest.visible()` let the transient
+"No compose hierarchies" exception escape during the movie-detail activity
+transition. Logcat has no crash/ANR; subsequent collection and MKV tests passed.
+The phone helper now retries only that exact missing-root condition within its
+existing 30-second budget, rethrows other state errors, and saves timeout
+screenshots/tree diagnostics through the existing test-artifacts collection.
+Instrumentation compilation passed; hosted verification of this test correction
+is pending. Downloaded XML/log evidence is in the Fire worktree's
+`.artifacts/android-metadata-audit`.
+
 Repeated Android TV testing found a nested-focus handoff that could keep an
 ignored season visible. `643cb35` suspends child focus restoration while removing
 content and bounds the handoff. Its full Android TV workflow passed
