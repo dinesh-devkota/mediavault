@@ -176,24 +176,52 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   · [Apple build](https://github.com/dinesh-devkota/mediavault/actions/runs/45678384113)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45678390628)
   · [Android HLS](https://github.com/dinesh-devkota/mediavault/actions/runs/45677454484)
-- Plex has protected account PIN, server discovery, catalog, and byte reads
-  in provider clients. Full TV setup, protected player wiring and a signed-in
-  QA account are still needed.
-  [Plex](https://github.com/dinesh-devkota/mediavault/pull/5)
+- Plex uses Plex device PIN linking, discovered servers and selected libraries.
+  The Android and Apple TV drafts import movies, episodes and photos, and use
+  protected ranges for direct play and seek. Matching server text tracks are
+  available when published by the server. Local testing checked the library
+  identifier and range contract against an isolated official Plex Media Server.
+  The hosted device gates use a separate synthetic HTTPS fixture. Live account
+  linking needs a signed-in Plex QA account and an eligible reachable server.
+  The preview currently supports direct play and requires a reachable direct
+  server connection.
+  [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/5)
+  · [Apple TV](https://github.com/dinesh-devkota/mediavault/pull/21)
+  · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/25)
 - NFS has loopback tests and an opt-in Android debug bridge for four ABIs.
   The app source, both TV playback journeys, tvOS packaging and distribution
   licensing review remain open.
   [NFS](https://github.com/dinesh-devkota/mediavault/pull/8)
-- OneDrive, Dropbox and Google Drive have separate provider clients and tests.
-  The Android OneDrive draft includes encrypted refresh records, scoped catalog
-  and a per-read authorization hook. Account registrations and TV setup/import/
-  playback still need completion. Live OneDrive needs an Entra public client
-  ID and test account. Dropbox needs a registered app key with the documented
-  scopes. Google Drive needs an approved TV-compatible OAuth client and scope;
-  verify access before distributing.
-  [OneDrive](https://github.com/dinesh-devkota/mediavault/pull/4)
-  · [Dropbox](https://github.com/dinesh-devkota/mediavault/pull/6)
-  · [Google Drive](https://github.com/dinesh-devkota/mediavault/pull/7)
+- OneDrive uses Microsoft device codes for personal accounts. The owner
+  chooses a source folder, and MediaVault stores the refresh credential in
+  the device's protected storage. Reconnection verifies the original drive
+  and folder. The drafts cover scans, range playback and seek, photos and
+  matching sidecars. Live use requires an Entra public client ID configured
+  for personal accounts, public client flows and delegated Files.Read. A
+  Microsoft test account is required for live validation.
+  [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/4)
+  · [Apple TV](https://github.com/dinesh-devkota/mediavault/pull/22)
+  · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/24)
+- Dropbox uses a public app key, a PKCE browser approval and a code entered
+  in MediaVault. The Android draft links a folder, protects the refresh
+  credential, and imports and reads media over read-only ranges. A real
+  Dropbox API app key with Full Dropbox access and the read scopes
+  account_info.read, files.metadata.read and files.content.read is needed
+  for a live account test, subject to the Dropbox app's access and
+  production approval limits.
+  [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/6)
+- Google Drive uses the platform picker on Android TV and phone when the
+  signed-in Google Drive document provider and picker are available, and the
+  Files picker on iPhone. Owners can grant a folder when the provider
+  supports folder selection or choose individual media and caption files.
+  Google handles authentication. The app stores the platform read grant
+  or bookmark locally, and uses it for selected-file library and playback.
+  The Android phone hosted run passed on the first published app branch.
+  Apple TV still needs a compliant companion picker with authorized
+  Google OAuth registration before it can offer this provider.
+  [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/7)
+  · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/23)
+  · [Google's limited-input device scopes](https://developers.google.com/identity/protocols/oauth2/limited-input-device)
 
 The user authorized provider merges to development after the exact source
 branch passes both hosted emulator/simulator suites, including its named
