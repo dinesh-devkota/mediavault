@@ -142,7 +142,7 @@ class SmbPlaybackTest {
         val refresh = requireNotNull(credentials.refreshToken)
         val selected = client.metadata("/Media", credentials.accessToken)
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val secrets = SecretBox()
+        val secrets = SecretBox(context)
         val media = DropboxMedia(http)
         val profilePreferences = "dropbox-test-${UUID.randomUUID()}"
         val family = FamilyStore(context, secrets, profilePreferences)

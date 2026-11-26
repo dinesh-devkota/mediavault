@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {confirmedMp4Seek, nativeSeeks} from './native-seek-evidence.mjs';
+import {confirmedMp4Seek, nativeSeeks, waitForMp4Seek} from './native-seek-evidence.mjs';
 
 const fixtureId = 'com.dineshdevkota.mediavault.vvdfixture';
 const line = (record, pid = 3801, id = fixtureId) =>
@@ -51,4 +51,46 @@ test('an incorrect, duplicate, or rejected native MP4 seek cannot satisfy the ex
   assert.throws(() => confirmedMp4Seek([accepted, accepted], 31, sample), /exactly one native seek/);
   assert.throws(() => confirmedMp4Seek([{...accepted, requested: 21}], 31, sample), /must match/);
   assert.throws(() => confirmedMp4Seek([{...accepted, outcome: 'rejected-50004'}], 31, sample), /was rejected/);
+});
+
+test('MP4 seek retries a malformed clock sample until native acceptance and the paused clock agree', async () => {
+  const snapshots = [
+    {positionText: '0:31 / 1:00', requests: nativeSeeks(request, fixtureId)},
+    {positionText: '0:31 /', requests: nativeSeeks([request, successful].join('\n'), fixtureId)},
+    {positionText: '0:31 / 1:00', requests: nativeSeeks([request, successful].join('\n'), fixtureId)},
+  ];
+  const observed = [];
+  let elapsed = 0;
+  const position = await waitForMp4Seek({
+    expected: 31, message: 'Seek could not be confirmed.', timeoutMs: 750,
+    observe: async () => ({...snapshots.shift(), paused: true, controlsReady: true}),
+    onSample: sample => observed.push([sample.position, sample.requests[0].outcome]),
+    now: () => elapsed, wait: async delay => { elapsed += delay; },
+  });
+  assert.equal(position, 31);
+  assert.deepEqual(observed, [[31, 'pending'], [null, 'accepted'], [31, 'accepted']]);
+});
+
+test('MP4 seek times out when the clock remains unavailable despite native success at zero', async () => {
+  let elapsed = 0;
+  const positions = [];
+  await assert.rejects(waitForMp4Seek({
+    expected: 0, message: 'Seek could not be confirmed.', timeoutMs: 500,
+    observe: async () => ({positionText: null, paused: true, controlsReady: true,
+      requests: [{requested: 0, outcome: 'accepted'}]}),
+    onSample: sample => positions.push(sample.position),
+    now: () => elapsed, wait: async delay => { elapsed += delay; },
+  }), /Seek could not be confirmed/);
+  assert.equal(elapsed, 500);
+  assert.deepEqual(positions, [null, null]);
+});
+
+test('MP4 seek fails immediately on an explicit player error', async () => {
+  const error = new Error('The player reported a playback failure.');
+  await assert.rejects(waitForMp4Seek({
+    expected: 31, message: 'Seek could not be confirmed.',
+    observe: async () => { throw error; },
+    onSample: () => assert.fail('A playback error cannot supply a seek observation.'),
+    wait: async () => assert.fail('The player error must fail before retry.'),
+  }), error);
 });

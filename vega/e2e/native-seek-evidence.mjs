@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {setTimeout as pause} from 'node:timers/promises';
 
 const seekRequest = /W3CMEDIA:\[MSE_EME\] MediaPlayerPipelineImpl::seek: Seek time: (\d+(?:\.\d+)?)s$/;
 const unsupportedSeek = /W3CMEDIA:\[MSE_EME\] seek: MPB Call failed with code: 50004\.$/;
@@ -31,6 +32,11 @@ export function nativeSeeks(log, packageId) {
   return seeks.map(({requested, outcome}) => ({requested, outcome}));
 }
 
+export function parseElapsedPosition(text) {
+  const match = typeof text === 'string' && text.match(/^\s*(\d+):([0-5]\d)\s*\/\s*\d+:[0-5]\d\s*$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
 // Native acceptance can precede the real clock change, and the clock may
 // temporarily show a target while the app still holds the seek operation.
 export function confirmedMp4Seek(requests, expected, {position, paused, controlsReady}) {
@@ -39,5 +45,22 @@ export function confirmedMp4Seek(requests, expected, {position, paused, controls
   if (!request) { return false; }
   assert(Math.abs(request.requested - expected) <= 2, 'The MP4 native seek must match the requested target.');
   assert(['accepted', 'pending'].includes(request.outcome), 'An MP4 native seek was rejected.');
-  return request.outcome === 'accepted' && Math.abs(position - expected) <= 2 && paused && controlsReady;
+  return request.outcome === 'accepted' && Number.isFinite(position)
+    && Math.abs(position - expected) <= 2 && paused && controlsReady;
+}
+
+export async function waitForMp4Seek({observe, onSample, expected, message, timeoutMs = 30_000,
+  now = () => performance.now(), wait = pause}) {
+  const deadline = now() + timeoutMs;
+  do {
+    const {positionText, ...state} = await observe();
+    const sample = {...state, position: parseElapsedPosition(positionText)};
+    onSample(sample);
+    const confirmed = confirmedMp4Seek(sample.requests, expected, sample);
+    const remaining = deadline - now();
+    if (confirmed && remaining >= 0) { return sample.position; }
+    if (remaining <= 0) { break; }
+    await wait(Math.min(250, remaining));
+  } while (now() < deadline);
+  throw new Error(message);
 }

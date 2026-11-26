@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdir, readFile, stat, writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {activateKeyboardClear} from './keyboard-clear.mjs';
-import {confirmedMp4Seek, nativeSeeks} from './native-seek-evidence.mjs';
+import {nativeSeeks, parseElapsedPosition, waitForMp4Seek} from './native-seek-evidence.mjs';
 import {keyboardApp, keyboardDone, keyboardVisibilityReader, simulatorVisibilityRpc, waitForKeyboardDismissal}
   from './keyboard-observation.mjs';
 
@@ -308,11 +308,26 @@ async function addSource(name, address) {
   }, 'The first scan must complete without pressing Scan again.', 120_000);
   await click('action-back');
 }
-async function position() {
+async function assertNoPlayerError() {
   if (await exists(byID('player-error'))) { throw new Error(await text('player-error')); }
-  const match = (await text('player-position')).match(/(\d+):(\d+)\s*\//);
-  assert(match, 'The player must expose an actual elapsed position.');
-  return Number(match[1]) * 60 + Number(match[2]);
+}
+async function position() {
+  await assertNoPlayerError();
+  const elapsed = parseElapsedPosition(await text('player-position'));
+  assert(elapsed !== null, 'The player must expose an actual elapsed position.');
+  return elapsed;
+}
+async function seekPositionText() {
+  await assertNoPlayerError();
+  try {
+    // The driver can briefly return a stale or incomplete text observation
+    // while publishing a new position. The bounded seek poll needs fresh text.
+    const matches = await call('POST', '/elements', {using: 'xpath', value: byID('player-position')}, 2000);
+    if (matches.length !== 1) { return null; }
+    return await call('GET', `/element/${matches[0][elementKey]}/text`, undefined, 2000);
+  } catch {
+    return null;
+  }
 }
 async function seekEvidenceSince(mark) {
   const log = await readFile(nativeLog);
@@ -582,14 +597,19 @@ try {
         console.log('[Vega MP4 seek] Dispatch', JSON.stringify(trace));
         await key(code);
         trace.rpcReturnedAt = new Date().toISOString();
-        await waitFor(async () => {
-          const requests = await seekEvidenceSince(mark);
-          const sample = {position: await position(), paused: await exists(byID('action-play')), controlsReady: await seekControlsReady()};
-          trace.observed = {...sample, requests};
-          return confirmedMp4Seek(requests, trace.expected, sample);
-        }, message);
+        const confirmedPosition = await waitForMp4Seek({
+          expected: trace.expected, message,
+          observe: async () => ({
+            positionText: await seekPositionText(), requests: await seekEvidenceSince(mark),
+            paused: await exists(byID('action-play')), controlsReady: await seekControlsReady(),
+          }),
+          onSample: sample => {
+            trace.observed = sample;
+            if (sample.position === null) { trace.unavailablePositionSamples = (trace.unavailablePositionSamples ?? 0) + 1; }
+          },
+        });
         trace.confirmedAt = new Date().toISOString();
-        return trace.observed.position;
+        return confirmedPosition;
       } finally {
         console.log('[Vega MP4 seek] Evidence', JSON.stringify(trace));
         await writeFile(resolve(output, 'mp4-seek-actions.json'), JSON.stringify(seekActions, null, 2) + '\n');
