@@ -41,14 +41,25 @@ journeys, with a 2 MiB result cap and 15-second query deadline per app. LoggingC
 must start after installation to obtain access to the newly installed packages.
 
 Form entry targets the actual editable child of React Native's focus wrapper.
-After text acknowledgement, the harness dismisses an observed system keyboard
-with exactly one Back key (158). It checks closure using the observed Done
-control's disappearance, requires the same form field to remain, and verifies
-that non-secret text stays unchanged. Window removal is not asserted because a
-hidden keyboard window may persist. Password and PIN values are never read back. [Amazon's Vega 2.0 release notes](https://developer.amazon.com/docs/vega/2.0/vega-release-notes#textinput-done-and-back-behavior-will-match-stock-react-native)
+After text acknowledgement, the harness waits for Done and a positively
+visible Silverstone keyboard window, retains that window's ID, then sends
+exactly one Back key (158). Temporary publisher absence cannot skip Back.
+Closure requires valid native visibility for that same window to become false
+and Done to disappear, within the existing bounded wait. The pinned driver's
+`visibilityOf` RPC is used directly because its displayed endpoint converts a
+missing result to false; unsupported, stale, or malformed responses remain
+unknown and cannot satisfy closure. The harness requires the same form field to
+remain and verifies that non-secret text stays unchanged. Password and PIN
+values are never read back. [Amazon's Vega 2.0 release notes](https://developer.amazon.com/docs/vega/2.0/vega-release-notes#textinput-done-and-back-behavior-will-match-stock-react-native)
 document Back as keyboard dismissal; these controlled fields store edits through
 `onChangeText`, so dismissal does not depend on a submit callback. This does not
 claim that the system Done key passed its focus check.
+
+The fixture retains a bounded `input-focus-diagnostic.json` trace for name and
+address dismissal and the first three username-reveal navigation keys. It
+records timestamps, keyboard window visibility, scoped native focus checks and
+field bounds, with no text, descriptions, raw hierarchy or images. Observation
+duration is recorded; progress after instrumentation alone is not a product fix.
 
 The harness still uses bounded D-pad navigation to reveal off-screen controls
 and requires actual native focus before selecting application buttons. Text

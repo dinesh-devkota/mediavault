@@ -55,6 +55,16 @@ async function nativeFocused(xpath) {
   const value = await call('GET', `/element/${matches[0][elementKey]}/attribute/UiObject:focused`);
   return value === 'true';
 }
+async function nativeDisplayed(id) {
+  // Same RPC as the pinned driver's displayed endpoint. That endpoint converts
+  // a missing result to false; retain unknown here so stale/unsupported queries
+  // cannot prove keyboard closure. executeRpc returns the full RPC envelope.
+  try {
+    const response = await call('POST', '/execute/sync', {script: 'jsonrpc: visibilityOf', args: [[{id: Number(id)}]]});
+    if (response?.error || !Array.isArray(response?.result?.visiblePortions)) { return null; }
+    return response.result.visiblePortions.length > 0;
+  } catch { return null; }
+}
 const inputFocusTrace = [];
 async function traceInputFocus(phase, target, detail = {}) {
   if (!fixtureBuild || inputFocusTrace.length >= 16) { return; }
@@ -79,7 +89,7 @@ async function traceInputFocus(phase, target, detail = {}) {
       // visibilityOf. No UiObject:visible attribute exists. Unsupported window
       // queries remain null, never evidence that the keyboard closed.
       // https://developer.amazon.com/docs/vega/2.0/appium-commands#is_displayed
-      sample.imeWindows.push({id, displayed: await safe(() => call('GET', `/element/${id}/displayed`))});
+      sample.imeWindows.push({id, displayed: await nativeDisplayed(id)});
     }
     sample.focus = {};
     for (const [scope, path] of [['app', app], ['ime', ime]]) {
@@ -217,21 +227,36 @@ async function enter(id, value, previous = '') {
   // already stored the edit. Do not require the IME's Done key to take focus.
   // https://developer.amazon.com/docs/vega/2.0/vega-release-notes#textinput-done-and-back-behavior-will-match-stock-react-native
   const keyboardWindow = "//app[@appName='com.amazon.silverstone']//window";
-  if (await exists(byID('key_Done'))) {
-    assert(await exists(keyboardWindow), 'Back may dismiss only an observed system keyboard.');
-    if (id === 'source-address') { await traceInputFocus('before-back', id); }
-    const keyStartedAt = new Date().toISOString();
-    await key(158);
-    const keyFinishedAt = new Date().toISOString();
-    if (id === 'source-address') { await traceInputFocus('after-back', id, {code: 158, keyStartedAt, keyFinishedAt}); }
-  } else if (id === 'source-address') {
-    await traceInputFocus('back-skipped-done-absent', id);
+  const traceDismissal = id === 'source-name' || id === 'source-address';
+  let activeKeyboardWindow;
+  // The publisher temporarily omitted Done and its window before the next
+  // remote key. Absence must not skip the one Back required for this edit.
+  await waitFor(async () => {
+    if (!await exists(byID('key_Done'))) { return false; }
+    const windows = await call('POST', '/elements', {using: 'xpath', value: keyboardWindow});
+    for (const window of windows) {
+      const candidate = window[elementKey];
+      if (await nativeDisplayed(candidate) === true) { activeKeyboardWindow = candidate; return true; }
+    }
+    return false;
+  }, 'The edited field did not expose a displayed system keyboard for dismissal.');
+  if (traceDismissal) { await traceInputFocus('before-back', id, {activeKeyboardWindow, activeWindowDisplayed: true}); }
+  const keyStartedAt = new Date().toISOString();
+  await key(158);
+  const keyFinishedAt = new Date().toISOString();
+  if (traceDismissal) {
+    await traceInputFocus('after-back', id, {code: 158, keyStartedAt, keyFinishedAt, activeKeyboardWindow,
+      activeWindowDisplayed: await nativeDisplayed(activeKeyboardWindow)});
   }
-  // Done disappears when this IME closes. Its window may persist while hidden;
-  // window removal is not a verified closed-state signal on the pinned SDK.
-  await waitFor(async () => !await exists(byID('key_Done')),
-    'The system keyboard did not close after editing.');
-  if (id === 'source-address') { await traceInputFocus('after-done-absence', id, {absenceObservedAt: new Date().toISOString()}); }
+  // Latch the window that was positively visible before Back. Its validated
+  // native visibility must become false; a missing publisher entry or unknown
+  // native response alone cannot satisfy closure.
+  await waitFor(async () => await nativeDisplayed(activeKeyboardWindow) === false && !await exists(byID('key_Done')),
+    'The same system keyboard window did not become hidden after Back.');
+  if (traceDismissal) {
+    await traceInputFocus('after-keyboard-hidden', id, {activeKeyboardWindow, activeWindowDisplayed: false,
+      closureObservedAt: new Date().toISOString()});
+  }
   assert(await exists(byID(id)), `Dismissing the keyboard must keep the same form field: ${id}`);
   if (!/password|pin/.test(id)) {
     const editor = await element(editorPath);
