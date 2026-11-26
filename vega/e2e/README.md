@@ -29,6 +29,13 @@ regain native focus before normal helpers resume. These added flows use only
 arrow/Select/Back input; they do not call setFocus or scroll commands. They
 verify this visible-row route, not restoration of an off-screen poster.
 
+Home route checks use the exposed section/search toolbar controls and require
+the prior form/detail marker to disappear. The native publisher omits the
+FlatList container's testID, so it is not a route or privacy predicate.
+Secure-storage, failed-PIN and locked-restart checks require every exposed Home
+toolbar/source action and every poster group to be absent.
+
+
 On a production installation, journey 10 additionally restarts the app, unlocks with the saved PIN, and rescans using saved NAS credentials. Physical Vega hardware is required when the virtual device lacks the native secure-storage service.
 
 ## Environment and evidence

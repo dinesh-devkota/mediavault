@@ -10,13 +10,14 @@ const harness = fileURLToPath(new URL('./library-journey.mjs', import.meta.url))
 const outputs = resolve('.artifacts/vega-startup-probe-contract-' + Date.now());
 const unsupported = 'Protected settings are unavailable. Try again. (MV06:not-supported)';
 // This transport stub tests the harness only. Its output is not device evidence.
-async function runProbe(name, {error, home = false, banner = false, retryEnabled = true, fixturePackage = false, fatalOverlay = false} = {}) {
+async function runProbe(name, {error, home = false, banner = false, retryEnabled = true, fixturePackage = false, fatalOverlay = false, singleHomeMarker = false, posterLeak = false} = {}) {
   const output = resolve(outputs, name);
   await mkdir(output, {recursive: true});
   const requests = [];
   const elements = new Map();
   if (error) { elements.set('startup-error', {text: error}); elements.set('startup-retry', {enabled: retryEnabled}); }
-  if (home) { for (const id of ['action-sources', 'library-grid', 'library-section', 'library-search']) { elements.set(id, {}); } }
+  if (home) { for (const id of ['action-sources', 'library-section', 'library-search']) { elements.set(id, {}); } }
+  if (singleHomeMarker) { elements.set('library-search', {}); }
   if (banner) { elements.set('fixture-build-banner', {text: 'VIRTUAL DEVICE TEST BUILD'}); }
   const server = createServer(async (request, response) => {
     const chunks = []; for await (const chunk of request) { chunks.push(chunk); }
@@ -27,10 +28,13 @@ async function runProbe(name, {error, home = false, banner = false, retryEnabled
       assert.equal(body.capabilities.alwaysMatch['appium:appURL'], 'com.dineshdevkota.cinevault.main');
       value = {sessionId: 'contract-test'};
     } else if (request.url.endsWith('/elements') || request.url.endsWith('/element')) {
+      assert.equal(body.value.includes('library-grid'), false, 'Predicates must not rely on the unpublished FlatList ID.');
       const id = body.value.match(/@test_id='([^']+)'/)?.[1];
       const found = fatalOverlay && body.value === "//app[@appName='com.dineshdevkota.cinevault']//*[@role='text' and text='Uncaught Error']"
         ? {'element-6066-11e4-a52e-4f735466cecf': 'fatal-heading'}
-        : elements.has(id) ? {'element-6066-11e4-a52e-4f735466cecf': id} : undefined;
+        : posterLeak && body.value === '//*[starts-with(@test_id,"media-group-")]'
+          ? {'element-6066-11e4-a52e-4f735466cecf': 'media-group-contract'}
+          : elements.has(id) ? {'element-6066-11e4-a52e-4f735466cecf': id} : undefined;
       value = request.url.endsWith('/elements') ? found ? [found] : [] : found;
     } else if (/\/element\/[^/]+\/text$/.test(request.url)) {
       value = elements.get(request.url.split('/').at(-2))?.text ?? '';
@@ -84,6 +88,8 @@ test('exact unsupported keystore state is accepted only while home stays hidden 
 for (const [name, state] of [
   ['different-error', {error: 'Protected settings are unavailable. Try again. (MV06:security)'}],
   ['home-leak', {error: unsupported, home: true}],
+  ['single-toolbar-leak', {error: unsupported, singleHomeMarker: true}],
+  ['poster-only-leak', {error: unsupported, posterLeak: true}],
   ['disabled-retry', {error: unsupported, retryEnabled: false}],
   ['fixture-banner', {error: unsupported, banner: true}],
 ]) {

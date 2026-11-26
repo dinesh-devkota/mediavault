@@ -37,6 +37,21 @@ const call = (method, path, body) => command(method, `/session/${session}${path}
 const literal = value => { assert(!value.includes("'"), 'Test selectors use fixed synthetic values.'); return `'${value}'`; };
 const byID = id => `//*[@test_id=${literal(id)}]`;
 const exists = async xpath => (await call('POST', '/elements', {using: 'xpath', value: xpath})).length > 0;
+const homeToolbar = ['library-section', 'library-search'];
+const posterGroups = '//*[starts-with(@test_id,"media-group-")]';
+async function homePresent() {
+  for (const id of homeToolbar) { if (!await exists(byID(id))) { return false; } }
+  return true;
+}
+async function assertLibraryHidden(message) {
+  // FlatList's library-grid testID is absent from the actual native publisher.
+  // Assert real toolbar controls and poster groups cannot leak behind a lock.
+  for (const id of [...homeToolbar, 'action-filters', 'action-collections', 'action-sources', 'action-select-titles']) {
+    assert.equal(await exists(byID(id)), false, message);
+  }
+  assert.equal(await exists(posterGroups), false, message);
+}
+
 async function waitFor(check, message, timeout = 30_000) {
   const deadline = Date.now() + timeout;
   do { if (await check()) { return; } await sleep(250); } while (Date.now() < deadline);
@@ -435,21 +450,19 @@ async function step(name, run) {
 async function probeProductionStartup() {
   await waitFor(async () => {
     assert.equal(await exists(byID('fixture-build-banner')), false, 'Production startup must never display the fixture build banner.');
-    return await exists(byID('startup-error')) || (await exists(byID('action-sources')) && await exists(byID('library-grid')));
+    return await exists(byID('startup-error')) || (await exists(byID('action-sources')) && await homePresent());
   }, 'Production startup did not reach home or report its secure-storage status.');
   assert.equal(await exists(byID('fixture-build-banner')), false, 'Production startup must never display the fixture build banner.');
   if (await exists(byID('startup-error'))) {
     const message = await text('startup-error');
     assert.equal(message, 'Protected settings are unavailable. Try again. (MV06:not-supported)', 'Only the confirmed virtual-device keystore limitation is an accepted startup failure.');
-    for (const id of ['library-grid', 'action-sources', 'library-section', 'library-search']) {
-      assert.equal(await exists(byID(id)), false, 'Unavailable secure storage must not expose the home library.');
-    }
+    await assertLibraryHidden('Unavailable secure storage must not expose the home library.');
     const retry = await element(byID('startup-retry'));
     assert.equal(await call('GET', `/element/${retry}/enabled`), true, 'The secure startup error must offer an enabled Retry action.');
     startupProbe = {outcome: 'unsupported-on-virtual-device', nativeStorageAvailable: false,
       errorCode: 'MV06:not-supported', hardwareRequired: true, homeExposed: false, retryEnabled: true};
   } else {
-    assert(await exists(byID('action-sources')) && await exists(byID('library-grid')), 'The fresh production installation must reach its home library.');
+    assert(await exists(byID('action-sources')) && await homePresent(), 'The fresh production installation must reach its home library.');
     startupProbe = {outcome: 'native-storage-available', nativeStorageAvailable: true,
       hardwareRequired: false, homeExposed: true,
       limitation: 'Startup availability only; PIN persistence, restart protection, and saved NAS credentials were not tested.'};
@@ -485,7 +498,9 @@ try {
     await capture('01-cold-start-focus');
     await key(96); await element(byID('source-name'));
     assert.equal(await exists(byID('key_Done')), false, 'Opening the source form must not start text entry.');
-    await key(158); await element(byID('library-grid'));
+    await key(158);
+    await waitFor(async () => await homePresent() && !await exists(byID('source-name')),
+      'Back from the unused source form must return to the Home toolbar.');
     await waitFor(() => nativeFocused(byID('action-add-source')),
       'Back from the unused source form must restore the empty library action focus.');
     await addSource('Fixture NAS', endpoint); await element(byID(feature)); await element(byID(sequel));
@@ -503,7 +518,9 @@ try {
     await waitFor(() => nativeFocused(byID(sequel)), 'Right must move native focus to Library Sequel.');
     await key(96); await element(byID('detail-title'));
     assert.equal(await text('detail-title'), 'Library Sequel', 'Select must open the natively focused sequel.');
-    await key(158); await element(byID('library-grid'));
+    await key(158);
+    await waitFor(async () => await homePresent() && !await exists(byID('detail-title')),
+      'Back from the sequel detail must return to the Home toolbar.');
     await waitFor(() => nativeFocused(byID(sequel)), 'Back must restore native focus to the same non-first poster.');
     await capture('02-native-back-focus');
     await click(feature);
@@ -607,7 +624,7 @@ try {
     await click('action-back'); await click('action-kids'); await click('action-everyone-pin-protected');
     await enter('field-profile-pin', '000000'); await click('action-continue');
     await waitFor(async () => (await call('GET', '/source')).includes('That PIN did not match'), 'An incorrect PIN must be rejected.');
-    assert.equal(await exists(byID('library-grid')), false, 'Failed PIN entry must not reveal the library.');
+    await assertLibraryHidden('Failed PIN entry must not reveal the library.');
     await enter('field-profile-pin', '482619', '000000'); await click('action-continue');
     await element(byID(feature));
     await element(byID('action-sources'));
@@ -617,7 +634,7 @@ try {
     await call('POST', '/appium/device/terminate_app', {appId: packageId});
     await call('POST', '/appium/device/activate_app', {appId: packageId + '.main'});
     await element(byID('action-everyone-pin-protected'));
-    assert.equal(await exists(byID('library-grid')), false, 'Restart must keep the protected household locked.');
+    await assertLibraryHidden('Restart must keep the protected household locked.');
     await click('action-everyone-pin-protected'); await enter('field-profile-pin', '482619'); await click('action-continue');
     await element(byID(feature)); await click('action-sources');
     const scan = await element(byID('action-scan-fixture-nas'));

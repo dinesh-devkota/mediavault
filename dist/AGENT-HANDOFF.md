@@ -212,7 +212,18 @@ on every target. Evidence is in `.artifacts/android-tv-b98f180`,
 `.artifacts/android-phone-b98f180` and `.artifacts/fire-compat-b98f180`.
 
 Vega follow-ups are on `codex/mediavault-vega-keyboard-visibility`, not PR20's
-remote head. Latest tested checkpoint `0590298`, run `45761600966`, passed all
+remote head. Follow-up `3e4b813`, run `45765161506`, passed packages/native checks
+but stopped in the new cold-start journey after hardware Back: FlatList's
+`library-grid` test ID is not exposed by the native publisher, including in older
+successful Home captures. Screenshots show the correct Home and focused Add source,
+but the strict native return-focus assertion had not yet run. The harness now
+uses exposed Home controls plus prior-route disappearance. This also corrects
+pre-existing startup/PIN predicates that relied on the unpublished grid ID.
+A duplicate empty-grid panel clipped below onboarding is removed only while
+an administrator with no sources sees the initial Add source card. Filtered-empty
+and restricted-profile grids remain. No later journey ran at this checkpoint.
+
+Earlier checkpoint `0590298`, run `45761600966`, passed all
 packages/native/startup checks and stages01/02. Reviewed screenshots confirm
 Home and collection viewports of 612px (y412..1024); 604px watched cards now fit
 entirely with all four white focus-border corners visible. Posters, filled
@@ -223,7 +234,7 @@ natively visible, but 21 direct setFocus attempts over about 25 seconds never
 receive native focus. The helper's Down-only fallback cannot reach Clear to the
 right. The follow-up uses bounded keyboard-only arrow navigation and requires actual
 native focus on Clear before Select; prior/empty/final nonsecret acknowledgements
-and protected-entry guards remain. All 15 harness contracts pass, including
+and protected-entry guards remain. All 17 harness contracts pass, including
 ineffective direct focus, no movement, stale/ambiguous focus and hidden keyboard.
 The app now records route-specific poster/scroll anchors for Home and collections,
 requests focus only after the returning item becomes viewable, falls back when

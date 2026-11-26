@@ -253,7 +253,7 @@ const MediaVaultApp = () => {
         <Action label="Select titles" compact onPress={() => { setSelecting(true); setSelected(new Set()); }}/>
       </View>}
       {!library.sources.length && canManage && <View style={shared.panel}><Text style={shared.heading}>Your media, together</Text><Text style={shared.subtitle}>Add a NAS, WebDAV folder, or Jellyfin server to get started.</Text><Action label="Add source" preferred onPress={() => navigate({page: 'add-source', id: newID()})}/></View>}
-      <LibraryGrid groups={groupLibrary(filtered)} open={openGroup} loadImage={loadImage} session={session} selecting={selecting} selected={selected} viewing={personal.viewing} restoreFocus={route.posterFocus}/>
+      {(library.sources.length > 0 || !canManage) && <LibraryGrid groups={groupLibrary(filtered)} open={openGroup} loadImage={loadImage} session={session} selecting={selecting} selected={selected} viewing={personal.viewing} restoreFocus={route.posterFocus}/>}
     </>}
     {route.page === 'sections' && unlocked && <ScrollView><Text style={shared.heading}>Choose a section</Text>
       <Action label="All media" selected={!sections.length && !watchlistOnly} onPress={() => { setSections([]); setWatchlistOnly(false); back(); }}/>
