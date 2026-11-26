@@ -212,17 +212,30 @@ on every target. Evidence is in `.artifacts/android-tv-b98f180`,
 `.artifacts/android-phone-b98f180` and `.artifacts/fire-compat-b98f180`.
 
 Vega follow-ups are on `codex/mediavault-vega-keyboard-visibility`, not PR20's
-remote head. Latest app checkpoint `854b052`, run `45759707039`, passed all
-packages/native/startup checks and stages01/02. Real screenshots now show the
-NAS posters, filled controls, a white focused-card border and readable Play.
-Collection viewport is 580px, but watched cards are 604px and clip 24px at the
-top; compact toolbar vertical padding now targets a 612px viewport while retaining
-font sizes, poster ratio and watched status. This last spacing change needs
-native review. Stage03 failed before activating Clear because an opaque native
-window ID was incorrectly used as serialized XML @id. The harness now uses the
-observed keyboard app/test ID, requiring one visible Clear control plus actual
-native focus before Select. No input acknowledgement or secret guard was relaxed.
- Tested baseline `2847a6e` includes Apple `d5a9ab6` and its completed
+remote head. Latest tested checkpoint `0590298`, run `45761600966`, passed all
+packages/native/startup checks and stages01/02. Reviewed screenshots confirm
+Home and collection viewports of 612px (y412..1024); 604px watched cards now fit
+entirely with all four white focus-border corners visible. Posters, filled
+controls and readable Play remain present. The short collection screenshot pair
+captures artwork loading, not an established persistent image failure.
+Stage03 still stops before Clear activation: its exact keyboard control is
+natively visible, but 21 direct setFocus attempts over about 25 seconds never
+receive native focus. The helper's Down-only fallback cannot reach Clear to the
+right. The follow-up uses bounded keyboard-only arrow navigation and requires actual
+native focus on Clear before Select; prior/empty/final nonsecret acknowledgements
+and protected-entry guards remain. All 15 harness contracts pass, including
+ineffective direct focus, no movement, stale/ambiguous focus and hidden keyboard.
+The app now records route-specific poster/scroll anchors for Home and collections,
+requests focus only after the returning item becomes viewable, falls back when
+it disappears, and cancels retries on directional input or household changes.
+An empty grid can accept first-scan results without reviving user-cancelled focus.
+Typecheck and all 60 domain/SDK tests pass (nine focus lifecycle cases).
+New native empty-Home and non-first-poster Back assertions use only remote input,
+without focus-setting helpers. They still require the next hosted run; offscreen
+restoration currently has unit/lifecycle coverage only. Complete playback/profile
+journeys remain pending.
+
+Tested baseline `2847a6e` includes Apple `d5a9ab6` and its completed
 handoff. Normal run `45756851737` passed all three production architectures,
 isolated fixture packaging, native regressions and production startup. Stages01/02
 passed without the earlier fatal overlay. Stage03 reached collection creation,

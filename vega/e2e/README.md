@@ -19,6 +19,16 @@ Leave `MEDIA_VAULT_E2E_STARTUP_CHECK_ONLY` unset. Set `MEDIA_VAULT_E2E_NAS_ENDPO
 
 `MEDIA_VAULT_E2E_PACKAGE_ID` defaults to production. For the isolated Debug/x86_64 virtual-device build, explicitly set it to `com.dineshdevkota.mediavault.vvdfixture`. The runner verifies the persistent visible fixture banner before scanning. Journeys 01–09 exercise real NAS, metadata, library, photo, playback, continuous TV, and in-session profile/PIN behavior. Journey 10 is recorded as a hardware-required skip with `passed: null`; synthetic in-memory credentials cannot verify the production keystore or restart persistence. A missing/mismatched fixture banner fails and records that check as not run.
 
+Journey 01 first observes native focus on the empty library's Add source action,
+opens its form with Select, then uses hardware Back and requires that action's
+native focus again. These checks precede any focus-setting navigation helper.
+Journey 02 observes the scanned library's first poster focus, moves Right twice
+to the non-first Library Sequel poster, verifies native focus at each move,
+opens its detail with Select, and uses hardware Back. The same sequel must
+regain native focus before normal helpers resume. These added flows use only
+arrow/Select/Back input; they do not call setFocus or scroll commands. They
+verify this visible-row route, not restoration of an off-screen poster.
+
 On a production installation, journey 10 additionally restarts the app, unlocks with the saved PIN, and rescans using saved NAS credentials. Physical Vega hardware is required when the virtual device lacks the native secure-storage service.
 
 ## Environment and evidence
@@ -68,9 +78,14 @@ Category changes open the Home section chooser, select the desired section,
 and return to the library through the same remote actions available to users.
 For a nonsecret replacement, the harness requires the expected old value and
 native editor focus. It then confirms a displayed keyboard window and exactly
-one visible Clear control scoped to the keyboard app, selects it with strict
-native focus, and verifies an empty
-editor before sending the new value. The pinned driver's clear/setText('') path
+one visible Clear control scoped to the keyboard app. The keyboard accepted
+direct focus requests without moving focus, so its dedicated helper uses real
+arrows from the observed key bounds instead. It requires exactly one natively
+focused key, verified movement after each arrow, and native focus on visible,
+enabled Clear before Select. Missing/unknown visibility, ambiguous focus, no
+movement or a repeated navigation edge fails within the 25-second bound.
+Application-button focus checks remain unchanged. Nonsecret replacement then
+requires an empty editor before sending the new value. The pinned driver's clear/setText('') path
 left the previous value unchanged on the device. The final exact-value assertion
 remains. `input-replacement-diagnostic.json` records only lengths/comparison
 flags at those three phases; password/PIN contents are never read or recorded.
@@ -89,4 +104,6 @@ The guard records a static error rather than reading the error body.
 
 ## Harness contract tests
 
-Run `node --test vega/e2e/startup-probe.test.mjs`. These tests provide a local simulated Appium transport to check accepted/rejected startup states and report fields. They do not execute the app, emulate native storage, or count as device evidence.
+Run `node --test vega/e2e/startup-probe.test.mjs vega/e2e/keyboard-clear.test.mjs`. These tests provide a local simulated Appium transport to check accepted/rejected startup states and report fields. They do not execute the app, emulate native storage, or count as device evidence.
+
+The keyboard transport contracts exercise directional Clear activation when direct focus is ineffective, and reject stale/no movement, ambiguous native focus, keyboard disappearance, and unknown visibility. These contracts never read editor text and are not device evidence.

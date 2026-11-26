@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
+import {activateKeyboardClear} from './keyboard-clear.mjs';
 
 // Real Appium/Vega automation, using Amazon's documented W3C endpoints and JSON-RPC D-pad API.
 // https://developer.amazon.com/docs/vega/2.0/appium-sessions
@@ -259,15 +260,10 @@ async function enter(id, value, previous = '') {
     }
     // The pinned driver's clear/setText('') left the old value unchanged on
     // device. Use the observed IME Clear control as a real remote action.
-    const clearPath = keyboardApp + byID('key_Clear');
-    await waitFor(async () => {
-      if (!await displayedKeyboardWindow()) { return false; }
-      const matches = await call('POST', '/elements', {using: 'xpath', value: clearPath});
-      return matches.length === 1 && await nativeDisplayed(matches[0][elementKey]) === true;
-    }, 'The displayed system keyboard must expose one visible Clear control.');
-    // Native RPC object IDs are opaque; do not interpolate a window ID into
-    // serialized XPath @id. The app/test_id selector identifies the control.
-    await clickXPath(clearPath);
+    let clearWindow;
+    await waitFor(async () => Boolean(clearWindow = await displayedKeyboardWindow()),
+      'The system keyboard must be visibly open before selecting Clear.');
+    await activateKeyboardClear({call, key, nativeDisplayed, windowId: clearWindow});
     // Nonsecret edits must acknowledge an empty editor before replacement.
     // Protected fields instead rely on the later unlock/connect assertion.
     if (!secret) {
@@ -482,11 +478,34 @@ try {
     } else {
       assert.equal(await exists(byID('fixture-build-banner')), false, 'A production package must never use the fixture build.');
     }
+    // This cold-start check must precede every focus-setting navigation helper.
+    // Observe native focus, then use only real Select/Back input for this flow.
+    await waitFor(() => nativeFocused(byID('action-add-source')),
+      'Cold start must give the empty library Add source action native focus.');
+    await capture('01-cold-start-focus');
+    await key(96); await element(byID('source-name'));
+    assert.equal(await exists(byID('key_Done')), false, 'Opening the source form must not start text entry.');
+    await key(158); await element(byID('library-grid'));
+    await waitFor(() => nativeFocused(byID('action-add-source')),
+      'Back from the unused source form must restore the empty library action focus.');
     await addSource('Fixture NAS', endpoint); await element(byID(feature)); await element(byID(sequel));
     assert.equal((await call('POST', '/elements', {using: 'xpath', value: '//*[starts-with(@test_id,"media-group-")]'})).length, 5,
       'Five visible grouped titles: two movies, one show, one invalid-metadata movie, one standalone photo. Sidecar artwork must be suppressed.');
   });
   await step('02-edition-detail', async () => {
+    // Do not call focusVisible/click here: directional navigation and restoration
+    // must succeed before any helper can assign native focus to a target.
+    const firstPoster = '//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Invalid/Invalid Metadata.mp4")]';
+    await waitFor(() => nativeFocused(firstPoster), 'The newly scanned library must focus its first poster.');
+    await key(106);
+    await waitFor(() => nativeFocused(byID(feature)), 'Right must move native focus to Library Feature.');
+    await key(106);
+    await waitFor(() => nativeFocused(byID(sequel)), 'Right must move native focus to Library Sequel.');
+    await key(96); await element(byID('detail-title'));
+    assert.equal(await text('detail-title'), 'Library Sequel', 'Select must open the natively focused sequel.');
+    await key(158); await element(byID('library-grid'));
+    await waitFor(() => nativeFocused(byID(sequel)), 'Back must restore native focus to the same non-first poster.');
+    await capture('02-native-back-focus');
     await click(feature);
     await clickXPath('//*[starts-with(@test_id,"item-open-") and contains(@test_id,"Directors Cut.mp4")]');
     assert.equal(await text('detail-title'), 'Library Feature');

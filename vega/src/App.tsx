@@ -12,12 +12,13 @@ import {scanJellyfin} from './sources/http';
 import {scanSource} from './sources/scanner';
 import {Action, Field, Poster, shared} from './ui/Controls';
 import {LibraryGrid} from './ui/LibraryGrid';
+import {GridFocusAnchor} from './ui/GridFocus';
 import {PhotoViewer} from './ui/PhotoViewer';
 import {Player} from './ui/Player';
 import {SourceEditor} from './ui/SourceEditor';
 
 type Page = 'home' | 'sections' | 'search' | 'sources' | 'source' | 'add-source' | 'ignored' | 'collections' | 'collection' | 'collection-settings' | 'membership' | 'group' | 'season' | 'detail' | 'photo' | 'player' | 'profiles' | 'unlock' | 'add-profile' | 'filters' | 'add-to-collection';
-interface Route { page: Page; id?: string; folder?: string; season?: number }
+interface Route { page: Page; id?: string; folder?: string; season?: number; posterFocus?: GridFocusAnchor }
 const newID = (): string => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
 const sectionLabels: Record<MediaKind, string> = {movie: 'Movies', documentary: 'Documentaries', episode: 'TV shows', music: 'Music', photo: 'Photos'};
 
@@ -68,7 +69,11 @@ const MediaVaultApp = () => {
   const group = groups.find(value => value.id === route.id);
   const item = available.find(value => value.id === route.id);
   const source = canManage ? library?.sources.find(value => value.id === route.id) : undefined;
-  const navigate = (next: Route): void => { unlockAttempt.current++; setError(undefined); setRoutes(current => [...current, next]); };
+  const navigate = (next: Route, posterFocus?: GridFocusAnchor): void => {
+    unlockAttempt.current++; setError(undefined);
+    setRoutes(current => [...current.map((value, index) => posterFocus && index === current.length - 1
+      && (value.page === 'home' || value.page === 'collection') ? {...value, posterFocus} : value), next]);
+  };
   const back = useCallback((): void => { unlockAttempt.current++; if (route.page === 'unlock') { setBusy(undefined); } setError(undefined); setPin(''); setRoutes(current => current.length > 1 ? current.slice(0, -1) : current); }, [route.page]);
   const report = useCallback((reason: unknown): void => setError(reason instanceof Error ? reason.message : 'Something went wrong. Please try again.'), []);
   const assertSession = useCallback((token: number, admin = false): LibrarySnapshot => {
@@ -157,10 +162,10 @@ const MediaVaultApp = () => {
     updatePersonal(current => ({...current, viewing: {...current.viewing, ...Object.fromEntries(values.filter(value => allowed.has(value.id)).map(value => [value.id,
       {...(current.viewing[value.id] ?? {position: 0, duration: 0}), watched, updatedAt: Date.now()}]))}}));
   };
-  const openGroup = (value: MediaGroup): void => {
+  const openGroup = (value: MediaGroup, posterFocus: GridFocusAnchor): void => {
     if (route.page === 'home' && selecting) { toggleSelection(value.items); return; }
-    if (value.items[0]!.kind === 'episode' || value.items.length > 1) { navigate({page: 'group', id: value.id}); }
-    else { navigate({page: value.items[0]!.kind === 'photo' ? 'photo' : 'detail', id: value.items[0]!.id}); }
+    if (value.items[0]!.kind === 'episode' || value.items.length > 1) { navigate({page: 'group', id: value.id}, posterFocus); }
+    else { navigate({page: value.items[0]!.kind === 'photo' ? 'photo' : 'detail', id: value.items[0]!.id}, posterFocus); }
   };
   const collectionCandidates = route.page === 'add-to-collection' && route.id ? [route.id] : [...selected];
   const create = (): void => {
@@ -241,14 +246,14 @@ const MediaVaultApp = () => {
         <Action label="Mark watched" disabled={!selected.size} onPress={() => mark(available.filter(value => selected.has(value.id)), true)}/><Action label="Mark unwatched" disabled={!selected.size} onPress={() => mark(available.filter(value => selected.has(value.id)), false)}/>
         <Action label="Add to collection" disabled={!selected.size} onPress={() => navigate({page: 'add-to-collection'})}/>
       </View> : <View style={shared.row}>
-        <Action label={sectionTitle} compact testID="library-section" hint="Choose movies, shows, music, photos, or your Watchlist." onPress={() => navigate({page: 'sections'})}/>
+        <Action label={sectionTitle} compact preferred={!filtered.length && (library.sources.length > 0 || !canManage)} testID="library-section" hint="Choose movies, shows, music, photos, or your Watchlist." onPress={() => navigate({page: 'sections'})}/>
         <Action label="Search" compact selected={!!query.trim()} testID="library-search" hint={query.trim() ? 'A search is applied. Open to change or clear it.' : 'Search by movie or show title.'} onPress={() => navigate({page: 'search'})}/>
         <Action label="Filters" compact selected={genres.length > 0} hint={genres.length ? `${genres.length} genre filters applied.` : 'Choose any genres.'} onPress={() => navigate({page: 'filters'})}/>
         <Action label="Collections" compact onPress={() => navigate({page: 'collections'})}/>{canManage && <Action label="Sources" compact onPress={() => navigate({page: 'sources'})}/>}
         <Action label="Select titles" compact onPress={() => { setSelecting(true); setSelected(new Set()); }}/>
       </View>}
-      {!library.sources.length && canManage && <View style={shared.panel}><Text style={shared.heading}>Your media, together</Text><Text style={shared.subtitle}>Add a NAS, WebDAV folder, or Jellyfin server to get started.</Text><Action label="Add source" onPress={() => navigate({page: 'add-source', id: newID()})}/></View>}
-      <LibraryGrid groups={groupLibrary(filtered)} open={openGroup} loadImage={loadImage} session={session} selecting={selecting} selected={selected} viewing={personal.viewing}/>
+      {!library.sources.length && canManage && <View style={shared.panel}><Text style={shared.heading}>Your media, together</Text><Text style={shared.subtitle}>Add a NAS, WebDAV folder, or Jellyfin server to get started.</Text><Action label="Add source" preferred onPress={() => navigate({page: 'add-source', id: newID()})}/></View>}
+      <LibraryGrid groups={groupLibrary(filtered)} open={openGroup} loadImage={loadImage} session={session} selecting={selecting} selected={selected} viewing={personal.viewing} restoreFocus={route.posterFocus}/>
     </>}
     {route.page === 'sections' && unlocked && <ScrollView><Text style={shared.heading}>Choose a section</Text>
       <Action label="All media" selected={!sections.length && !watchlistOnly} onPress={() => { setSections([]); setWatchlistOnly(false); back(); }}/>
@@ -294,7 +299,7 @@ const MediaVaultApp = () => {
         {collection.personalId && <><Action label="Manage titles" compact onPress={() => navigate({page: 'membership', id: collection.personalId})}/>
           <Action label="Manage collection" compact onPress={() => { setName(collection.title); navigate({page: 'collection-settings', id: collection.personalId}); }}/></>}
       </View>
-      <LibraryGrid groups={groupLibrary(collection.items)} open={openGroup} loadImage={loadImage} session={session} viewing={personal.viewing}/></>}
+      <LibraryGrid groups={groupLibrary(collection.items)} open={openGroup} loadImage={loadImage} session={session} viewing={personal.viewing} restoreFocus={route.posterFocus}/></>}
     {route.page === 'collection-settings' && collection?.personalId && <ScrollView><Text style={shared.heading}>Manage collection</Text>
       <Field label="Collection name" value={name} onChange={setName}/><View style={shared.row}><Action label="Save name" onPress={() => {
         const proposed = name.trim(); if (!proposed || proposed.length > 80 || personal.collections.some(value => value.id !== collection.personalId && value.name.toLowerCase() === proposed.toLowerCase())) { setError('Choose a unique name between 1 and 80 characters.'); return; }
