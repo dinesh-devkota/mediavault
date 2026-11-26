@@ -4,6 +4,9 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import com.dineshdevkota.cinevault.cloud.AndroidOneDriveAccountStore
+import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
+import com.dineshdevkota.cinevault.cloud.GoogleDriveDocuments
+import com.dineshdevkota.cinevault.cloud.GoogleDriveSourceStore
 import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.cloud.OneDriveMedia
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
@@ -53,6 +56,9 @@ class AppContainer(context: Context) {
     val database = CineVaultDatabase.create(context)
     val library = com.dineshdevkota.cinevault.family.FamilyLibrary(database, family)
     val collections = com.dineshdevkota.cinevault.library.MediaCollections(context, family, library)
+    internal val googleDriveDocuments = GoogleDriveDocuments(context)
+    internal val googleDriveSources = GoogleDriveSourceStore(
+        context, database, secrets, googleDriveDocuments)
     internal val oneDrive = OneDriveMedia(AndroidOneDriveAccountStore(context, secrets))
     internal val nfs = if (NfsDevelopment.available) {
         val access = NfsStoredAccess(
@@ -68,6 +74,7 @@ class AppContainer(context: Context) {
     } else null
     private val fileSources = buildMap<String, FileSourceTransport> {
         put(ONEDRIVE, oneDrive)
+        put(GOOGLE_DRIVE_DOCUMENTS, googleDriveDocuments)
         nfs?.let { put(NFS, it) }
     }
     val smb = SmbService(fileSources = fileSources)

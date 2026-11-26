@@ -30,7 +30,12 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
 import androidx.test.uiautomator.UiDevice
+import com.dineshdevkota.cinevault.cloud.DriveDocumentGrant
+import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
+import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.playback.PlayerActivity
+import com.dineshdevkota.cinevault.ui.GoogleDriveSetupActivity
+import com.dineshdevkota.cinevault.ui.MovieDetailActivity
 import com.dineshdevkota.cinevault.ui.isTelevision
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -38,6 +43,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -136,14 +142,64 @@ class AndroidPhoneNavigationTest {
                 val player = view.player
                 player != null && player.isPlaying && player.currentPosition in 7_500L..11_000L
             }
-            device.pressBack()
+            device.executeShellCommand("input keyevent KEYCODE_BACK")
+            compose.waitUntil(timeoutMillis = 10_000) {
+                var detailResumed = false
+                instrumentation.runOnMainSync {
+                    val resumed = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                    detailResumed = resumed.any { it is MovieDetailActivity } && resumed.none { it is PlayerActivity }
+                }
+                detailResumed
+            }
             visible(hasText("Feature") and !hasClickAction())
+            visible((hasText("Play") or hasText("Resume ", substring = true)) and hasClickAction())
         }
     }
 
-    private fun launchPhone(): ActivityScenario<MainActivity> {
+    @Test
+    fun touchEditsAndRemovesAnExistingGoogleDriveSelection() {
+        requirePhoneFixture()
+        val container = application.container
+        val store = container.database.sources()
+        val selected = DriveDocumentGrant(documents = listOf("content://com.google.android.apps.docs.storage/document/synthetic"))
+        val source = SourceEntity(
+            name = "Synthetic Drive photos", host = "google-drive", share = "selected", username = "android-documents",
+            encryptedPassword = container.secrets.encrypt(selected.encode()), sourceType = GOOGLE_DRIVE_DOCUMENTS,
+        )
+        val editor = Intent(application, GoogleDriveSetupActivity::class.java).putExtra("source_id", source.id)
+        try {
+            runBlocking { store.upsert(source) }
+            ActivityScenario.launch<GoogleDriveSetupActivity>(editor).use {
+                visible(hasText("Edit Google Drive source"))
+                visible(hasText("Source name (optional)") and hasSetTextAction()).performTextReplacement("Family photos")
+                tap("Save source name")
+                runBlocking {
+                    withTimeout(10_000) {
+                        while (store.get(source.id)?.name != "Family photos") delay(50)
+                    }
+                    assertEquals(source.encryptedPassword, store.get(source.id)?.encryptedPassword)
+                }
+            }
+            ActivityScenario.launch<GoogleDriveSetupActivity>(editor).use {
+                tap("Remove source")
+                tap("Confirm remove Google Drive source")
+                runBlocking {
+                    withTimeout(10_000) { while (store.get(source.id) != null) delay(50) }
+                    assertNull(store.get(source.id))
+                }
+            }
+        } finally {
+            runBlocking { store.delete(source.id) }
+        }
+    }
+
+    private fun requirePhoneFixture() {
         assertEquals("Only run this test on a disposable phone emulator", "true", InstrumentationRegistry.getArguments().getString("phoneUiFixture"))
         assertFalse("This test expects a phone UI", application.resources.configuration.isTelevision())
+    }
+
+    private fun launchPhone(): ActivityScenario<MainActivity> {
+        requirePhoneFixture()
         val launcher = checkNotNull(application.packageManager.getLaunchIntentForPackage(application.packageName))
         assertTrue(launcher.hasCategory(Intent.CATEGORY_LAUNCHER))
         return ActivityScenario.launch(launcher)
@@ -175,11 +231,18 @@ class AndroidPhoneNavigationTest {
                     node.assertIsDisplayed()
                     true
                 } catch (failure: AssertionError) {
-                    lastFailure = failure; false
+                    lastFailure = failure
+                    false
                 } catch (failure: IllegalStateException) {
                     // The outgoing activity can detach before the new screen registers its Compose root.
                     if (failure.message?.startsWith("No compose hierarchies found in the app.") != true) throw failure
-                    lastFailure = failure; false
+                    lastFailure = failure
+                    false
+                } catch (failure: IllegalArgumentException) {
+                    // The incoming list can still be measuring when a scroll action retries.
+                    if (failure.message != "performMeasureAndLayout called during measure layout") throw failure
+                    lastFailure = failure
+                    false
                 }
             }
         } catch (timeout: ComposeTimeoutException) {

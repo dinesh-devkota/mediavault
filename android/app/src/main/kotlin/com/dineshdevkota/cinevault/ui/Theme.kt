@@ -78,6 +78,12 @@ fun CineVaultTheme(content: @Composable () -> Unit) {
 }
 
 fun ComponentActivity.setCineVaultContent(content: @Composable () -> Unit) = setContent {
-    CineVaultTheme { FamilyGate(adminOnly = this is NasSetupActivity || this is SourceEditorActivity ||
-        this is EditMovieActivity || this is PlaybackSettingsActivity || this is OneDriveSetupActivity, content = content) }
+    CineVaultTheme {
+        FamilyGate(
+            adminOnly = this is NasSetupActivity || this is SourceEditorActivity ||
+                this is GoogleDriveSetupActivity || this is OneDriveSetupActivity ||
+                this is EditMovieActivity || this is PlaybackSettingsActivity,
+            content = content,
+        )
+    }
 }

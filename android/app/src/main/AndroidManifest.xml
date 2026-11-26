@@ -12,6 +12,16 @@
         android:name="android.hardware.touchscreen"
         android:required="false" />
 
+    <queries>
+        <provider android:authorities="com.google.android.apps.docs.storage" />
+        <intent><action android:name="android.intent.action.OPEN_DOCUMENT_TREE" /></intent>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT" />
+            <category android:name="android.intent.category.OPENABLE" />
+            <data android:mimeType="*/*" />
+        </intent>
+    </queries>
+
     <application
         android:name=".CineVaultApp"
         android:allowBackup="false"
@@ -25,6 +35,7 @@
             android:name=".ui.FamilyActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.GoogleDriveSetupActivity" android:exported="false" />
         <activity android:name=".ui.PlaybackSettingsActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"

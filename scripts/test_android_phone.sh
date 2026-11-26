@@ -25,7 +25,10 @@ plex_class="$app_id.plex.PlexTlsIntegrationTest"
 onedrive_classes="$app_id.cloud.OneDriveSetupNavigationTest,$app_id.cloud.OneDriveMediaIntegrationTest,$app_id.cloud.OneDriveAccountStoreInstrumentedTest"
 metadata_class="$app_id.metadata.MetadataMutationTest"
 metadata_cases="$metadata_class#plexManualMovieMatchKeepsTheRatingUpdatedWhileItsReplyWasPending,$metadata_class#plexManualTvMatchPreservesRestrictedAndUnknownServerRatings,$metadata_class#plexResetAndAutomaticMetadataCannotDiscardServerIdentityOrClassification"
-classes="$phone_class,$library_classes,$media_class#mkvPlaybackAndSeekFromNas,$plex_class,$onedrive_classes,$metadata_cases,$media_class#dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate"
+drive_tree="googleDriveFolderImportPhotosCaptionsAndSeekRequireAnExplicitHouseholdGrant"
+drive_files="googleDriveExplicitDocumentsCannotReadAnUnselectedFile"
+dropbox_media="dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate"
+classes="$phone_class,$library_classes,$media_class#mkvPlaybackAndSeekFromNas,$plex_class,$onedrive_classes,$metadata_cases,$media_class#$dropbox_media,$media_class#$drive_tree,$media_class#$drive_files"
 PLEX_CERTIFICATE=$(base64 -w0 "$RUNNER_TEMP/phone-plex/fixture.cer")
 cd android
 status=0
@@ -42,41 +45,53 @@ adb -s "$SERIAL" pull /sdcard/Android/data/com.dineshdevkota.cinevault/files/tes
 if [[ "$status" != "0" ]]; then exit "$status"; fi
 test -s app/build/phone-screenshots/library-version-picker-phone.png
 test -s app/build/phone-screenshots/library-custom-collection-phone.png
-python3 - <<'PY'
+python3 - "$app_id" "$drive_tree" "$drive_files" "$dropbox_media" <<'PY'
 from pathlib import Path
+from sys import argv
 from xml.etree import ElementTree
 
 reports = Path("app/build/outputs/androidTest-results").rglob("TEST-*.xml")
 cases = [case for report in reports for case in ElementTree.parse(report).getroot().iter("testcase")]
-expected = {
-    "handheldLauncherOpensSourceFormAndShowsAddressValidation",
-    "touchSetupImportsMovieAndPlaysAndSeeksWithNativeControls",
-    "localArtworkVersionsAndNamedCollectionsUseNativeControls",
-    "importsRealNasSidecarsGroupsVersionsAndDecodesLocalArtWithoutKey",
-    "customCollectionsPersistButNeverCrossHouseholdProfilesOrRevealRestrictedFranchises",
-    "mkvPlaybackAndSeekFromNas",
-    "invalidSidecarsClearOldRatingButTemporaryReadFailurePreservesIt",
-    "touchNavigationOpensPlexLinking",
-    "touchNavigationOpensOneDriveSetupAlongsidePlex",
-    "ownerConnectsOverTlsAndReadsCatalogAndMediaRange",
-    "plexManualMovieMatchKeepsTheRatingUpdatedWhileItsReplyWasPending",
-    "plexManualTvMatchPreservesRestrictedAndUnknownServerRatings",
-    "plexResetAndAutomaticMetadataCannotDiscardServerIdentityOrClassification",
-    "ownerCanOpenOneDriveSetupAndRecoverFromInvalidPublicApplicationId",
-    "stagedSignInImportsSelectedFolderAndPlaysWithBoundedReadsAndCaptions",
-    "refreshRecordIsEncryptedOnDiskAndRemovable",
-    "dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate",
+app_id, tree, files, dropbox = argv[1:]
+methods_by_class = {
+    "AndroidPhoneNavigationTest": (
+        "handheldLauncherOpensSourceFormAndShowsAddressValidation",
+        "touchSetupImportsMovieAndPlaysAndSeeksWithNativeControls",
+        "touchEditsAndRemovesAnExistingGoogleDriveSelection",
+        "touchNavigationOpensPlexLinking",
+        "touchNavigationOpensOneDriveSetupAlongsidePlex",
+    ),
+    "LibraryFeaturesNavigationTest": ("localArtworkVersionsAndNamedCollectionsUseNativeControls",),
+    "library.LocalLibraryIntegrationTest": (
+        "importsRealNasSidecarsGroupsVersionsAndDecodesLocalArtWithoutKey",
+        "customCollectionsPersistButNeverCrossHouseholdProfilesOrRevealRestrictedFranchises",
+        "invalidSidecarsClearOldRatingButTemporaryReadFailurePreservesIt",
+    ),
+    "metadata.MetadataMutationTest": (
+        "plexManualMovieMatchKeepsTheRatingUpdatedWhileItsReplyWasPending",
+        "plexManualTvMatchPreservesRestrictedAndUnknownServerRatings",
+        "plexResetAndAutomaticMetadataCannotDiscardServerIdentityOrClassification",
+    ),
+    "playback.SmbPlaybackTest": ("mkvPlaybackAndSeekFromNas", dropbox, tree, files),
+    "plex.PlexTlsIntegrationTest": ("ownerConnectsOverTlsAndReadsCatalogAndMediaRange",),
+    "cloud.OneDriveSetupNavigationTest": ("ownerCanOpenOneDriveSetupAndRecoverFromInvalidPublicApplicationId",),
+    "cloud.OneDriveMediaIntegrationTest": ("stagedSignInImportsSelectedFolderAndPlaysWithBoundedReadsAndCaptions",),
+    "cloud.OneDriveAccountStoreInstrumentedTest": ("refreshRecordIsEncryptedOnDiskAndRemovable",),
 }
-failures = 0
+expected = {(f"{app_id}.{test_class}", method) for test_class, methods in methods_by_class.items() for method in methods}
+executed = {(case.get("classname"), case.get("name")) for case in cases}
+problems = 0
 for case in cases:
     outcome = next((tag for tag in ("failure", "error", "skipped") if case.find(tag) is not None), "passed")
     print(f"{case.get('classname')}.{case.get('name')} {outcome}")
-    failures += outcome != "passed"
-if len(cases) != len(expected) or {case.get("name") for case in cases} != expected:
-    raise SystemExit("Every expected phone runtime test must execute on exactly one emulator.")
-if failures:
-    raise SystemExit("Phone runtime journeys failed or skipped.")
+    if outcome != "passed":
+        problems += 1
+        problem = case.find(outcome)
+        print((problem.text or problem.get("message") or outcome)[:2500])
+if len(cases) != len(expected) or executed != expected:
+    raise SystemExit("The phone fixture tests must execute on exactly one emulator.")
+if problems:
+    raise SystemExit("Phone runtime tests failed or skipped.")
 print(f"Android phone: {len(cases)} runtime tests passed.")
 PY
-
 exit "$status"

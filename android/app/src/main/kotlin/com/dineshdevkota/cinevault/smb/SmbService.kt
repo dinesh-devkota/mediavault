@@ -1,6 +1,8 @@
 package com.dineshdevkota.cinevault.smb
 
 import com.dineshdevkota.cinevault.cloud.CloudClientException
+import com.dineshdevkota.cinevault.cloud.DriveDocumentPath
+import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
 import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.nfs.NFS
 import com.dineshdevkota.cinevault.cloud.DROPBOX
@@ -50,10 +52,15 @@ data class SourceConfig(
     val sourceType: String = "smb",
     val allowInsecureHttp: Boolean = false,
 ) {
-    init { require(sourceType in setOf("smb", "webdav", ONEDRIVE, DROPBOX, NFS)) { "Unsupported source type." } }
+    init {
+        require(sourceType in setOf("smb", "webdav", ONEDRIVE, DROPBOX, GOOGLE_DRIVE_DOCUMENTS, NFS)) {
+            "Unsupported source type."
+        }
+    }
     val isWebDav: Boolean get() = sourceType == "webdav"
-    val caseSensitivePaths: Boolean get() = isWebDav || sourceType == ONEDRIVE || sourceType == NFS
+    val isGoogleDrive: Boolean get() = sourceType == GOOGLE_DRIVE_DOCUMENTS
     internal val isDropbox: Boolean get() = sourceType == DROPBOX
+    val caseSensitivePaths: Boolean get() = isWebDav || sourceType == ONEDRIVE || isGoogleDrive || sourceType == NFS
     override fun toString(): String = "SourceConfig(id=$id, host=${runCatching { NasAddress.parse(host, port).host }.getOrDefault("invalid")}, share=$share)"
 }
 
@@ -218,7 +225,10 @@ class SmbService(
 
     /** Recursively lists indexable video files below the source's root folder. */
     suspend fun scanVideos(config: SourceConfig): List<RemoteFile> = fileSource(config)?.scan(config) {}
-        ?.filter { VideoFile.shouldIndex(it.path, it.size) } ?: if (config.isWebDav) webdav.scan(config) {}.filter { VideoFile.shouldIndex(it.path, it.size) } else withShare(config) { share ->
+        ?.filter { file ->
+            val name = if (config.isGoogleDrive) DriveDocumentPath.displayPath(file.path) ?: file.path else file.path
+            VideoFile.shouldIndex(name, file.size)
+        } ?: if (config.isWebDav) webdav.scan(config) {}.filter { VideoFile.shouldIndex(it.path, it.size) } else withShare(config) { share ->
         val results = mutableListOf<RemoteFile>()
         val pending = mutableListOf(rootOf(config))
         while (pending.isNotEmpty()) {

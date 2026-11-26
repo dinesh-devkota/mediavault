@@ -33,9 +33,15 @@ fun photoAlbums(items: List<MovieEntity>, sources: List<SourceEntity>? = null): 
     .map { (id, photos) ->
         val first = photos.first()
         val folder = first.filePath.replace('\\', '/').substringBeforeLast('/', "")
-        val library = sourceById?.get(first.sourceId)?.takeIf { it.sourceType == JELLYFIN || it.sourceType == PLEX }
+        val source = sourceById?.get(first.sourceId)
+        val providerTitle = when (source?.sourceType) {
+            JELLYFIN, PLEX -> source.name
+            com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS ->
+                com.dineshdevkota.cinevault.cloud.DriveDocumentPath.displayPath(folder)?.substringAfterLast('/') ?: source.name
+            else -> null
+        }
         PhotoAlbum(id, first.sourceId, folder,
             photos.sortedWith(compareBy<MovieEntity> { it.fileName.lowercase(Locale.ROOT) }.thenBy { it.id }),
-            title = library?.name ?: folder.substringAfterLast('/').ifBlank { "Shared folder" })
+            title = providerTitle ?: folder.substringAfterLast('/').ifBlank { "Shared folder" })
     }.sortedWith(compareBy<PhotoAlbum> { it.title.lowercase(Locale.ROOT) }.thenBy { it.sourceId }.thenBy { it.folder })
 }
