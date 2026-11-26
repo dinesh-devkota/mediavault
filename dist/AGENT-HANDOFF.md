@@ -240,7 +240,13 @@ TV and household/PIN remain unvisited. Evidence: `.artifacts/vega-ui-45768740001
 Follow-up `fafb05b` implements the player fixes; `b058e51` adds separate native
 remote/on-screen seek assertions and bounded fixture-only video/audio relay traces.
 Run `45774417317` passed all three release packages, fixture packaging and native
-regressions; its native app journey is running. Local native verification covered
+regressions. Its app journey stopped at stage01 after address-field keyboard Back:
+native logs report the keyboard hidden, but automation visibility queries stalled
+45s each and returned unknown/failure. No valid final route observation, screenshot
+or playback trace was obtained. This is an automation transport/observability
+failure, not proof that the keyboard stayed open, and is not an app pass. No seek
+or later-stage conclusion can be drawn from this run. Optimized run45775231496
+is already running separately at ee07b52. Local native verification covered
 80 cases (five local build guards needed the existing SDK library path and then
 passed); all 69 app/SDK tests and 17 harness contracts passed before optimization.
 The trace is absent from the compiled production host binary and logs at most
@@ -362,6 +368,18 @@ Mesa/EGL tools. Disposable Ubuntu checks generated all four media fixtures and
 opened Xvfb successfully. Full VVD compatibility and elapsed-time savings still
 need the optimized cloud trial. Parallel job scheduling and SDK-state caching are
 deferred; the current job graph, cold devices and complete checks are retained.
+
+Cloud continuation requested November26: the current coding chat runs on the
+owner's Windows computer. Existing GitHub Actions jobs continue independently if
+it shuts down. A cloud coding task has NOT started: `codex cloud exec` with the
+listed runnable Default environment returned "no cloud environments are available
+for this workspace". The older saved CineVault environment reports non-runnable.
+The app's current handoff tool cannot move this chat to cloud. Browser fallback
+was unsigned and its tab disappeared before sign-in. Do not claim autonomous
+coding will continue with this PC off. The owner can start a Cloud chat using a
+usable environment, connect this repository, and continue from this pushed
+verification branch and handoff. A detailed prepared continuation prompt is local
+only at `.artifacts/cloud-continuation-prompt.txt`; it contains no owner credentials.
 
 ### Earlier Fire validation and investigations
 
