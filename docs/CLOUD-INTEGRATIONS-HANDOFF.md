@@ -183,15 +183,18 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   identifier and range contract against an isolated official Plex Media Server.
   The Apple TV simulator ran 212 cases with zero failures or skips, including
   Plex setup by remote, protected catalog and playback. The combined Android
-  and Apple TV draft runs both suites against one development candidate. Live account
-  linking needs a signed-in Plex QA account and an eligible reachable server.
+  and Apple TV draft passed both TV suites against one development candidate.
+  Android Plex also passed 102 TV cases and all four phone cases, including
+  authenticated native playback and seek. Live account linking needs a signed-in Plex QA account and an eligible reachable server.
   The preview currently supports direct play and requires a reachable direct
   server connection.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/5)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/pull/21)
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/25)
   · [Combined development draft](https://github.com/dinesh-devkota/mediavault/pull/28)
-  · [212 Apple TV cases](https://github.com/dinesh-devkota/mediavault/actions/runs/45732262397)
+  · [212 Apple TV cases on the combined draft](https://github.com/dinesh-devkota/mediavault/actions/runs/45735035580)
+  · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45734670331)
+  · [Android phone](https://github.com/dinesh-devkota/mediavault/actions/runs/45734664627)
 - NFS has loopback tests and an opt-in Android debug bridge for four ABIs.
   The app source, both TV playback journeys, tvOS packaging and distribution
   licensing review remain open.
@@ -200,36 +203,43 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   chooses a source folder, and MediaVault stores the refresh credential in
   the device's protected storage. Reconnection verifies the original drive
   and folder. The drafts cover scans, range playback and seek, photos and
-  matching sidecars. Live use requires an Entra public client ID configured
+  matching sidecars. Android passed 101 TV cases and all five phone cases.
+  Live use requires an Entra public client ID configured
   for personal accounts, public client flows and delegated Files.Read. A
   Microsoft test account is required for live validation.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/4)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/pull/22)
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/24)
+  · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45734675726)
+  · [Android phone](https://github.com/dinesh-devkota/mediavault/actions/runs/45734675767)
 - Dropbox uses a public app key, a PKCE browser approval and a code entered
   in MediaVault. The Android draft links a folder, protects the refresh
   credential, and imports and reads media over read-only ranges. A real
   Dropbox API app key with Full Dropbox access and the read scopes
   account_info.read, files.metadata.read and files.content.read is needed
   for a live account test, subject to the Dropbox app's access and
-  production approval limits.
+  production approval limits. The exact Android phone run passed its three
+  required cases, including Dropbox. The Apple branches inherit a regression
+  check for subtitle discovery at an exact household grant boundary.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/6)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/pull/26)
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/27)
+  · [Android phone](https://github.com/dinesh-devkota/mediavault/actions/runs/45735178417)
 - Google Drive uses the platform picker on Android TV and phone when the
   signed-in Google Drive document provider and picker are available, and the
   Files picker on iPhone. Owners can grant a folder when the provider
   supports folder selection or choose individual media and caption files.
   Google handles authentication. The app stores the platform read grant
   or bookmark locally, and uses it for selected-file library and playback.
-  The first app checkpoint passed all 100 hosted Android TV cases, including
-  range playback, photos and captions, and the two baseline Android phone touch
-  journeys. The follow-up adds dedicated Drive provider tests to the phone gate.
+  The current Android candidate passed all 100 TV and five phone cases,
+  including range playback, photos, captions, scoped file reads, and the
+  phone source editor.
   Apple TV still needs a compliant companion picker with authorized
   Google OAuth registration before it can offer this provider.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/7)
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/23)
-  · [100 Android TV cases](https://github.com/dinesh-devkota/mediavault/actions/runs/45732622360)
+  · [100 Android TV cases](https://github.com/dinesh-devkota/mediavault/actions/runs/45734155288)
+  · [Five Android phone cases](https://github.com/dinesh-devkota/mediavault/actions/runs/45734155291)
   · [Google's limited-input device scopes](https://developers.google.com/identity/protocols/oauth2/limited-input-device)
 
 The user authorized provider merges to development after the exact source
