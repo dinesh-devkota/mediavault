@@ -96,6 +96,28 @@ struct PlexSourceEditor: View {
         linkingSession = nil
     }
 
+    private func accountClient() throws -> PlexAccountClient {
+        #if DEBUG && os(iOS) && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-empty-library"),
+           ProcessInfo.processInfo.arguments.contains("--ui-test-plex-fixture") {
+            return try PlexAccountClient(deviceID: id.uuidString) { request, limit, status in
+                guard let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                      components.scheme == "https", components.host == "plex.tv",
+                      (components.port == nil || components.port == 443), components.path.hasPrefix("/api/v2/") else {
+                    throw PlexAccountError.invalidResponse
+                }
+                components.host = "127.0.0.1"
+                components.port = 18777
+                guard let target = components.url else { throw PlexAccountError.invalidResponse }
+                var fixture = request
+                fixture.url = target
+                return try await PlexAccountClient.exchange(fixture, limit: limit, expectedStatus: status)
+            }
+        }
+        #endif
+        return try PlexAccountClient(deviceID: id.uuidString)
+    }
+
     private func link() {
         guard household.isAdmin, task == nil else { return }
         let session = household.sessionToken
@@ -104,7 +126,7 @@ struct PlexSourceEditor: View {
         task = Task {
             defer { code = nil; task = nil }
             do {
-                let client = try PlexAccountClient(deviceID: id.uuidString)
+                let client = try accountClient()
                 let pin = try await client.beginLink()
                 try check(session)
                 code = pin.code

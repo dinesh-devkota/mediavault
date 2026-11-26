@@ -2,7 +2,8 @@
 
 The current development candidate includes SMB, HTTPS WebDAV, Jellyfin, Plex,
 personal OneDrive, and Dropbox source adapters. Dropbox setup is available on
-Apple TV and Android. Its iPhone setup is tracked in a separate draft. Test coverage
+Apple TV, iPhone, and Android. iPhone can also read selected media from Apple Files providers,
+including Google Drive. Test coverage
 and remaining limits are recorded in [TESTING.md](TESTING.md) and the
 [handoff](../dist/AGENT-HANDOFF.md); a merged connector does not establish live-account
 or physical-device compatibility. See the [user guide](MEDIA-GUIDE.md) for setup.
@@ -99,7 +100,11 @@ provided the original comparison point; use the current status above for impleme
   omits a redirect URI. A production app can provide its own registered public
   key. Check the Dropbox App Console for linked-account limits and production
   access requirements. [Dropbox OAuth](https://developers.dropbox.com/oauth-guide)
-- **Google Drive.** Enable the Drive API in a Google Cloud project and register
+- **Google Drive on iPhone.** Install and sign in to the Google Drive app, enable
+  Drive in Apple Files, and choose a folder or individual media files in MediaVault’s
+  **Connect Google Drive via Files** setup. The Files provider manages your account
+  and media downloads.
+- **Direct Google Drive access.** Enable the Drive API in a Google Cloud project and register
   OAuth clients for the chosen authorization flow. The listed TV device flow
   supports `drive.file` and `drive.appdata`. Broad access to existing files needs
   a different approved flow, and `drive.readonly` is restricted. Design per-file

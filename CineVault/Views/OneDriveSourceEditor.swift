@@ -53,7 +53,13 @@ struct OneDriveSourceEditor: View {
                 connectedSections(source)
             } else {
                 Section("Microsoft app registration") {
-                    TextField("Public client ID", text: $clientID).accessibilityIdentifier("onedrive-client")
+                    TextField("Public client ID", text: $clientID)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.asciiCapable)
+                        #endif
+                        .accessibilityIdentifier("onedrive-client")
                     Text("Use a Microsoft Entra public client registered for personal Microsoft accounts and delegated Files.Read.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button("Start Microsoft sign-in", action: signIn)
@@ -63,6 +69,9 @@ struct OneDriveSourceEditor: View {
             }
         }
         .navigationTitle(source == nil ? "Connect OneDrive" : "OneDrive source")
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        #endif
         .onAppear {
             if let source {
                 name = source.name
