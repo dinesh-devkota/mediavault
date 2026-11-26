@@ -221,9 +221,17 @@ revision `0bb9033` keeps the actual Back action and checks that it returns to th
 selected movie with its playback action available. The corrected head passed
 117 Android TV and 20 Android phone emulator cases, with every Drive case
 executed. Apple TV passed 259 cases including the shared Swift range client.
-An unchanged iPhone WebDAV handshake stalled before HTTP and is being
-retested. The Google Drive iPhone draft is separately on `feebb5fa` with
-four named Files-access gates and uses the system document picker. Private Drive on Apple TV needs a registered
+One iPhone regression run stopped at a WebDAV TLS handshake. Its unchanged
+retry imported the film and then encountered a late system Save Password
+sheet over the Library. The Android app and its required TV and phone
+journeys are green. The Google Drive iPhone draft passed 221 iPhone and 224 Apple TV
+simulator tests, the two unsigned builds, and all four Files-access gates.
+It merged into the iPhone feature branch at `0d84915`. Live Drive use
+depends on a signed-in Google Drive app enabled in Files. PR #16 ports the
+verified iPhone provider flows onto current development at `4d43086`, keeps
+the existing offline policy, and adds the Files data flow to that policy.
+The exact combined development tree has its own simulator and build checks.
+[Development iPhone port #16](https://github.com/dinesh-devkota/mediavault/pull/16) Private Drive on Apple TV needs a registered
 Google OAuth/Picker flow and a reviewable HTTPS companion.
 [Android Drive #7](https://github.com/dinesh-devkota/mediavault/pull/7)
 · [iPhone Drive #23](https://github.com/dinesh-devkota/mediavault/pull/23)

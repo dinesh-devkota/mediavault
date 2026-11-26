@@ -453,8 +453,15 @@ The Release matrix now runs its architecture-independent TypeScript, lint and
 Jest checks once, on x86_64, while every native package retains its own SDK
 doctor, native compilation and package content checks. Superseded PR runs may
 cancel without canceling manual diagnostics. The hosted app verified the clock-confirmation remedy with separate MP4
-seek and MKV recovery cases. The integrated Fire/Vega pull request still
-runs its own branch checks. No release job is authorized.
+seek and MKV recovery cases. The integrated Fire/Vega draft #20 uses
+the same Vega product code and media fixtures atop development `2157a415`.
+The initial combined Fire run failed on one Android instrumentation call
+missing its required context. The Vega rerun confirmed the first accepted
+seek but sampled one unreadable Appium clock before the next command. The
+updated draft `5d2afd2` fixes the Android test and lets the existing bounded
+confirmation poll again before requiring the real native event and clock.
+Production and instrumentation Kotlin compile and 31 Node contracts passed
+locally. Exact hosted branch checks remain separate. No release job is authorized.
 
 Dropbox PR #30 merged into development at `312b9ade` after all exact synthetic
 checks passed. OneDrive iPhone PR #24 merged into the iPhone feature parent at
