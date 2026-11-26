@@ -45,6 +45,7 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.ui.PlayerView
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.WatchRules
 import com.dineshdevkota.cinevault.data.MovieEntity
@@ -64,6 +65,12 @@ import com.dineshdevkota.cinevault.jellyfin.JellyfinPlayback
 import com.dineshdevkota.cinevault.jellyfin.JellyfinPlaybackEvent
 import com.dineshdevkota.cinevault.jellyfin.jellyfinConnection
 import com.dineshdevkota.cinevault.jellyfin.jellyfinItemID
+import com.dineshdevkota.cinevault.plex.PLEX
+import com.dineshdevkota.cinevault.plex.PlexException
+import com.dineshdevkota.cinevault.plex.PlexMediaClient
+import com.dineshdevkota.cinevault.plex.PlexRemoteHandle
+import com.dineshdevkota.cinevault.plex.plexClient
+import com.dineshdevkota.cinevault.plex.authorizedItem
 import com.dineshdevkota.cinevault.ui.ContinueWatchingItem
 import com.dineshdevkota.cinevault.ui.nextEpisodeFor
 import com.dineshdevkota.cinevault.ui.PlaybackSettingsActivity
@@ -97,9 +104,11 @@ class PlayerActivity : ComponentActivity() {
     private class Target(
         val movie: MovieEntity, val config: SourceConfig?, val source: SourceEntity,
         val connection: JellyfinConnection? = null,
+        val plex: PlexPlaying? = null,
         val emby: EmbyConnection? = null,
     )
 
+    private class PlexPlaying(val client: PlexMediaClient, val part: PlexMediaClient.MediaPart, val rating: String?)
     private class JellyfinPlaying(val connection: JellyfinConnection, val playback: JellyfinPlayback)
 
     private class EmbyPlaying(val connection: EmbyConnection, val playback: EmbyClient.Playback, val length: Long? = null) {
@@ -280,7 +289,7 @@ class PlayerActivity : ComponentActivity() {
                 } catch (e: Exception) {
                     Toast.makeText(this@PlayerActivity, when (e) {
                         is EmbyException -> safeEmbyError(e)
-                        is JellyfinException -> e.message
+                        is JellyfinException, is PlexException -> e.message
                         else -> SmbService.describe(e)
                     }, Toast.LENGTH_LONG).show()
                     finish()
@@ -290,7 +299,11 @@ class PlayerActivity : ComponentActivity() {
                 target = loaded
                 showInformation(loaded.movie)
                 val downloaded = preparedSubtitles.filter { it.configuration.id?.startsWith("subdl:") == true }
-                preparedSubtitles = if (loaded.config != null) discoverSubtitles(loaded) + downloaded else downloaded
+                preparedSubtitles = when {
+                    loaded.plex != null -> discoverPlexSubtitles(loaded) + downloaded
+                    loaded.config != null -> discoverSubtitles(loaded) + downloaded
+                    else -> downloaded
+                }
                 val jellyfin = try {
                     loaded.connection?.let { connection ->
                         val itemID = jellyfinItemID(loaded.movie.filePath)
@@ -324,17 +337,21 @@ class PlayerActivity : ComponentActivity() {
                 val refreshedSource = container.database.sources().get(loaded.source.id)
                 if (refreshed == null || !container.family.isCurrent(householdSession) ||
                     !sameSource(refreshedSource, loaded.source) || refreshed.sourceId != loaded.movie.sourceId ||
-                    refreshed.filePath != loaded.movie.filePath || PlaybackValidator.rejectionReason(refreshed, loaded.config) != null) {
+                    refreshed.filePath != loaded.movie.filePath ||
+                    !container.family.permits(refreshed, requiresWholeSource = loaded.emby != null) ||
+                    PlaybackValidator.rejectionReason(refreshed, loaded.config) != null) {
                     rootView.visibility = View.INVISIBLE; target = null; finish()
                     return@repeatOnLifecycle
                 }
-                target = Target(refreshed, loaded.config, loaded.source, loaded.connection, loaded.emby)
+                target = Target(refreshed, loaded.config, loaded.source, loaded.connection, plex = loaded.plex, emby = loaded.emby)
                 showInformation(refreshed)
                 startPlayer(jellyfin, emby)
                 combine(container.library.observe(movieId), container.database.sources().observe(loaded.source.id)) {
                     current, source -> current to source
                 }.collect { (current, source) ->
                     if (current == null || !sameSource(source, loaded.source) ||
+                        current.filePath != loaded.movie.filePath || current.sourceId != loaded.movie.sourceId ||
+                        !container.family.permits(current, requiresWholeSource = loaded.emby != null) ||
                         PlaybackValidator.rejectionReason(current, loaded.config) != null) {
                         rootView.visibility = View.INVISIBLE
                         stopPlayer()
@@ -343,7 +360,7 @@ class PlayerActivity : ComponentActivity() {
                         finish()
                     } else {
                         if (target?.movie?.subtitleIdentity() != current.subtitleIdentity()) invalidateSubtitleRequest()
-                        target = Target(current, loaded.config, source ?: loaded.source, loaded.connection, loaded.emby)
+                        target = Target(current, loaded.config, source ?: loaded.source, loaded.connection, plex = loaded.plex, emby = loaded.emby)
                         showInformation(current)
                     }
                 }
@@ -361,12 +378,32 @@ class PlayerActivity : ComponentActivity() {
         val connection = withContext(Dispatchers.IO) {
             if (source.sourceType == JELLYFIN) source.jellyfinConnection(container.secrets) else null
         }
-        val emby = withContext(Dispatchers.IO) {
-            if (source.sourceType == EMBY) source.embyConnection(container.secrets) else null
+        val plex = if (source.sourceType == PLEX) {
+            check(container.family.isCurrent(householdSession) && container.family.permits(movie)) { "Your household session has locked." }
+            val client = source.plexClient(container.secrets)
+            val authorized = client.authorizedItem(movie, source.share) {
+                if (!container.family.isCurrent(householdSession) || !container.family.permits(it)) {
+                    throw PlexException("This Plex item is no longer available for this profile.")
+                }
+            }
+            val part = client.singleFileParts(authorized.item).firstOrNull()
+                ?: throw PlexException("Plex did not provide a supported single-file stream.")
+            PlexPlaying(client, part, authorized.rating)
+        } else null
+        val emby = if (source.sourceType == EMBY) {
+            if (!container.family.isCurrent(householdSession) ||
+                !container.family.permits(movie, requiresWholeSource = true)) {
+                throw EmbyException("This item is no longer available.", 403)
+            }
+            withContext(Dispatchers.IO) { source.embyConnection(container.secrets) }
+        } else null
+        val config = if (connection == null && plex == null && emby == null) withContext(Dispatchers.IO) { source.config(container.secrets) } else null
+        if (config != null) PlaybackValidator.validate(movie, config) { fileConfig, path ->
+            if (fileConfig.isDropbox) container.smb.probeDropbox(fileConfig, path) {
+                check(container.family.isCurrent(householdSession) && container.family.permits(movie))
+            } else container.smb.hasPlayableContent(fileConfig, path)
         }
-        val config = if (connection == null && emby == null) withContext(Dispatchers.IO) { source.config(container.secrets) } else null
-        if (config != null) PlaybackValidator.validate(movie, config, container.smb::hasPlayableContent)
-        else if (connection != null && jellyfinItemID(movie.filePath) == null) {
+        if (connection != null && jellyfinItemID(movie.filePath) == null) {
             throw JellyfinException("This Jellyfin item is invalid. Scan the source again.")
         } else if (emby != null && embyItemId(movie.filePath) == null) {
             throw EmbyException("This Emby item is invalid. Scan the source again.")
@@ -383,7 +420,9 @@ class PlayerActivity : ComponentActivity() {
             }
             PlaybackValidator.rejectionReason(current, config)?.let { throw SmbException(it) }
             check(container.family.isCurrent(householdSession)) { "Your household session has locked." }
-            Target(current, config, source, connection, emby)
+            if (!container.family.permits(current, requiresWholeSource = emby != null))
+                throw SmbException("This item is no longer available for playback.")
+            Target(current, config, source, connection, plex = plex, emby = emby)
         }
     }
 
@@ -472,17 +511,23 @@ class PlayerActivity : ComponentActivity() {
         val target = target ?: return
         if (player != null || isFinishing) return
         val smb = container.smb
-        if (!container.family.isCurrent(householdSession) || !container.family.permits(target.movie)) { finish(); return }
-        val authorizeJellyfin = {
+        if (!container.family.isCurrent(householdSession) ||
+            !container.family.permits(target.movie, requiresWholeSource = target.emby != null)) {
+            finish()
+            return
+        }
+        val authorizeProviderRead = {
             val active = this.target?.movie
-            if (active == null || active.id != target.movie.id || active.isHidden || active.isMissing ||
-                !container.family.isCurrent(householdSession) || !container.family.permits(active)) {
-                throw IOException("This Jellyfin item is no longer available for playback.")
+            if (active == null || active.id != target.movie.id || active.sourceId != target.movie.sourceId ||
+                active.filePath != target.movie.filePath || active.isHidden || active.isMissing ||
+                !container.family.isCurrent(householdSession) || !container.family.permits(active) ||
+                target.plex?.let { !container.family.permits(active.copy(ageCertification = it.rating)) } == true) {
+                throw IOException("This item is no longer available for playback.")
             }
         }
         val transcode = emby?.playback as? EmbyClient.TranscodedPlayback
         val direct = emby?.playback as? EmbyClient.DirectPlayback
-        val files = if (jellyfin != null) jellyfinDataSources(jellyfin.connection, jellyfin.playback, authorize = authorizeJellyfin)
+        val files = if (jellyfin != null) jellyfinDataSources(jellyfin.connection, jellyfin.playback, authorize = authorizeProviderRead)
         else if (transcode != null) DataSource.Factory {
             EmbyHlsDataSource(emby.connection, transcode) { requirePlaybackAccess(target.movie) }
         } else if (direct != null) DataSource.Factory {
@@ -494,15 +539,24 @@ class PlayerActivity : ComponentActivity() {
             check(active != null && container.family.isCurrent(householdSession) && container.family.permits(active)) { "Your household session has locked." }
         }) {
             check(container.family.isCurrent(householdSession) && container.family.permits(target.movie)) { "Your household session has locked." }
-            smb.open(checkNotNull(target.config), target.movie.filePath)
+            target.plex?.let { PlexRemoteHandle(it.client, it.part, authorizeProviderRead) } ?: run {
+                val config = checkNotNull(target.config)
+                if (config.isDropbox) smb.openDropbox(config, target.movie.filePath, authorizeProviderRead)
+                else smb.open(config, target.movie.filePath)
+            }
         } }
-        // Only the scoped HTTP transport can resolve paths from a Jellyfin manifest.
-        val dataSources = if (jellyfin != null) files else DefaultDataSource.Factory(this, files)
+        // Provider manifests must resolve all paths through their scoped HTTP transport.
+        val dataSources = if (jellyfin != null || transcode != null) files else DefaultDataSource.Factory(this, files)
         val primarySources = if (transcode != null) HlsMediaSource.Factory(files)
             .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
         else DefaultMediaSourceFactory(dataSources, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true))
             .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
-        val localCaptions = if (jellyfin == null) dataSources else jellyfinLocalSubtitleDataSources(authorizeJellyfin)
+        val localCaptions = when {
+            emby != null -> jellyfinLocalSubtitleDataSources { requirePlaybackAccess(target.movie) }
+            jellyfin != null || target.plex != null || target.config?.isDropbox == true ->
+                jellyfinLocalSubtitleDataSources(authorizeProviderRead)
+            else -> dataSources
+        }
         val mediaSources = SubtitleMediaSourceFactory(primarySources, localCaptions) { preparedSubtitles }
         val exo = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setEnableDecoderFallback(true))
             .setMediaSourceFactory(mediaSources)
@@ -527,6 +581,8 @@ class PlayerActivity : ComponentActivity() {
                     jellyfin != null -> Uri.parse(jellyfin.playback.url.toString())
                     transcode != null -> Uri.parse(transcode.manifest.toString())
                     direct != null -> Uri.Builder().scheme("emby-read").authority("local").appendPath(target.movie.id).build()
+                    target.plex != null -> Uri.Builder().scheme("smb").authority("plex")
+                        .appendPath(target.plex.part.url.pathSegments.last()).build()
                     else -> filePlaybackUri(checkNotNull(target.config), target.movie.filePath)
                 })
                 .setMimeType(if (transcode != null || jellyfin?.playback?.method == "Transcode") MimeTypes.APPLICATION_M3U8 else null)
@@ -571,6 +627,32 @@ class PlayerActivity : ComponentActivity() {
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { /* A failed report must not interrupt local playback or history. */ }
         }
+    }
+
+    private suspend fun discoverPlexSubtitles(loaded: Target): List<PreparedSubtitle> {
+        val plex = loaded.plex ?: return emptyList()
+        val authorize = {
+            check(container.family.isCurrent(householdSession) &&
+                container.family.permits(loaded.movie.copy(ageCertification = plex.rating))) {
+                "This Plex item is unavailable for this profile."
+            }
+        }
+        return withTimeoutOrNull(2_500) {
+            plex.part.tracks.asSequence().filter { it.streamType == 3 && it.key != null }.take(8).toList()
+                .mapNotNull { track ->
+                    val type = when (track.codec?.lowercase()) {
+                        "srt", "subrip" -> MimeTypes.APPLICATION_SUBRIP
+                        "vtt", "webvtt" -> MimeTypes.TEXT_VTT
+                        else -> return@mapNotNull null
+                    }
+                    try {
+                        val bytes = plex.client.subtitle(plex.part, track, authorize)
+                        SubtitleTracks.configuration(bytes, type, track.languageCode,
+                            track.language ?: track.languageCode ?: "Plex subtitle", "plex:${track.key}", track.forced)
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { null }
+                }
+        }.orEmpty()
     }
 
     private fun reportEmby(event: EmbyClient.PlaybackEvent) {
@@ -628,7 +710,12 @@ class PlayerActivity : ComponentActivity() {
         val language = container.settings.subtitleLanguage
         val discovery = container.scope.async(Dispatchers.IO) {
             try {
-                val found = smb.readSubtitleSidecars(checkNotNull(loaded.config), loaded.movie.filePath, language)
+                val found = smb.readSubtitleSidecars(checkNotNull(loaded.config), loaded.movie.filePath, language) {
+                    val active = target?.movie
+                    check(active != null && active.id == loaded.movie.id && active.filePath == loaded.movie.filePath &&
+                        !active.isHidden && !active.isMissing && container.family.isCurrent(householdSession) &&
+                        container.family.permits(active)) { "Your household session has locked." }
+                }
                 found.files.mapNotNull(SubtitleTracks::configuration) to found.truncated
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { emptyList<PreparedSubtitle>() to false }
@@ -1043,16 +1130,17 @@ class PlayerActivity : ComponentActivity() {
         )
         if (unsupported.isEmpty()) return
         warnedAboutTracks = true
-        val message = "This TV can't decode the ${unsupported.joinToString(" or ")} format of this file."
+        val message = "This device can't decode the ${unsupported.joinToString(" or ")} format of this file."
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun errorMessage(error: PlaybackException): String = when (error.errorCode / 1000) {
         // Media3 groups error codes by category in thousands: 2xxx I/O, 3xxx parsing, 4xxx decoding, 5xxx audio.
-        2 -> if (target?.connection != null) "Could not read this Jellyfin stream."
+        2 -> if (target?.plex != null) "Could not read this Plex stream."
+            else if (target?.connection != null) "Could not read this Jellyfin stream."
             else error.cause?.let { SmbService.describe(it) } ?: "Could not read the file from the NAS."
         3 -> "This file's format isn't supported, or the file is damaged."
-        4, 5 -> "This TV can't play this file's video or audio format."
+        4, 5 -> "This device can't play this file's video or audio format."
         else -> error.message ?: "Playback failed."
     }
 
@@ -1085,6 +1173,12 @@ class PlayerActivity : ComponentActivity() {
         fun filePlaybackUri(config: SourceConfig, path: String): Uri {
             if (config.isWebDav) {
                 return Uri.parse(DavAddress(config.host, config.allowInsecureHttp).url(path).toString())
+            }
+            if (config.sourceType == ONEDRIVE) return Uri.Builder().scheme(ONEDRIVE).authority(config.id)
+                .apply { path.split('/').forEach(::appendPath) }.build()
+            if (config.isDropbox) {
+                return Uri.Builder().scheme("dropbox").authority("media")
+                    .apply { path.split('/').forEach(::appendPath) }.build()
             }
             return Uri.Builder()
                 .scheme("smb")

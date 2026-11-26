@@ -15,7 +15,7 @@ enum BulkWatchStatus {
               VideoFile.isVideo(path: movie.filePath),
               MediaFile.shouldIndex(path: movie.filePath, size: max(1, movie.fileSize)) else { return false }
         guard let source = movie.source else { return true }
-        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath, caseSensitive: source.isWebDAV)
+        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath, caseSensitive: source.caseSensitivePaths)
             && !source.isIgnored(filePath: movie.filePath)
     }
 

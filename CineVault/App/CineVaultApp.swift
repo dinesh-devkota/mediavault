@@ -14,6 +14,12 @@ struct CineVaultApp: App {
                 #if DEBUG
                 if HouseholdPreview.isEnabled {
                     HouseholdDesignPreview()
+                } else if ProcessInfo.processInfo.arguments.contains("--ui-test-empty-library") {
+                    RootView()
+                        .environmentObject(scanner)
+                        .modelContainer(for: [MediaSource.self, Movie.self], inMemory: true)
+                } else if ProcessInfo.processInfo.arguments.contains("--ui-preview-alternative-playback") {
+                    AlternativePlaybackDesignPreview()
                 } else if HouseholdPreview.isEmbyEntry {
                     NavigationStack { SourcesView() }.environmentObject(scanner)
                         .modelContainer(for: [MediaSource.self, Movie.self], inMemory: true)
@@ -27,6 +33,8 @@ struct CineVaultApp: App {
                 } else if ProcessInfo.processInfo.arguments.contains("--ui-preview-nas") {
                     NASSetupView().environmentObject(scanner)
                         .modelContainer(for: [MediaSource.self, Movie.self], inMemory: true)
+                } else if LibraryFeaturesPreview.isEnabled {
+                    LibraryFeaturesDesignPreview()
                 } else if DesignPreview.isEnabled {
                     DesignPreview()
                         .environmentObject(scanner)
@@ -49,6 +57,10 @@ struct CineVaultApp: App {
 struct RootView: View {
     private enum Tab: Hashable { case home, library, photos, search, sources, settings }
     @State private var tab: Tab = .home
+    #if os(iOS)
+    private enum ManagementDestination: Hashable { case sources, settings }
+    @State private var managementPath: [ManagementDestination] = []
+    #endif
     @StateObject private var homeNavigation = HomeCollectionNavigation()
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -72,7 +84,11 @@ struct RootView: View {
         }
         .onAppear { household.setActive(scenePhase == .active) }
         .onChange(of: household.generation) { _, _ in
-            tab = .home; homeNavigation.path = NavigationPath()
+            tab = .home
+            homeNavigation.path = NavigationPath()
+            #if os(iOS)
+            managementPath.removeAll()
+            #endif
         }
         .task {
             #if DEBUG
@@ -92,29 +108,73 @@ struct RootView: View {
         TabView(selection: $tab) {
             NavigationStack(path: $homeNavigation.path) {
                 HomeView(openPhotos: { tab = .photos }, openSources: openSources).movieDestination()
-            }.environmentObject(homeNavigation).tabItem { Text("Home") }.tag(Tab.home)
-            NavigationStack { LibraryView(openSources: openSources).movieDestination() }.tabItem { Text("Library") }.tag(Tab.library)
-            NavigationStack { PhotosView().movieDestination() }.tabItem { Text("Photos") }.tag(Tab.photos)
+            }.environmentObject(homeNavigation).tabItem { tabLabel("Home", icon: "house") }.tag(Tab.home)
+            NavigationStack { LibraryView(openSources: openSources).movieDestination() }.tabItem { tabLabel("Library", icon: "film") }.tag(Tab.library)
+            NavigationStack { PhotosView().movieDestination() }.tabItem { tabLabel("Photos", icon: "photo.on.rectangle") }.tag(Tab.photos)
             NavigationStack { SearchView().movieDestination() }.tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(Tab.search)
             if household.isAdmin {
+                #if os(iOS)
+                mobileManagement.tabItem { Label("Manage", systemImage: "gearshape") }.tag(Tab.settings)
+                #else
                 NavigationStack { adminSources }.tabItem { Text("Sources") }.tag(Tab.sources)
                 NavigationStack { adminSettings }.tabItem { Label("Settings", systemImage: "gearshape") }.tag(Tab.settings)
+                #endif
             } else {
-                NavigationStack { HouseholdViewerSettings() }.tabItem { Text("Profile") }.tag(Tab.settings)
+                NavigationStack { HouseholdViewerSettings() }.tabItem { tabLabel("Profile", icon: "person.crop.circle") }.tag(Tab.settings)
             }
         }
         .tint(CinemaTheme.accent)
         .preferredColorScheme(.dark)
     }
 
+    @ViewBuilder private func tabLabel(_ title: LocalizedStringKey, icon: String) -> some View {
+        #if os(iOS)
+        Label(title, systemImage: icon)
+        #else
+        Text(title)
+        #endif
+    }
+
+    #if os(iOS)
+    private var mobileManagement: some View {
+        NavigationStack(path: $managementPath) {
+            List {
+                NavigationLink(value: ManagementDestination.sources) {
+                    Label("Media sources", systemImage: "externaldrive")
+                }
+                .accessibilityIdentifier("manage-media-sources")
+                NavigationLink(value: ManagementDestination.settings) {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .accessibilityIdentifier("manage-settings")
+            }
+            .navigationTitle("Manage")
+            .navigationDestination(for: ManagementDestination.self) { destination in
+                if !household.isAdmin { HouseholdUnavailableView() }
+                else {
+                    switch destination {
+                    case .sources: adminSources
+                    case .settings: adminSettings
+                    }
+                }
+            }
+        }
+    }
+    #endif
+
     private func openSources() {
-        if household.isAdmin { tab = .sources }
-        else { household.lock() }
+        guard household.isAdmin else { household.lock(); return }
+        #if os(iOS)
+        tab = .settings
+        managementPath = [.sources]
+        #else
+        tab = .sources
+        #endif
     }
 
     @ViewBuilder private var adminSources: some View {
         #if DEBUG
-        if HouseholdPreview.isEnabled {
+        if HouseholdPreview.isEnabled && !ProcessInfo.processInfo.arguments.contains("--ui-preview-plex-entry") {
             ContentUnavailableView("Sample media", systemImage: "externaldrive", description: Text("This isolated preview does not connect to real NAS sources."))
         } else { SourcesView() }
         #else

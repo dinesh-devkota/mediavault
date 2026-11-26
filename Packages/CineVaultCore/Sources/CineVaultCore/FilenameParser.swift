@@ -35,7 +35,8 @@ public enum FilenameParser {
         // "Movie (2010)/movie.mkv" or "Movie (2010)/CD1.avi": fall back to the folder name.
         if components.count >= 2 {
             let folder = parse(name: components[components.count - 2])
-            if parsed.year == nil && (folder.year != nil || parsed.title.isEmpty || isGeneric(parsed.title)) {
+            let meaningfulFolder = folder.year != nil || folder.tmdbID != nil || !isLibraryFolder(folder.title)
+            if parsed.year == nil && meaningfulFolder && (folder.year != nil || parsed.title.isEmpty || isGeneric(parsed.title)) {
                 parsed = ParsedMovieName(title: folder.title, year: folder.year, tmdbID: parsed.tmdbID ?? folder.tmdbID)
             } else if parsed.tmdbID == nil {
                 // An explicit movie-folder tag still applies when the file has its own year.
@@ -98,5 +99,11 @@ public enum FilenameParser {
         let lower = title.lowercased()
         return ["movie", "video", "film", "main", "feature"].contains(lower)
             || lower.range(of: #"^(cd|disc|part|pt)\s*\d+$"#, options: .regularExpression) != nil
+    }
+
+    /// A broad share folder is not a movie title, even when a file is named Film or Movie.
+    private static func isLibraryFolder(_ title: String) -> Bool {
+        let name = title.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return name.isEmpty || ["movies", "films", "videos", "media", "library", "tv", "tv shows", "shows", "downloads", "shared"].contains(name)
     }
 }

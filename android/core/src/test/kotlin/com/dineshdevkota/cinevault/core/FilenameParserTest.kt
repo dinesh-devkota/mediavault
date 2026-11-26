@@ -29,6 +29,13 @@ class FilenameParserTest {
         assertEquals(ParsedMovieName("Heat", 1995), FilenameParser.parse("Movies/Heat (1995)/CD1.avi"))
     }
 
+    @Test fun libraryContainersDoNotReplaceGenericMovieTitles() {
+        for (folder in listOf("Movies", "Films", "Videos", "Media", "TV Shows"))
+            assertEquals(ParsedMovieName("Film"), FilenameParser.parse("$folder/Film.mp4"))
+        assertEquals(ParsedMovieName("Movies", 2020), FilenameParser.parse("Movies (2020)/movie.mkv"))
+        assertEquals(ParsedMovieName("Movies", tmdbId = 42), FilenameParser.parse("Movies {tmdb-42}/movie.mkv"))
+    }
+
     @Test fun noYearStripsJunk() {
         assertEquals(ParsedMovieName("Some Movie", null), FilenameParser.parse("Some_Movie_720p_WEB-DL.mp4"))
     }

@@ -1,9 +1,24 @@
 import Foundation
 import Network
 
-/// AVPlayer uses ordinary HLS URLs on a private loopback port. The Jellyfin token
-/// stays in HTTPS headers, including for child playlists and segments.
-final class JellyfinHLSRelay: @unchecked Sendable {
+/// AVPlayer receives scoped loopback URLs. Each provider owns its authenticated HTTPS transport.
+final class MediaHLSRelay: @unchecked Sendable {
+    struct Transport: Sendable {
+        let entry: URL
+        let resolve: @Sendable (String, URL) throws -> URL
+        let read: @Sendable (URL, String?) async throws -> Response
+    }
+
+    struct Response: Sendable {
+        let data: Data
+        let contentRange: String?
+    }
+
+    enum RelayError: LocalizedError {
+        case invalidResponse, invalidRange
+        var errorDescription: String? { "The media server returned an invalid streaming response." }
+    }
+
     private static let loopback = "127.0.0.1"
     private static let headerLimit = 8 * 1024
     private static let connectionLimit = 8
@@ -15,12 +30,12 @@ final class JellyfinHLSRelay: @unchecked Sendable {
         let range: String?
 
         init(_ bytes: Data) throws {
-            guard let text = String(data: bytes, encoding: .utf8) else { throw JellyfinClientError.invalidResponse }
+            guard let text = String(data: bytes, encoding: .utf8) else { throw MediaHLSRelay.RelayError.invalidResponse }
             let lines = text.components(separatedBy: "\r\n")
             let fields = lines.first?.split(separator: " ") ?? []
             guard fields.count == 3, fields[0] == "GET" || fields[0] == "HEAD",
                   fields[2] == "HTTP/1.1" || fields[2] == "HTTP/1.0",
-                  fields[1].utf8.count <= 80 else { throw JellyfinClientError.invalidResponse }
+                  fields[1].utf8.count <= 80 else { throw MediaHLSRelay.RelayError.invalidResponse }
             target = String(fields[1])
             headOnly = fields[0] == "HEAD"
             var range: String?
@@ -32,11 +47,11 @@ final class JellyfinHLSRelay: @unchecked Sendable {
                     let value = parts[1].trimmingCharacters(in: .whitespaces)
                     guard range == nil, value.range(of: #"^bytes=[0-9]{1,19}-[0-9]{0,19}$"#,
                                                     options: .regularExpression) != nil else {
-                        throw JellyfinClientError.invalidResponse
+                        throw MediaHLSRelay.RelayError.invalidResponse
                     }
                     range = value
                 } else if name == "transfer-encoding" || (name == "content-length" && parts[1].trimmingCharacters(in: .whitespaces) != "0") {
-                    throw JellyfinClientError.invalidResponse
+                    throw MediaHLSRelay.RelayError.invalidResponse
                 }
             }
             self.range = range
@@ -44,10 +59,9 @@ final class JellyfinHLSRelay: @unchecked Sendable {
     }
 
     // The listener, connections, and resource lookup table are confined to this queue.
-    private let queue = DispatchQueue(label: "cinevault.jellyfin.hls")
+    private let queue = DispatchQueue(label: "cinevault.hls")
     private let listener: NWListener
-    private let connection: JellyfinSourceConnection
-    private let playback: JellyfinPlayback
+    private let transport: Transport
     private let allowsRead: @Sendable () -> Bool
     private let prefix = "/" + UUID().uuidString + "/"
     private var clients: [ObjectIdentifier: NWConnection] = [:]
@@ -56,15 +70,27 @@ final class JellyfinHLSRelay: @unchecked Sendable {
     private var indices: [URL: Int] = [:]
     private var stopped = false
 
-    init(connection: JellyfinSourceConnection, playback: JellyfinPlayback, allowsRead: @escaping @Sendable () -> Bool) throws {
+    init(transport: Transport, allowsRead: @escaping @Sendable () -> Bool) throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(Self.loopback), port: .any)
         listener = try NWListener(using: parameters)
-        self.connection = connection
-        self.playback = playback
+        self.transport = transport
         self.allowsRead = allowsRead
-        resources.append(playback.url)
-        indices[playback.url] = 0
+        resources.append(transport.entry)
+        indices[transport.entry] = 0
+    }
+
+    convenience init(connection: JellyfinSourceConnection, playback: JellyfinPlayback,
+                     allowsRead: @escaping @Sendable () -> Bool) throws {
+        try self.init(transport: Transport(
+            entry: playback.url,
+            resolve: { try connection.client.hlsResource($0, relativeTo: $1, itemID: playback.itemID) },
+            read: { url, range in
+                do {
+                    let reply = try await connection.client.readHLS(url, account: connection.account, range: range)
+                    return Response(data: reply.data, contentRange: reply.contentRange)
+                } catch JellyfinClientError.status(416) { throw RelayError.invalidRange }
+            }), allowsRead: allowsRead)
     }
 
     func start() async throws -> URL {
@@ -88,7 +114,7 @@ final class JellyfinHLSRelay: @unchecked Sendable {
                             self.listener.stateUpdateHandler = nil
                             guard let port = self.listener.port,
                                   let url = URL(string: "http://\(Self.loopback):\(port.rawValue)\(self.prefix)0.m3u8") else {
-                                continuation.resume(throwing: JellyfinClientError.invalidResponse)
+                                continuation.resume(throwing: MediaHLSRelay.RelayError.invalidResponse)
                                 return
                             }
                             continuation.resume(returning: url)
@@ -170,34 +196,30 @@ final class JellyfinHLSRelay: @unchecked Sendable {
             return
         }
         let resource = resources[index]
-        let connection = self.connection
+        let transport = self.transport
         let playlist = resource.pathExtension.lowercased() == "m3u8"
         requests[id] = Task { [weak self] in
             do {
-                let response = try await connection.client.readHLS(resource, account: connection.account,
-                                                                   range: playlist ? nil : request.range)
+                let response = try await transport.read(resource, playlist ? nil : request.range)
                 try Task.checkCancellation()
                 self?.queue.async { [weak self] in self?.deliver(response, playlist: playlist, resource: resource, request: request, id: id) }
-            } catch JellyfinClientError.status(416) {
+            } catch RelayError.invalidRange {
                 self?.queue.async { [weak self] in self?.reply(id, status: "416 Range Not Satisfiable") }
             } catch {
-                #if DEBUG
-                print("Jellyfin HLS test relay upstream error, code: \((error as NSError).code)")
-                #endif
                 self?.queue.async { [weak self] in self?.reply(id, status: "502 Bad Gateway") }
             }
         }
     }
 
-    private func deliver(_ response: JellyfinHLSResponse, playlist: Bool, resource: URL, request: ClientRequest, id: ObjectIdentifier) {
+    private func deliver(_ response: Response, playlist: Bool, resource: URL, request: ClientRequest, id: ObjectIdentifier) {
         guard clients[id] != nil, allowsRead() else { close(id); return }
         do {
             let body: Data
             if playlist {
-                body = try JellyfinHLSPlaylist.rewrite(response.data) { reference in
-                    let url = try connection.client.hlsResource(reference, relativeTo: resource, itemID: playback.itemID)
+                body = try MediaHLSPlaylist.rewrite(response.data) { reference in
+                    let url = try transport.resolve(reference, resource)
                     if let index = indices[url] { return localPath(index, url: url) }
-                    guard resources.count < Self.resourceLimit else { throw JellyfinClientError.invalidResponse }
+                    guard resources.count < Self.resourceLimit else { throw MediaHLSRelay.RelayError.invalidResponse }
                     let index = resources.count
                     resources.append(url)
                     indices[url] = index
@@ -251,21 +273,26 @@ final class JellyfinHLSRelay: @unchecked Sendable {
     }
 }
 
-enum JellyfinHLSPlaylist {
+enum MediaHLSPlaylist {
     private static let uri = try! NSRegularExpression(pattern: #"(?:[:,])(?:[A-Z0-9-]*-)?URI="([^"]+)""#)
+    private static let uriAttribute = try! NSRegularExpression(pattern: #"(?:[:,])(?:[A-Z0-9-]*-)?URI[ \t]*="#)
 
     static func rewrite(_ data: Data, replace: (String) throws -> String) throws -> Data {
-        guard let text = String(data: data, encoding: .utf8) else { throw JellyfinClientError.invalidResponse }
+        guard let text = String(data: data, encoding: .utf8) else { throw MediaHLSRelay.RelayError.invalidResponse }
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
-        guard lines.first == "#EXTM3U", lines.count <= 65_536 else { throw JellyfinClientError.invalidResponse }
+        guard lines.first == "#EXTM3U", lines.count <= 65_536 else { throw MediaHLSRelay.RelayError.invalidResponse }
         let rewritten = try lines.map { line -> String in
             guard !line.isEmpty else { return line }
             if !line.hasPrefix("#") { return try replace(line) }
             // Text on comment lines is not a URI. HLS attributes name external resources with URI=.
             guard line.hasPrefix("#EXT-X-") else { return line }
-            guard !line.hasPrefix("#EXT-X-DEFINE:") else { throw JellyfinClientError.invalidResponse }
+            guard !line.hasPrefix("#EXT-X-DEFINE:") else { throw MediaHLSRelay.RelayError.invalidResponse }
             let string = line as NSString
-            let matches = uri.matches(in: line, range: NSRange(location: 0, length: string.length))
+            let range = NSRange(location: 0, length: string.length)
+            let matches = uri.matches(in: line, range: range)
+            guard matches.count == uriAttribute.numberOfMatches(in: line, range: range) else {
+                throw MediaHLSRelay.RelayError.invalidResponse
+            }
             let result = NSMutableString(string: line)
             for match in matches.reversed() {
                 let value = match.range(at: 1)

@@ -28,6 +28,7 @@ public struct TMDBSearchResponse: Codable, Sendable {
 
 public struct TMDBMovieDetails: Codable, Sendable {
     public struct Genre: Codable, Sendable { public var name: String }
+    public struct Collection: Codable, Sendable { public var id: Int; public var name: String }
     public var id: Int
     public var title: String
     public var overview: String?
@@ -39,6 +40,7 @@ public struct TMDBMovieDetails: Codable, Sendable {
     public var backdropPath: String?
     public var genres: [Genre]?
     public var releaseDates: TMDBMovieReleaseDates?
+    public var belongsToCollection: Collection?
 
     public var year: Int? { releaseDate.flatMap { Int($0.prefix(4)) } }
 }

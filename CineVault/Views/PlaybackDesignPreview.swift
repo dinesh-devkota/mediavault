@@ -44,7 +44,7 @@ struct PlaybackDesignPreview: View {
         Group {
             if let controller {
                 PlaybackScreen(controller: controller, services: services, defaults: fixture.defaults, library: { fixture.episodes })
-                    .ignoresSafeArea()
+                    .playbackScreenEdges()
                     .onAppear {
                         guard !testsProductionControls else { return }
                         controller.player.pause()

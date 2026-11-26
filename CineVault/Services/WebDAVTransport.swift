@@ -87,11 +87,7 @@ struct WebDAVAddress: Sendable {
     }
 }
 
-struct WebDAVEntry: Equatable, Sendable {
-    let path: String
-    let isDirectory: Bool
-    let size: Int64
-}
+typealias WebDAVEntry = RemoteDirectoryEntry
 
 private final class WebDAVRedirectDelegate: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,

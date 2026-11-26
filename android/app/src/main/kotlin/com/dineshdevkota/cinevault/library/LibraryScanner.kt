@@ -15,6 +15,9 @@ import com.dineshdevkota.cinevault.emby.EmbyException
 import com.dineshdevkota.cinevault.emby.importEmbyLibrary
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.importJellyfinLibrary
+import com.dineshdevkota.cinevault.plex.PLEX
+import com.dineshdevkota.cinevault.plex.PlexException
+import com.dineshdevkota.cinevault.plex.importPlexLibrary
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.dineshdevkota.cinevault.smb.ScanProgress
@@ -33,6 +36,7 @@ class LibraryScanner(
     private val scanVideos: suspend (SourceConfig) -> List<RemoteFile>,
     /** Runs after a successful scan (metadata matching); returns a failure message to append, if any. */
     var afterScan: (suspend () -> String?)? = null,
+    private val importLocalMetadata: (suspend (String) -> Unit)? = null,
     private val scanWithProgress: (suspend (SourceConfig, suspend (ScanProgress) -> Unit) -> List<RemoteFile>)? = null,
 ) {
     private val mutex = Mutex()
@@ -75,10 +79,13 @@ class LibraryScanner(
         statusFlow.value = "Scanning ${source.name}…"
         var partialAdded = 0
         try {
-            if (source.sourceType == JELLYFIN || source.sourceType == EMBY) {
-                val progress: (Int) -> Unit = { statusFlow.value = "Scanning ${source.name}: $it catalog items…" }
-                val result = if (source.sourceType == EMBY) importEmbyLibrary(database, source, secrets, onProgress = progress)
-                    else importJellyfinLibrary(database, source, secrets, onProgress = progress)
+            if (source.sourceType in setOf(JELLYFIN, PLEX, EMBY)) {
+                val report: (Int) -> Unit = { statusFlow.value = "Scanning ${source.name}: $it catalog items…" }
+                val result = when (source.sourceType) {
+                    EMBY -> importEmbyLibrary(database, source, secrets, onProgress = report)
+                    PLEX -> importPlexLibrary(database, source, secrets, progress = report)
+                    else -> importJellyfinLibrary(database, source, secrets, onProgress = report)
+                }
                 statusFlow.value = if (result == null) "${source.name} changed during the scan. Scan the source again."
                     else "${source.name}: ${result.first} items (${result.second} new)."
                 return
@@ -89,7 +96,7 @@ class LibraryScanner(
             val scanned = if (scanWithProgress == null) scanVideos(config) else scanWithProgress(config) { progress ->
                 val allowed = progress.files.filter {
                     MediaFile.shouldIndex(it.path, it.size) &&
-                        !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.isWebDav)
+                        !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.caseSensitivePaths)
                 }
                 database.withTransaction {
                     check(database.sources().get(source.id) == source) { "The NAS source changed during the scan. Scan again." }
@@ -102,10 +109,11 @@ class LibraryScanner(
                     }
                 }
                 foundPaths.addAll(allowed.map { it.path })
-                statusFlow.value = "Scanning ${source.name}: ${foundPaths.size} items in ${progress.folders} folders…"
+                val discovered = if (config.isDropbox) progress.found else foundPaths.size
+                statusFlow.value = "Scanning ${source.name}: $discovered items in ${progress.folders} folders…"
             }
             val files = scanned.filter { MediaFile.shouldIndex(it.path, it.size) &&
-                !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.isWebDav) }
+                !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.caseSensitivePaths) }
             val added = database.withTransaction {
                 // An edit/delete can finish while the NAS operation is suspended. Never apply
                 // the old share's results to the replacement source (or recreate deleted rows).
@@ -126,6 +134,7 @@ class LibraryScanner(
             val scanStatus = "${source.name}: ${files.size} items ($added new). Updating categories and artwork…"
             statusFlow.value = scanStatus
             try {
+                importLocalMetadata?.invoke(source.id)
                 val metadataFailure = afterScan?.invoke()
                 val currentCounts = movies.forSource(source.id).filter { !it.isMissing }.groupingBy { it.mediaKind }.eachCount()
                 val complete = "${source.name}: ${currentCounts[MediaKind.MOVIE] ?: 0} movies, ${currentCounts[MediaKind.DOCUMENTARY] ?: 0} documentaries, ${currentCounts[MediaKind.TV_SHOW] ?: 0} TV episodes, ${currentCounts[MediaKind.MUSIC] ?: 0} music items, ${currentCounts[MediaKind.PHOTO] ?: 0} photos ($added new)"
@@ -141,6 +150,7 @@ class LibraryScanner(
         } catch (e: Exception) {
             val reason = when (source.sourceType) {
                 JELLYFIN -> (e as? com.dineshdevkota.cinevault.jellyfin.JellyfinException)?.message ?: "Could not read the Jellyfin library"
+                PLEX -> (e as? PlexException)?.message ?: "Could not read the Plex library"
                 EMBY -> (e as? EmbyException)?.message ?: "Could not read the Emby library"
                 else -> SmbService.describe(e).trimEnd().removeSuffix(".")
             }

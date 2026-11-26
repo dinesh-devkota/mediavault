@@ -9,6 +9,8 @@ import ssl
 import subprocess
 from urllib.parse import parse_qs, urlsplit
 
+from emby_tvos_routes import EmbyRoutes
+
 
 ACCOUNT = {"AccessToken": "fixture-jellyfin-token", "User": {"Id": "fixture-user", "Name": "Fixture"}}
 LIBRARY = {"Id": "fixture-library", "Name": "Fixture Movies", "Type": "CollectionFolder"}
@@ -24,7 +26,7 @@ MEDIA = SAMPLES / "playback.mp4"
 IMAGE = SAMPLES / "Photos" / "01.jpg"
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(EmbyRoutes, BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # The fixture intentionally returns a synthetic token in playlist URIs.
         pass
@@ -51,6 +53,9 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def do_POST(self):
+        if urlsplit(self.path).path.startswith("/emby/"):
+            self.serve_emby()
+            return
         path = urlsplit(self.path).path
         length = int(self.headers.get("Content-Length", "0"))
         if not 0 <= length <= 65536:
@@ -85,6 +90,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_body(404)
 
     def do_GET(self):
+        if urlsplit(self.path).path.startswith("/emby/"):
+            self.serve_emby()
+            return
         parts = urlsplit(self.path)
         query = parse_qs(parts.query)
         if parts.path == "/health":
@@ -116,6 +124,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_body(404)
 
     def do_DELETE(self):
+        if urlsplit(self.path).path.startswith("/emby/"):
+            self.serve_emby()
+            return
         if not self.authorized():
             return
         parts = urlsplit(self.path)

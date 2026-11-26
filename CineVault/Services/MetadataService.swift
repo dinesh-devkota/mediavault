@@ -79,6 +79,8 @@ final class MetadataService {
         let seriesID: Int?
         let episode: EpisodeInfo?
         let filePath: String
+        let localMetadataImported: Bool?
+        let localMetadataFields: [String]?
 
         init(_ movie: Movie) {
             id = movie.tmdbID
@@ -88,6 +90,8 @@ final class MetadataService {
             seriesID = movie.seriesTMDBID
             episode = movie.episodeInfo
             filePath = movie.filePath
+            localMetadataImported = movie.localMetadataImported
+            localMetadataFields = movie.localMetadataFields
         }
     }
 
@@ -135,7 +139,9 @@ final class MetadataService {
     }
 
     func resetToFileName(_ movie: Movie) {
-        guard household.isAdmin else { return }
+        // Plex paths are synthetic IDs, not names that can reconstruct the
+        // server's title, episode identity or parental certification.
+        guard household.isAdmin, movie.source?.isPlex != true else { return }
         // Reset is an explicit intent even when title/ID already match the filename.
         requests.removeValue(forKey: movie.id)
         movie.resetToFileName()
@@ -227,28 +233,30 @@ final class MetadataService {
         guard reference.isAvailable(movie), requestIsCurrent(for: reference, token: token),
               MatchState(movie) == original else { return false }
         let episode = season.episodes.first { $0.seasonNumber == info.season && $0.episodeNumber == info.episode }
+        let local = force ? Set<String>() : Set(movie.localMetadataFields ?? [])
+        if force { movie.localMetadataFields = nil; movie.localMetadataImported = nil; movie.localMetadataSignature = nil }
         movie.tmdbID = nil
         movie.seriesTMDBID = details.id
-        movie.seriesTitle = details.name.isEmpty ? info.seriesTitle : details.name
+        if !local.contains("seriesTitle") { movie.seriesTitle = details.name.isEmpty ? info.seriesTitle : details.name }
         movie.seasonNumber = info.season
         movie.episodeNumber = info.episode
         movie.seasonPosterPath = season.posterPath
         if force || !movie.isLocked {
-            if let name = episode?.name, !name.isEmpty { movie.setTitle(name) }
-            movie.year = details.year ?? info.year
+            if !local.contains("title"), let name = episode?.name, !name.isEmpty { movie.setTitle(name) }
+            if !local.contains("year") { movie.year = details.year ?? info.year }
         }
         let episodeOverview = episode?.overview
-        movie.overview = episodeOverview.flatMap { $0.isEmpty ? nil : $0 } ?? details.overview
-        movie.tagline = nil
-        movie.runtimeMinutes = episode?.runtime ?? details.episodeRunTime?.first { $0 > 0 }
+        if !local.contains("overview") { movie.overview = episodeOverview.flatMap { $0.isEmpty ? nil : $0 } ?? details.overview }
+        if !local.contains("tagline") { movie.tagline = nil }
+        if !local.contains("runtime") { movie.runtimeMinutes = episode?.runtime ?? details.episodeRunTime?.first { $0 > 0 } }
         movie.rating = episode?.voteAverage ?? details.voteAverage
-        if movie.source?.isEmby != true {
+        if !local.contains("certification"), movie.source?.isPlex != true, movie.source?.isEmby != true {
             movie.usContentRating = details.contentRatings?.usContentRating
             movie.usContentRatingFetched = details.contentRatings != nil
         }
         movie.posterPath = details.posterPath
         movie.backdropPath = episode?.stillPath ?? details.backdropPath
-        movie.genres = details.genres?.map(\.name) ?? []
+        if !local.contains("genres") { movie.genres = details.genres?.map(\.name) ?? [] }
         movie.metadataFetched = true
         if force { movie.isLocked = true }
         return true
@@ -274,8 +282,10 @@ final class MetadataService {
                 if !movie.isLocked { movie.setTitle(movie.parsedTitle); movie.year = info.year }
             }
             movie.tmdbID = nil
-            movie.usContentRating = nil
-            movie.usContentRatingFetched = nil
+            if movie.localMetadataFields?.contains("certification") != true, movie.source?.isPlex != true {
+                movie.usContentRating = nil
+                movie.usContentRatingFetched = nil
+            }
             movie.seriesTitle = info.seriesTitle
             movie.seasonNumber = info.season
             movie.episodeNumber = info.episode
@@ -302,21 +312,28 @@ final class MetadataService {
         guard reference.isAvailable(movie), requestIsCurrent(for: reference, token: token),
               MatchState(movie) == original else { return false }
         movie.tmdbID = details.id
-        if force || !movie.isLocked {
-            movie.setTitle(details.title)
-            movie.year = details.year ?? movie.year
+        let local = force ? Set<String>() : Set(movie.localMetadataFields ?? [])
+        if !local.contains("collection") {
+            movie.collectionID = details.belongsToCollection?.id
+            movie.collectionName = details.belongsToCollection?.name
         }
-        movie.overview = details.overview
-        movie.tagline = details.tagline
-        movie.runtimeMinutes = details.runtime
+        movie.collectionLookupComplete = true
+        if force { movie.localMetadataImported = nil; movie.localMetadataFields = nil; movie.localMetadataSignature = nil }
+        if force || !movie.isLocked {
+            if !local.contains("title") { movie.setTitle(details.title) }
+            if !local.contains("year") { movie.year = details.year ?? movie.year }
+        }
+        if !local.contains("overview") { movie.overview = details.overview }
+        if !local.contains("tagline") { movie.tagline = details.tagline }
+        if !local.contains("runtime") { movie.runtimeMinutes = details.runtime }
         movie.rating = details.voteAverage
-        if movie.source?.isEmby != true {
+        if !local.contains("certification"), movie.source?.isPlex != true, movie.source?.isEmby != true {
             movie.usContentRating = details.releaseDates?.usContentRating
             movie.usContentRatingFetched = details.releaseDates != nil
         }
         movie.posterPath = details.posterPath
         movie.backdropPath = details.backdropPath
-        movie.genres = details.genres?.map(\.name) ?? []
+        if !local.contains("genres") { movie.genres = details.genres?.map(\.name) ?? [] }
         movie.metadataFetched = true
         if force { movie.isLocked = true }
         return true
@@ -339,8 +356,8 @@ final class MetadataService {
             _ = try await apply(tmdbID: id, to: movie, force: false, token: token, reference: reference)
             return
         }
-        let title = movie.isLocked ? movie.title : movie.parsedTitle
-        let year = movie.isLocked ? movie.year : movie.parsedYear
+        let title = movie.isLocked || movie.localMetadataImported == true ? movie.title : movie.parsedTitle
+        let year = movie.isLocked || movie.localMetadataImported == true ? movie.year : movie.parsedYear
         guard !title.isEmpty else { return }
         let results = try await search(title: title, year: year)
         guard reference.isAvailable(movie), requestIsCurrent(for: reference, token: token),
@@ -348,8 +365,10 @@ final class MetadataService {
         if let best = TitleMatcher.bestMatch(title: title, year: year, in: results) {
             _ = try await apply(tmdbID: best.id, to: movie, force: false, token: token, reference: reference)
         } else {
-            movie.usContentRating = nil
-            movie.usContentRatingFetched = nil
+            if movie.localMetadataFields?.contains("certification") != true, movie.source?.isPlex != true {
+                movie.usContentRating = nil
+                movie.usContentRatingFetched = nil
+            }
             movie.metadataFetched = true
         }
     }
@@ -357,7 +376,8 @@ final class MetadataService {
     /// Refresh just the certification of an already matched item. In particular,
     /// upgrading a library must not replace a user's title, artwork or progress.
     func fetchUSContentRating(for movie: Movie) async throws {
-        guard !movie.isDeleted, !movie.isMissing, movie.source?.isEmby != true, try hasKey,
+        guard movie.localMetadataFields?.contains("certification") != true else { return }
+        guard !movie.isDeleted, !movie.isMissing, movie.source?.isPlex != true, movie.source?.isEmby != true, try hasKey,
               !MediaFile.isAudio(path: movie.filePath), !MediaFile.isPhoto(path: movie.filePath) else { return }
         let reference = MovieReference(movie)
         guard reference.isAvailable(movie), let token = beginRequest(for: reference, manual: false) else { return }
@@ -405,6 +425,29 @@ final class MetadataService {
             if needsMatch($0) { try await self.match($0) }
             else { try await self.fetchUSContentRating(for: $0) }
         }
+    }
+
+    func refreshCollections(in context: ModelContext) async throws -> MetadataFetchSummary? {
+        guard try hasKey else { return nil }
+        let movies = try context.fetch(FetchDescriptor<Movie>()).filter {
+            !$0.isMissing && $0.episodeInfo == nil && $0.tmdbID != nil && $0.localMetadataFields?.contains("collection") != true
+        }
+        return try await update(movies, in: context) { try await self.fetchCollection(for: $0) }
+    }
+
+    /// Backfill grouping alone without changing a matched title, artwork or viewing history.
+    private func fetchCollection(for movie: Movie) async throws {
+        guard let id = movie.tmdbID, movie.episodeInfo == nil else { return }
+        let reference = MovieReference(movie)
+        guard reference.isAvailable(movie), let token = beginRequest(for: reference, manual: false) else { return }
+        defer { finishRequest(for: reference, token: token) }
+        let original = MatchState(movie)
+        let details = try await load(TMDB.detailsRequest(id: id, apiKey: try apiKey), as: TMDBMovieDetails.self)
+        guard reference.isAvailable(movie), requestIsCurrent(for: reference, token: token), MatchState(movie) == original,
+              movie.localMetadataFields?.contains("collection") != true else { return }
+        movie.collectionID = details.belongsToCollection?.id
+        movie.collectionName = details.belongsToCollection?.name
+        movie.collectionLookupComplete = true
     }
 
     func update(_ movies: [Movie], in context: ModelContext,

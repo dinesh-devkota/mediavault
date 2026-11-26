@@ -241,6 +241,7 @@ private fun HomeTab(
                 } else loadedSources?.let { EmptyHome(movies, it, openPhotos, openSources) }
             }
         } else {
+            item { OutlinedButton(onClick = { MediaCollectionsActivity.start(context) }, modifier = Modifier.padding(horizontal = ScreenPadding)) { Text("Collections") } }
             if (continuing.isNotEmpty()) item(key = "continue-watching") {
                 ContinueWatchingRow(continuing, onOpen) { HomeCollectionActivity.start(context, HomeCollection.CONTINUE) }
             }
@@ -362,20 +363,22 @@ private fun LazyGridScope.fullWidth(content: @Composable () -> Unit) {
 
 private fun LazyGridScope.posters(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit,
     selection: WatchSelection? = null, selectable: Set<String> = emptySet()) {
-    items(movies, key = { it.id }) { movie ->
+    items(com.dineshdevkota.cinevault.library.groupMovieVersions(movies), key = { it.id }) { group ->
+        val movie = group.representative
+        val ids = group.versions.map { it.id }.filter { it in selectable }
         if (movie.isPhoto) PhotoTile(movie, onClick = { onOpen(movie) })
-        else PosterCard(movie, selected = if (selection?.selecting == true && movie.id in selectable) movie.id in selection.ids else null,
+        else PosterCard(movie, versionCount = group.versions.size,
+            selected = if (selection?.selecting == true && ids.isNotEmpty()) selection.ids.containsAll(ids) else null,
             onClick = {
-                if (selection?.selecting == true) {
-                    if (movie.id in selectable) selection.toggle(listOf(movie.id))
-                } else onOpen(movie)
+                if (selection?.selecting == true) selection.toggle(ids) else onOpen(movie)
             })
     }
 }
 
 @Composable
 private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, openSources: () -> Unit) {
-    val container = LocalContext.current.container
+    val containerContext = LocalContext.current
+    val container = containerContext.container
     val settings = container.settings
     val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(initialValue = null)
     var sort by remember { mutableStateOf(settings.librarySort) }
@@ -437,8 +440,9 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, 
             kind.label, Modifier.padding(horizontal = ScreenPadding),
             kicker = "YOUR COLLECTION", trailing = if (kind == MediaKind.TV_SHOW)
                 "${tvShows.size} ${if (tvShows.size == 1) "show" else "shows"}"
-            else "${visible.size} ${if (visible.size == 1) "title" else "titles"}",
+            else com.dineshdevkota.cinevault.library.groupMovieVersions(visible).size.let { "$it ${if (it == 1) "title" else "titles"}" },
         )
+        OutlinedButton(onClick = { MediaCollectionsActivity.start(containerContext) }, modifier = Modifier.padding(horizontal = ScreenPadding).testTag("open-collections")) { Text("Collections") }
         // Keep focused filters outside the recycled result items. Replacing all
         // posters with an empty state must not dispose the control being used.
         Column(

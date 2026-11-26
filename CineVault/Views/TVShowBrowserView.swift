@@ -94,7 +94,7 @@ enum CollectionRowItem: Identifiable {
     }
 
     /// Group the full filtered collection before limiting tiles, preserving its first-occurrence order.
-    static func grouped(_ movies: [Movie], limit: Int = 20) -> [CollectionRowItem] {
+    static func grouped(_ movies: [Movie], limit: Int = 20, groupVersions: Bool = false) -> [CollectionRowItem] {
         guard limit > 0 else { return [] }
         let shows = TVShowGroup.groups(movies.filter { $0.mediaKind == .tvShow })
         var showByEpisode: [UUID: TVShowGroup] = [:]
@@ -105,7 +105,8 @@ enum CollectionRowItem: Identifiable {
         var result: [CollectionRowItem] = []
         for movie in movies {
             let item = showByEpisode[movie.id].map(CollectionRowItem.show) ?? .movie(movie)
-            guard seen.insert(item.id).inserted else { continue }
+            let groupingKey = groupVersions && movie.mediaKind != .tvShow ? MovieVersions.key(movie) : item.id
+            guard seen.insert(groupingKey).inserted else { continue }
             result.append(item)
             if result.count == limit { break }
         }
@@ -134,13 +135,13 @@ struct TVShowBrowserView: View {
             ?? shows.first { $0.id == initialShowID }
     }
     private var posterColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
+        [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: CinemaTheme.gridSpacing)]
     }
 
     var body: some View {
         Group {
             if selectedShowID == nil { content }
-            else { content.onExitCommand { goBack() } }
+            else { content.onTVExit { goBack() } }
         }
         .onAppear {
             if !initialized {
@@ -195,14 +196,14 @@ struct TVShowBrowserView: View {
                 BulkWatchControl(title: "Watched status", scope: scope, movies: currentEpisodes)
             }
             if let show = selectedShow, let season = selectedSeason {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 400, maximum: 400), spacing: 48)], spacing: 48) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: CinemaTheme.episodeWidth, maximum: CinemaTheme.episodeWidth), spacing: CinemaTheme.gridSpacing)], spacing: 48) {
                     ForEach(show.episodes(in: season)) { episode in
                         let key = episode.id.uuidString
                         let number = TVShowGroup.episode(episode)
                         NavigationLink(value: episode) {
                             TVShowArtwork(title: number == Int.max ? episode.title : "E\(number) · \(episode.title)",
                                 subtitle: episode.householdWatched ? "Watched" : episode.isInProgress ? "In progress" : "Episode",
-                                path: episode.backdropPath, embyMovie: episode, wide: true, focused: focusedItem == key)
+                                path: episode.backdropPath, localMovie: episode, localPath: episode.localBackdropPath, embyMovie: episode, wide: true, focused: focusedItem == key)
                         }
                         .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: key).id(key)
                     }
@@ -214,7 +215,9 @@ struct TVShowBrowserView: View {
                         let key = "season:\(season)"
                         Button { selectedSeason = season; lastFocusedSeason = season; restoreSelectionFocus() } label: {
                             TVShowArtwork(title: TVShowGroup.seasonTitle(season), subtitle: "\(items.count) \(items.count == 1 ? "episode" : "episodes")",
-                                path: items.compactMap(\.seasonPosterPath).first, focused: focusedItem == key)
+                                path: items.compactMap(\.seasonPosterPath).first,
+                                localMovie: items.first(where: { $0.localSeasonPosterPath != nil }),
+                                localPath: items.compactMap(\.localSeasonPosterPath).first, focused: focusedItem == key)
                         }
                         .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: key).id(key)
                     }
@@ -229,7 +232,8 @@ struct TVShowBrowserView: View {
                             restoreSelectionFocus()
                         } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
-                                path: show.posterPath, embyMovie: show.firstEpisode, embySeries: true, focused: focusedItem == show.id)
+                                path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }),
+                                localPath: show.episodes.compactMap(\.localPosterPath).first, embyMovie: show.firstEpisode, embySeries: true, focused: focusedItem == show.id)
                         }
                         .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: show.id).id(show.id)
                     }
@@ -285,7 +289,7 @@ struct TVShowDestination: View {
             ScrollView {
                 TVShowBrowserView(episodes: episodes, initialShowID: initialShowID,
                     scrollToFocus: { proxy.scrollTo($0, anchor: .center) })
-                    .padding(.horizontal, 70).padding(.bottom, 100)
+                    .padding(.horizontal, CinemaTheme.edgeInset).padding(.bottom, 100)
             }
         }.background(CinemaBackground())
     }
@@ -300,7 +304,7 @@ struct CollectionPosterRow: View {
     var body: some View {
         // Derive the shelf before deciding whether to display it. An onChange
         // attached to an initially empty Group cannot initialize its contents.
-        let items = CollectionRowItem.grouped(movies)
+        let items = CollectionRowItem.grouped(movies, groupVersions: true)
         Group {
             if !items.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
@@ -310,16 +314,14 @@ struct CollectionPosterRow: View {
                             ForEach(items) { item in
                                 switch item {
                                 case .movie(let movie):
-                                    NavigationLink(value: movie) {
-                                        PosterView(movie: movie, isFocused: focusedItem == item.id)
-                                    }
+                                    VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedItem == item.id)
                                     .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: item.id)
                                 case .show(let show):
                                     NavigationLink {
                                         TVShowDestination(episodes: show.episodes, initialShowID: show.id)
                                     } label: {
                                         TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
-                                            path: show.posterPath, embyMovie: show.firstEpisode, embySeries: true, focused: focusedItem == item.id)
+                                            path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, embyMovie: show.firstEpisode, embySeries: true, focused: focusedItem == item.id)
                                     }
                                     .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedItem, equals: item.id)
                                 }
@@ -349,7 +351,7 @@ struct TVShowRow: View {
                             TVShowDestination(episodes: episodes, initialShowID: show.id)
                         } label: {
                             TVShowArtwork(title: show.title, subtitle: "\(show.seasons.count) seasons",
-                                path: show.posterPath, embyMovie: show.firstEpisode, embySeries: true, focused: focusedShow == show.id)
+                                path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, embyMovie: show.firstEpisode, embySeries: true, focused: focusedShow == show.id)
                         }
                         .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedShow, equals: show.id)
                     }
@@ -368,12 +370,15 @@ struct TVShowArtwork: View {
     let title: String
     let subtitle: String
     let path: String?
+    var localMovie: Movie? = nil
+    var localPath: String? = nil
     var embyMovie: Movie? = nil
     var embySeries = false
     var wide = false
     var focused = false
-    private var width: CGFloat { wide ? 400 : CinemaTheme.posterWidth }
-    private var height: CGFloat { wide ? 225 : CinemaTheme.posterHeight }
+    var compact = false
+    private var width: CGFloat { wide ? CinemaTheme.episodeWidth : CinemaTheme.posterWidth }
+    private var height: CGFloat { wide ? CinemaTheme.episodeWidth * 9 / 16 : CinemaTheme.posterHeight }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ZStack {
@@ -383,7 +388,9 @@ struct TVShowArtwork: View {
                     Text(title).font(.headline).multilineTextAlignment(.center).lineLimit(3).padding(.horizontal, 18)
                 }
                 .foregroundStyle(CinemaTheme.secondaryText)
-                if let embyMovie, embyMovie.source?.isEmby == true {
+                if let localMovie, let localPath {
+                    LocalArtworkView(movie: localMovie, path: localPath, wide: wide)
+                } else if let embyMovie, embyMovie.source?.isEmby == true {
                     EmbyArtwork(movie: embyMovie, series: embySeries, width: wide ? 780 : 342)
                 } else {
                     AsyncImage(url: TMDB.imageURL(path, size: wide ? "w780" : "w342")) { image in
@@ -394,8 +401,8 @@ struct TVShowArtwork: View {
             .frame(width: width, height: height).clipped()
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(focused ? 0.9 : 0.1), lineWidth: focused ? 3 : 1) }
-            Text(title).font(.system(size: 23, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
-            Text(subtitle).font(.system(size: 19)).foregroundStyle(CinemaTheme.secondaryText)
+            Text(title).font(.system(size: compact ? 15 : 23, weight: .semibold)).foregroundStyle(.white).lineLimit(2)
+            Text(subtitle).font(.system(size: compact ? 13 : 19)).foregroundStyle(CinemaTheme.secondaryText)
         }
         .frame(width: width, alignment: .leading)
         .scaleEffect(focused ? 1.04 : 1).animation(.easeOut(duration: 0.18), value: focused)

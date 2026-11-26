@@ -123,7 +123,7 @@ final class EmbyClientTests: XCTestCase {
         let bytes = EmbyByteReader(connection: connection, playback: playback)
         let reader = SMBResourceLoader.Reader(size: { try await bytes.size() }, read: { try await bytes.read($0, $1) })
         let loader = SMBResourceLoader(config: config, path: path, household: household, reader: reader,
-                                       stillAvailable: {
+                                       allowsRead: {
             checks += 1
             return permitted && checks <= 2
         })
@@ -134,7 +134,7 @@ final class EmbyClientTests: XCTestCase {
         XCTAssertEqual(checks, 3)
         XCTAssertTrue(received.isEmpty)
         let permittedLoader = SMBResourceLoader(config: config, path: path, household: household, reader: reader,
-                                                stillAvailable: { permitted })
+                                                allowsRead: { permitted })
         try await permittedLoader.streamBytes(from: 5, to: 9) { received.append($0) }
         XCTAssertEqual(received, Data("5678".utf8))
         permitted = false
@@ -142,6 +142,84 @@ final class EmbyClientTests: XCTestCase {
             try await permittedLoader.streamBytes(from: 5, to: 9) { _ in XCTFail("Denied read sent bytes") }
             XCTFail("Expected authorization to be checked before a subsequent seek")
         } catch PlaybackPreparationError.fileUnavailable {}
+    }
+
+    func testTranscodeUsesScopedURLsAndHandlesBoundedSegmentRanges() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [EmbyFixture.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let client = try EmbyClient(endpoint: "https://emby.fixture.invalid/emby", deviceID: "fixture-device",
+                                    appVersion: "1.0", session: session)
+        let account = try await client.signIn(username: "Viewer", password: "fixture-password")
+        do {
+            _ = try await client.directPlayback(account, itemID: "movie-hls", containers: ["mp4"], directVideoCodecs: ["h264", "hevc"])
+            XCTFail("MPEG-2 in an otherwise accepted container should fall back to transcode")
+        } catch EmbyError.unsupportedPlayback {}
+
+        let playback = try await client.negotiateTranscode(account, itemID: "movie-hls")
+        let components = try XCTUnwrap(URLComponents(url: playback.url, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(components.path, "/emby/Videos/movie-hls/master.m3u8")
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(Set(query.keys), ["VideoCodec", "DeviceId", "MediaSourceId", "PlaySessionId"])
+        XCTAssertEqual(query["VideoCodec"], "h264")
+        XCTAssertEqual(query["PlaySessionId"], "transcode-session")
+        XCTAssertEqual(query["MediaSourceId"], "fixture-source")
+        XCTAssertNotNil(UUID(uuidString: query["DeviceId"] ?? ""))
+        let next = try await client.negotiateTranscode(account, itemID: "movie-hls")
+        XCTAssertNotEqual(next.url, playback.url)
+        try await client.stopTranscode(account, playback: next)
+
+        let manifest = try await client.readHLS(playback.url, account: account, playback: playback, range: nil)
+        XCTAssertTrue(manifest.data.starts(with: Data("#EXTM3U".utf8)))
+        XCTAssertNil(manifest.contentRange)
+        let segment = try client.hlsResource("hls1/main/0.ts?api-key=alternate-token&start=0",
+                                             relativeTo: playback.url, account: account, playback: playback)
+        XCTAssertFalse(segment.absoluteString.contains("alternate-token"))
+        let response = try await client.readHLS(segment, account: account, playback: playback, range: "bytes=2-4")
+        XCTAssertEqual(response.data, Data("234".utf8))
+        XCTAssertEqual(response.contentRange, "bytes 2-4/10")
+        let complete = try await client.readHLS(segment, account: account, playback: playback, range: "bytes=8-")
+        XCTAssertEqual(complete.data, Data("89".utf8))
+        XCTAssertEqual(complete.contentRange, "bytes 8-9/10")
+        let bad = try client.hlsResource("hls1/main/bad.ts", relativeTo: playback.url, account: account, playback: playback)
+        do {
+            _ = try await client.readHLS(bad, account: account, playback: playback, range: "bytes=2-4")
+            XCTFail("An unrelated Content-Range is invalid")
+        } catch EmbyError.invalidRange {}
+        XCTAssertEqual(playback.textSubtitles.map(\.id), [3])
+        let text = try await client.textSubtitle(account, playback: playback, index: 3, maximumBytes: 4096)
+        XCTAssertNoThrow(try SubtitleDocument.parse(text))
+        try await client.report(account, playback: playback, event: .started, positionMillis: 0)
+        try await client.report(account, playback: playback, event: .stopped, positionMillis: 800)
+        try await client.stopTranscode(account, playback: playback)
+    }
+
+    func testHLSScopeRejectsDifferentAccountsAndUnsafeChildAddresses() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [EmbyFixture.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = try EmbyClient(endpoint: "https://emby.fixture.invalid/emby", deviceID: "fixture-device",
+                                    appVersion: "1.0", session: session)
+        let account = try await client.signIn(username: "Viewer", password: "fixture-password")
+        let playback = try await client.negotiateTranscode(account, itemID: "movie-hls")
+        let differentAccount = EmbyClient.Account(AccessToken: account.AccessToken, User: .init(Id: "other-user", Name: "Other"))
+        XCTAssertThrowsError(try client.hlsResource("variant.m3u8", relativeTo: playback.url, account: differentAccount, playback: playback))
+        for reference in [
+            "http://emby.fixture.invalid/emby/Videos/movie-hls/variant.m3u8",
+            "https://different.fixture.invalid/Videos/movie-hls/variant.m3u8",
+            "https://emby.fixture.invalid:8443/Videos/movie-hls/variant.m3u8",
+            "https://user@emby.fixture.invalid/Videos/movie-hls/variant.m3u8",
+            "/Videos/movie-hls/variant.m3u8#fragment",
+            "/Videos/MOVIE-HLS/variant.m3u8",
+            "/Videos/movie-hls/nested%2Fvariant.m3u8",
+            "/Videos/movie-hls/%66ixture-token.ts",
+            "/Videos/movie-hls/../../Users/viewer",
+        ] {
+            XCTAssertThrowsError(try client.hlsResource(reference, relativeTo: playback.url, account: account, playback: playback), reference)
+        }
+        try await client.stopTranscode(account, playback: playback)
     }
 
     func testFixtureRejectsUnrangedOrMalformedResponse() async throws {
@@ -211,10 +289,37 @@ private final class EmbyFixture: URLProtocol {
             guard query["MaxWidth"] == "342", query["MaxHeight"] == "684", query["Format"] == "Jpg",
                   request.value(forHTTPHeaderField: "Accept") == "image/jpeg" else { return failure }
             return (200, "fixture-jpeg", ["Content-Type": "image/jpeg"])
+        case "/emby/Items/movie-hls/PlaybackInfo":
+            guard query["UserId"] == "viewer" else { return failure }
+            if request.httpMethod == "GET" {
+                return (200, #"{"PlaySessionId":"direct-session","MediaSources":[{"Id":"fixture-source","Container":"mp4","SupportsDirectPlay":true,"MediaStreams":[{"Type":"Video","Codec":"mpeg2video"}]}]}"#, [:])
+            }
+            guard request.httpMethod == "POST", UUID(uuidString: query["DeviceId"] ?? "") != nil else { return failure }
+            return (200, #"{"PlaySessionId":"transcode-session","MediaSources":[{"Id":"fixture-source","TranscodingUrl":"/Videos/movie-hls/master.m3u8?VideoCodec=h264&api_key=discard&%2558-Emby-Token=discard&Other=%2566ixture-token&fixture-token=discard&DeviceId=wrong&MediaSourceId=wrong&PlaySessionId=wrong","MediaStreams":[{"Type":"Subtitle","Index":3,"IsTextSubtitleStream":true,"IsExternal":true,"Language":"eng","DisplayTitle":"English (SRT)"}]}]}"#, [:])
+        case "/emby/Videos/movie-hls/master.m3u8":
+            guard query["VideoCodec"] == "h264", query["PlaySessionId"] == "transcode-session",
+                  query["MediaSourceId"] == "fixture-source", UUID(uuidString: query["DeviceId"] ?? "") != nil else { return failure }
+            return (200, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=160000\nvariant.m3u8\n", ["Content-Type": "application/vnd.apple.mpegurl"])
+        case "/emby/Videos/movie-hls/hls1/main/0.ts":
+            guard query["PlaySessionId"] == "transcode-session", query["MediaSourceId"] == "fixture-source",
+                  UUID(uuidString: query["DeviceId"] ?? "") != nil,
+                  request.value(forHTTPHeaderField: "Accept-Encoding") == "identity" else { return failure }
+            switch request.value(forHTTPHeaderField: "Range") {
+            case "bytes=2-4": return (206, "234", ["Content-Range": "bytes 2-4/10"])
+            case "bytes=8-": return (200, "0123456789", [:])
+            default: return failure
+            }
+        case "/emby/Videos/movie-hls/hls1/main/bad.ts":
+            return (206, "345", ["Content-Range": "bytes 3-5/10"])
+        case "/emby/Videos/ActiveEncodings":
+            guard request.httpMethod == "DELETE", query["PlaySessionId"] == "transcode-session",
+                  UUID(uuidString: query["DeviceId"] ?? "") != nil else { return failure }
+            return (204, "", [:])
         case "/emby/Items/movie-a/PlaybackInfo":
             guard query["UserId"] == "viewer" else { return failure }
             return (200, #"{"PlaySessionId":"fixture-session","MediaSources":[{"Id":"fixture-source","Container":"mp4","SupportsDirectPlay":true,"MediaStreams":[{"Type":"Subtitle","Index":3,"IsTextSubtitleStream":true,"IsExternal":true,"Language":"eng","DisplayTitle":"English (SRT)"},{"Type":"Subtitle","Index":4,"IsTextSubtitleStream":false,"IsExternal":true}]}]}"#, [:])
-        case "/emby/Videos/movie-a/fixture-source/Subtitles/3/Stream.srt":
+        case "/emby/Videos/movie-a/fixture-source/Subtitles/3/Stream.srt",
+             "/emby/Videos/movie-hls/fixture-source/Subtitles/3/Stream.srt":
             return (200, "1\n00:00:00,100 --> 00:00:02,500\nHello from Emby\n", ["Content-Type": "application/x-subrip"])
         case "/emby/Videos/movie-a/stream":
             guard query["Static"] == "true", query["MediaSourceId"] == "fixture-source",

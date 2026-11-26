@@ -4,8 +4,11 @@ import androidx.room.withTransaction
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.ProfileHistory
+import com.dineshdevkota.cinevault.data.SourceEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+
+data class FamilyLibrarySnapshot(val session: FamilySession, val movies: List<MovieEntity>, val sources: List<SourceEntity>)
 
 /** The only user-facing read/write path; scanner and metadata retain the shared index. */
 class FamilyLibrary(private val database: CineVaultDatabase, val family: FamilyStore) {
@@ -16,6 +19,20 @@ class FamilyLibrary(private val database: CineVaultDatabase, val family: FamilyS
         playbackPositionMs = state?.positionMs ?: 0, durationMs = state?.durationMs ?: 0,
         lastPlayedAt = state?.lastPlayedAt, isHidden = state?.hidden ?: false,
     )
+    /** Keep source visibility and profile history attached to the exact session that produced them. */
+    fun observeSnapshot(): Flow<FamilyLibrarySnapshot> = combine(movies.observeAll(), history.observeAll(),
+        database.sources().observeAll(), family.session) { all, states, sources, session ->
+        if (!session.unlocked || !family.isCurrent(session)) FamilyLibrarySnapshot(session, emptyList(), emptyList())
+        else {
+            val own = states.filter { it.profileId == session.historyId }.associateBy { it.movieId }
+            val visible = all.filter { allows(session, it) }.map { if (session.admin) it else project(it, own[it.id]) }
+            val visibleSources = if (session.admin) sources else sources.filter { source ->
+                session.profile?.folders?.any { it.sourceId == source.id } == true
+            }
+            if (family.isCurrent(session)) FamilyLibrarySnapshot(session, visible, visibleSources)
+            else FamilyLibrarySnapshot(session, emptyList(), emptyList())
+        }
+    }
     fun observeAll(): Flow<List<MovieEntity>> = combine(movies.observeAll(), history.observeAll(), family.session) { all, states, session ->
         if (!session.unlocked) emptyList() else {
             val own = states.filter { it.profileId == session.historyId }.associateBy { it.movieId }

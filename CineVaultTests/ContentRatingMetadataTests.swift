@@ -46,6 +46,83 @@ final class ContentRatingMetadataTests: XCTestCase {
         XCTAssertEqual(movie.usContentRatingFetched, false)
     }
 
+    func testPlexServerCertificationSurvivesUnmatchedMovieAndShowSearches() async throws {
+        let film = movie("PlexVideo/101.mp4", id: nil)
+        let episode = movie("PlexVideo/203.mp4", id: nil)
+        episode.seriesTitle = "Fixture Show"
+        episode.seasonNumber = 1
+        episode.episodeNumber = 2
+        for item in [film, episode] {
+            let source = try XCTUnwrap(item.source)
+            source.sourceProtocol = "plex"
+            item.usContentRating = "R"
+            item.usContentRatingFetched = true
+            let service = MetadataService(requestData: { request in
+                try self.response(request, json: #"{"results":[]}"#)
+            }, readAPIKey: { "fixture" })
+            try await service.match(item)
+            XCTAssertEqual(item.usContentRating, "R")
+            XCTAssertEqual(item.usContentRatingFetched, true)
+        }
+    }
+
+    func testPlexServerCertificationSurvivesOnlineRematchAndBackfill() async throws {
+        let film = movie("PlexVideo/101.mp4")
+        let source = try XCTUnwrap(film.source)
+        source.sourceProtocol = "plex"
+        film.usContentRating = "R"
+        film.usContentRatingFetched = true
+        var requests = 0
+        let service = MetadataService(requestData: { request in
+            requests += 1
+            return try self.response(request, json: #"{"id":42,"title":"Example","release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"certification":"G"}]}]}}"#)
+        }, readAPIKey: { "fixture" })
+        _ = try await service.apply(tmdbID: 42, to: film, force: true)
+        try await service.fetchUSContentRating(for: film)
+        XCTAssertEqual(requests, 1)
+        XCTAssertEqual(film.usContentRating, "R")
+        XCTAssertEqual(film.usContentRatingFetched, true)
+    }
+
+    func testPlexFilenameResetCannotEraseServerRatingOrEpisodeIdentity() throws {
+        let episode = movie("PlexVideo/203.mp4")
+        let source = try XCTUnwrap(episode.source)
+        source.sourceProtocol = "plex"
+        episode.fileName = "Server Episode"
+        episode.parsedTitle = "Server Episode"
+        episode.setTitle("My episode title")
+        episode.isLocked = true
+        episode.seriesTitle = "Fixture Show"
+        episode.providerSeriesID = "201"
+        episode.seriesTMDBID = 7
+        episode.seasonNumber = 1
+        episode.episodeNumber = 2
+        episode.usContentRating = "TV-MA"
+        episode.usContentRatingFetched = true
+        episode.overview = "Server episode description"
+        episode.providerImageTag = "/library/metadata/203/thumb"
+        episode.playbackPosition = 75
+        let originalSeriesKey = episode.seriesKey
+
+        MetadataService().resetToFileName(episode)
+
+        XCTAssertEqual(episode.title, "My episode title")
+        XCTAssertEqual(episode.parsedTitle, "Server Episode")
+        XCTAssertTrue(episode.isLocked)
+        XCTAssertEqual(episode.tmdbID, 42)
+        XCTAssertEqual(episode.seriesTMDBID, 7)
+        XCTAssertEqual(episode.seriesKey, originalSeriesKey)
+        XCTAssertEqual(episode.episodeInfo?.seriesTitle, "Fixture Show")
+        XCTAssertEqual(episode.episodeInfo?.season, 1)
+        XCTAssertEqual(episode.episodeInfo?.episode, 2)
+        XCTAssertEqual(episode.usContentRating, "TV-MA")
+        XCTAssertEqual(episode.usContentRatingFetched, true)
+        XCTAssertEqual(episode.overview, "Server episode description")
+        XCTAssertEqual(episode.providerImageTag, "/library/metadata/203/thumb")
+        XCTAssertEqual(episode.playbackPosition, 75)
+        XCTAssertTrue(episode.metadataFetched)
+    }
+
     func testFetchMissingBackfillsOldLockedMovieWithoutReplacingLibraryState() async throws {
         let container = try ModelContainer(for: MediaSource.self, Movie.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let movie = movie()
