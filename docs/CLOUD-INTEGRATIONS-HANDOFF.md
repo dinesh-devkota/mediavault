@@ -183,15 +183,18 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   identifier and range contract against an isolated official Plex Media Server.
   The Apple TV simulator ran 212 cases with zero failures or skips, including
   Plex setup by remote, protected catalog and playback. The combined Android
-  and Apple TV draft passed both TV suites against one development candidate.
-  Android Plex also passed 102 TV cases and all four phone cases, including
+  and Apple TV candidate passed both TV suites, the Android phone suite and
+  Swift core tests, then merged to development at
+  `290b4a6110f7805e8953c0d1cc4a3503c2284277`. The separate Apple-only branch
+  passed an unsigned tvOS release build with identical Apple inputs.
+  Android Plex passed 102 TV cases and all four phone cases, including
   authenticated native playback and seek. Live account linking needs a signed-in Plex QA account and an eligible reachable server.
   The preview currently supports direct play and requires a reachable direct
   server connection.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/5)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/pull/21)
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/25)
-  · [Combined development draft](https://github.com/dinesh-devkota/mediavault/pull/28)
+  · [Merged development PR](https://github.com/dinesh-devkota/mediavault/pull/28)
   · [212 Apple TV cases on the combined draft](https://github.com/dinesh-devkota/mediavault/actions/runs/45735035580)
   · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45734670331)
   · [Android phone](https://github.com/dinesh-devkota/mediavault/actions/runs/45734664627)
@@ -218,12 +221,13 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   Dropbox API app key with Full Dropbox access and the read scopes
   account_info.read, files.metadata.read and files.content.read is needed
   for a live account test, subject to the Dropbox app's access and
-  production approval limits. The exact Android phone run passed its three
-  required cases, including Dropbox. The Apple branches inherit a regression
+  production approval limits. The Android TV run passed all 100 cases and
+  the phone run passed all three, with Dropbox cases on both. The Apple branches inherit a regression
   check for subtitle discovery at an exact household grant boundary.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/6)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/pull/26)
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/27)
+  · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45735171288)
   · [Android phone](https://github.com/dinesh-devkota/mediavault/actions/runs/45735178417)
 - Google Drive uses the platform picker on Android TV and phone when the
   signed-in Google Drive document provider and picker are available, and the
