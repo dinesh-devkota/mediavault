@@ -6,6 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.core.LibraryEntry
 import com.dineshdevkota.cinevault.core.EpisodeInfo
 import com.dineshdevkota.cinevault.core.EpisodeParser
@@ -40,7 +41,7 @@ data class SourceEntity(
     @ColumnInfo(defaultValue = "0") val allowInsecureHttp: Boolean = false,
 ) {
     fun includesFile(filePath: String): Boolean {
-        if (sourceType == "webdav") {
+        if (sourceType == "webdav" || sourceType == ONEDRIVE) {
             return com.dineshdevkota.cinevault.webdav.DavAddress.contains(filePath, rootPath) &&
                 !ScanExclusions.isFileExcluded(filePath, rootPath, ignoredFolders, ignoredFiles, caseSensitive = true)
         }
@@ -58,7 +59,7 @@ data class SourceEntity(
         share = share,
         rootPath = rootPath,
         username = username,
-        password = if (username.isEmpty()) "" else secrets.decrypt(encryptedPassword),
+        password = if (username.isEmpty() || sourceType == ONEDRIVE) "" else secrets.decrypt(encryptedPassword),
         ignoredFolders = ignoredFolders,
         ignoredFiles = ignoredFiles,
         sourceType = sourceType, allowInsecureHttp = allowInsecureHttp,

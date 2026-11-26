@@ -81,6 +81,9 @@ struct NASSetupView: View {
 
     @ViewBuilder private var deviceSections: some View {
         Section {
+            NavigationLink("Connect OneDrive") {
+                OneDriveSourceEditor(source: nil, onSaved: { dismiss() })
+            }.accessibilityIdentifier("add-onedrive-source")
             NavigationLink("Connect Jellyfin") {
                 JellyfinSourceEditor(source: nil, onSaved: { dismiss() })
             }

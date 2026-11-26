@@ -26,6 +26,7 @@ import com.dineshdevkota.cinevault.plex.PLEX
 import com.dineshdevkota.cinevault.plex.authorizedItem
 import com.dineshdevkota.cinevault.plex.plexClient
 import com.dineshdevkota.cinevault.plex.plexItemId
+import com.dineshdevkota.cinevault.smb.FileSourceTransport
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.hierynomus.security.bc.BCSecurityProvider
@@ -188,7 +189,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
         if (!MediaFile.isPhoto(photo.filePath) || photo.isMissing || photo.isHidden) {
             throw PhotoLoadException("This photo is unavailable or hidden. Check the source and rescan.")
         }
-        if (config.isWebDav) {
+        if (config.caseSensitivePaths) {
             if (!com.dineshdevkota.cinevault.webdav.DavAddress.contains(photo.filePath, config.rootPath) ||
                 !MediaFile.shouldIndex(photo.filePath, photo.fileSize) ||
                 ScanExclusions.isFileExcluded(photo.filePath, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = true)) {
@@ -249,9 +250,10 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
 
     companion object {
         /** Short photo timeouts never interrupt or reset the separate playback connection cache. */
-        private fun photoService(): SmbService = SmbService(SMBClient(SmbConfig.builder()
+        internal fun photoService(fileSources: Map<String, FileSourceTransport> = emptyMap()): SmbService =
+            SmbService(SMBClient(SmbConfig.builder()
             .withSecurityProvider(BCSecurityProvider()).withTimeout(8, TimeUnit.SECONDS)
-            .withSoTimeout(10, TimeUnit.SECONDS).withReadBufferSize(64 * 1024).build()))
+            .withSoTimeout(10, TimeUnit.SECONDS).withReadBufferSize(64 * 1024).build()), fileSources)
 
         fun describe(error: Throwable): String = when (error) {
             is PhotoLoadException -> error.message.orEmpty()

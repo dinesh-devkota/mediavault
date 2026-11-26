@@ -70,6 +70,18 @@ class AndroidPhoneNavigationTest {
     }
 
     @Test
+    fun touchNavigationOpensOneDriveSetupAlongsidePlex() {
+        launchPhone().use {
+            tap("Sources")
+            visible(hasText("Connect Plex") and hasClickAction(), scroll = true)
+            tap("Connect OneDrive", scroll = true)
+            visible(hasText("Microsoft Entra application ID") and hasSetTextAction(), scroll = true)
+            tap("Back", scroll = true)
+            visible(hasText("Connect OneDrive") and hasClickAction(), scroll = true)
+        }
+    }
+
+    @Test
     fun touchSetupImportsMovieAndPlaysAndSeeksWithNativeControls() {
         val container = application.container
         val host = InstrumentationRegistry.getArguments().getString("nasHost")
@@ -157,6 +169,11 @@ class AndroidPhoneNavigationTest {
                 node.assertIsDisplayed()
                 true
             } catch (_: AssertionError) { false }
+            catch (failure: IllegalStateException) {
+                // Returning from the native player briefly leaves neither Compose window resumed.
+                if (failure.message?.startsWith("No compose hierarchies found") != true) throw failure
+                false
+            }
         }
         return node
     }

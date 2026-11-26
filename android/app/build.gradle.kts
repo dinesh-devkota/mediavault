@@ -8,6 +8,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val oneDriveClientId = providers.gradleProperty("mediavault.oneDriveClientId").orElse("").get().also {
+    require(it.isEmpty() || it.matches(Regex("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"))) {
+        "mediavault.oneDriveClientId must be a public Microsoft Entra application UUID."
+    }
+}
+
 // Signing is opt-in; ordinary release builds produce an unsigned community bundle.
 val releaseSigningEnabled = when (providers.gradleProperty("cinevault.releaseSigning").orNull) {
     null, "false" -> false
@@ -24,8 +30,13 @@ android {
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "ONEDRIVE_CLIENT_ID", "\"$oneDriveClientId\"")
         versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 6
         versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.4.0"
+    }
+
+    sourceSets.named("androidTest") {
+        assets.srcDir("../../CineVaultTests/Fixtures")
     }
 
     if (releaseSigningEnabled) {

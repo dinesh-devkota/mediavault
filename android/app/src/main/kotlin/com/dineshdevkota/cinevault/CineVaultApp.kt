@@ -3,6 +3,9 @@ package com.dineshdevkota.cinevault
 import android.app.Application
 import android.content.Context
 import android.util.Log
+import com.dineshdevkota.cinevault.cloud.AndroidOneDriveAccountStore
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
+import com.dineshdevkota.cinevault.cloud.OneDriveMedia
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.SecretBox
 import com.dineshdevkota.cinevault.data.Settings
@@ -43,8 +46,10 @@ class AppContainer(context: Context) {
     val settings = Settings(context, secrets) { family.current.historyId }
     val database = CineVaultDatabase.create(context)
     val library = com.dineshdevkota.cinevault.family.FamilyLibrary(database, family)
-    val smb = SmbService()
-    val photos = NasPhotoLoader(context, database, secrets, family = family)
+    internal val oneDrive = OneDriveMedia(AndroidOneDriveAccountStore(context, secrets))
+    private val fileSources = mapOf(ONEDRIVE to oneDrive)
+    val smb = SmbService(fileSources = fileSources)
+    val photos = NasPhotoLoader(context, database, secrets, NasPhotoLoader.photoService(fileSources), family = family)
     val playbackProgress = PlaybackProgressWriter(scope)
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
