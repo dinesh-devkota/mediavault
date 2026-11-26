@@ -34,13 +34,13 @@ enum LocalSubtitleService {
                          list: (SourceConfig, String) async throws -> [NASDirectoryEntry] = {
                              try await SMBService.shared.listEntries($0, directory: $1)
                          }) async throws -> [SubtitleFile] {
-        guard let directory = SubtitleFile.directory(for: videoPath, rootPath: config.rootPath),
+        guard let directory = SubtitleFile.directory(for: videoPath, rootPath: config.rootPath, caseSensitive: config.isWebDAV),
               !config.excludesFile(videoPath) else { throw SMBError.sourceChanged }
         let entries = try await list(config, directory)
         try Task.checkCancellation()
         let matches = entries.prefix(4096).filter { !$0.isDirectory }.compactMap {
             SubtitleFile.match(name: $0.name, videoPath: videoPath, rootPath: config.rootPath,
-                               ignoredFolders: config.ignoredFolders, ignoredFiles: config.ignoredFiles)
+                               ignoredFolders: config.ignoredFolders, ignoredFiles: config.ignoredFiles, caseSensitive: config.isWebDAV)
         }.sorted {
             let left = PlaybackSubtitles.sameLanguage($0.language, preferredLanguage)
             let right = PlaybackSubtitles.sameLanguage($1.language, preferredLanguage)
@@ -53,7 +53,7 @@ enum LocalSubtitleService {
     static func read(_ file: SubtitleFile, config: SourceConfig,
                      size: (SourceConfig, String) async throws -> Int64 = { try await SMBService.shared.fileSize($0, path: $1) },
                      read: (SourceConfig, String, Int) async throws -> Data = { try await SMBService.shared.read($0, path: $1, offset: 0, length: $2) }) async throws -> SubtitleDocument {
-        guard SubtitleFile.safePath(file.path, within: config.rootPath) != nil, !config.excludesFile(file.path) else { throw SMBError.sourceChanged }
+        guard SubtitleFile.safePath(file.path, within: config.rootPath, caseSensitive: config.isWebDAV) != nil, !config.excludesFile(file.path) else { throw SMBError.sourceChanged }
         let length = try await size(config, file.path)
         try Task.checkCancellation()
         guard length > 0, length <= SubtitleDocument.maximumBytes else { throw SubtitleError.tooLarge }
@@ -73,6 +73,12 @@ final class PlaybackSubtitles: ObservableObject {
         var label: String { option.displayName }
         var preference: String { "embedded|" + (option.extendedLanguageTag ?? option.locale?.identifier ?? option.displayName) }
     }
+    struct ProviderTracks {
+        let files: [SubtitleFile]
+        let read: (SubtitleFile) async throws -> SubtitleDocument
+    }
+    var providerTracks: ProviderTracks?
+
     @Published private(set) var local: [SubtitleFile] = []
     @Published private(set) var embedded: [Embedded] = []
     @Published private(set) var online: [SubDLSubtitle] = []
@@ -130,7 +136,12 @@ final class PlaybackSubtitles: ObservableObject {
                 self.embedded = (self.group?.options ?? []).enumerated().map { Embedded(id: $0.offset, option: $0.element) }
                 self.nativeLoaded = true
                 self.nativeSelection = NativeSubtitleSelectionTracker(current: self.currentNativeSelection)
-                self.local = try await LocalSubtitleService.discover(config: self.config, videoPath: self.path, preferredLanguage: self.preferredLanguage)
+                if let tracks = self.providerTracks {
+                    self.local = tracks.files
+                } else {
+                    self.local = try await LocalSubtitleService.discover(config: self.config, videoPath: self.path,
+                                                                         preferredLanguage: self.preferredLanguage)
+                }
                 try Task.checkCancellation()
                 guard self.sourceUnchanged else { throw SMBError.sourceChanged }
                 self.loading = false
@@ -213,7 +224,12 @@ final class PlaybackSubtitles: ObservableObject {
                 guard let self else { return }
                 do {
                     guard self.sourceUnchanged else { throw SMBError.sourceChanged }
-                    let document = try await LocalSubtitleService.read(file, config: self.config)
+                    let document: SubtitleDocument
+                    if let tracks = self.providerTracks {
+                        document = try await tracks.read(file)
+                    } else {
+                        document = try await LocalSubtitleService.read(file, config: self.config)
+                    }
                     try Task.checkCancellation()
                     guard self.generation == token, self.sourceUnchanged else { return }
                     self.document = document; self.loading = false; self.updateCaption()
@@ -306,7 +322,7 @@ final class PlaybackSubtitles: ObservableObject {
     }
     var canSearchOnline: Bool { onlineQuery != nil }
 
-    private var onlineQuery: SubDLSearchQuery? {
+    var onlineQuery: SubDLSearchQuery? {
         if let episode = movie.episodeInfo, let id = movie.seriesTMDBID, id > 0 {
             return SubDLSearchQuery(tmdbID: id, type: .tv, season: episode.season, episode: episode.episode, language: preferredLanguage)
         }
@@ -338,7 +354,8 @@ final class PlaybackSubtitles: ObservableObject {
                 try Task.checkCancellation()
                 guard !self.stopped, self.generation == token, self.sourceUnchanged else { return }
                 self.online = results; self.searching = false
-                if automatically, let exact = Self.automaticMatch(results, videoPath: self.path) {
+                // Jellyfin catalog paths use item IDs instead of the release's filename.
+                if automatically, !self.config.isJellyfin, let exact = Self.automaticMatch(results, videoPath: self.path) {
                     self.selectOnline(exact, remember: false)
                 } else if !results.isEmpty {
                     self.onlineMessage = "Subtitles are available. Choose the release that matches your video."
@@ -398,6 +415,7 @@ final class PlaybackSubtitles: ObservableObject {
     func stop() {
         guard !stopped else { return }
         stopped = true; generation = UUID(); task?.cancel(); loadTask?.cancel(); searchTask?.cancel(); caption = ""; document = nil
+        presented = false; local = []; embedded = []; online = []; message = nil; onlineMessage = nil
         if let observer { player.removeTimeObserver(observer) }; observer = nil
         if let mediaObserver { NotificationCenter.default.removeObserver(mediaObserver) }; mediaObserver = nil
         if let jumpObserver { NotificationCenter.default.removeObserver(jumpObserver) }; jumpObserver = nil
@@ -471,7 +489,9 @@ struct SubtitleSelectionView: View {
                 }
                 if let message = subtitles.message { Text(message).foregroundStyle(.secondary) }
                 Section {
-                    Text("Place subtitle files beside the video using the same filename, such as Movie.en.srt or Movie.es.vtt. Your Off or language choice carries to the next episode when available.")
+                    Text(subtitles.providerTracks == nil
+                        ? "Place subtitle files beside the video using the same filename, such as Movie.en.srt or Movie.es.vtt. Your Off or language choice carries to the next episode when available."
+                        : "Text subtitle tracks supplied by this Jellyfin server are listed above.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }.navigationTitle("Subtitles")

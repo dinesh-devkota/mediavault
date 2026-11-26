@@ -40,6 +40,7 @@ class NasBrowser {
     /** Explicit browsing includes ignored paths so users can include them again. */
     suspend fun listEntries(config: SourceConfig): List<NasEntry> = withContext(Dispatchers.IO) {
         coroutineContext.ensureActive()
+        if (config.isWebDav) return@withContext com.dineshdevkota.cinevault.webdav.WebDavService().list(config).map { NasEntry(it.name, it.directory) }
         withSession(config) { session ->
             val connected = session.connectShare(config.share.trim('/', '\\'))
             connected.use {

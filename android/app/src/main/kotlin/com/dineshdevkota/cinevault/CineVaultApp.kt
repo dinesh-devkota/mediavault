@@ -27,6 +27,7 @@ class CineVaultApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        registerActivityLifecycleCallbacks(com.dineshdevkota.cinevault.family.FamilyLifecycle(container.family, container.scope) { container.photos.clearMemory() })
     }
 }
 
@@ -36,11 +37,17 @@ class AppContainer(context: Context) {
         SupervisorJob() + Dispatchers.Default +
             CoroutineExceptionHandler { _, error -> Log.e("CineVault", "Background task failed", error) },
     )
+    internal val jellyfinSetupSessions = com.dineshdevkota.cinevault.jellyfin.JellyfinSetupSessions(scope)
     val secrets = SecretBox()
-    val settings = Settings(context, secrets)
+    val family = com.dineshdevkota.cinevault.family.FamilyStore(context, secrets, initiallyActive = false)
+    val settings = Settings(context, secrets) { family.current.historyId }
     val database = CineVaultDatabase.create(context)
-    val smb = SmbService()
-    val photos = NasPhotoLoader(context, database, secrets)
+    val library = com.dineshdevkota.cinevault.family.FamilyLibrary(database, family)
+    internal val googleDriveDocuments = com.dineshdevkota.cinevault.cloud.GoogleDriveDocuments(context)
+    internal val googleDriveSources = com.dineshdevkota.cinevault.cloud.GoogleDriveSourceStore(
+        context, database, secrets, googleDriveDocuments)
+    val smb = SmbService(driveDocuments = googleDriveDocuments)
+    val photos = NasPhotoLoader(context, database, secrets, family = family)
     val playbackProgress = PlaybackProgressWriter(scope)
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -49,7 +56,7 @@ class AppContainer(context: Context) {
     val metadata = MetadataService(database, TmdbClient(http) { settings.tmdbApiKey })
     val scanner = LibraryScanner(database, secrets, smb::scanVideos,
         afterScan = { metadata.fetchMissing()?.failureMessage }, scanWithProgress = smb::scanMedia)
-    val editor = LibraryEditor(database, metadata, playbackProgress)
+    val editor = LibraryEditor(database, metadata, playbackProgress, library)
 }
 
 val Context.container: AppContainer get() = (applicationContext as CineVaultApp).container

@@ -91,7 +91,7 @@ internal fun PhotoTile(photo: MovieEntity, modifier: Modifier = Modifier, source
 @Composable
 internal fun PhotosTab(movies: List<MovieEntity>) {
     val context = LocalContext.current
-    val sources by remember { context.container.database.sources().observeAll() }.collectAsStateWithLifecycle(emptyList())
+    val sources by remember { context.container.library.observeSources() }.collectAsStateWithLifecycle(emptyList())
     val sourceById = remember(sources) { sources.associateBy { it.id } }
     val albums = remember(movies, sources) { photoAlbums(movies, sources) }
     var albumId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -214,8 +214,8 @@ class PhotoViewerActivity : ComponentActivity() {
 @Composable
 private fun PhotoViewerScreen(initialId: String, onClose: () -> Unit) {
     val container = LocalContext.current.container
-    val movies by remember { container.database.movies().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(emptyList())
+    val movies by remember { container.library.observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(emptyList())
     var selectedId by rememberSaveable(initialId) { mutableStateOf(initialId) }
     var albumId by rememberSaveable(initialId) { mutableStateOf<String?>(null) }
     var retry by remember(selectedId) { mutableIntStateOf(0) }

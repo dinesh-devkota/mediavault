@@ -28,6 +28,7 @@ data class TmdbTVDetails(
     @SerialName("vote_average") val voteAverage: Double? = null,
     @SerialName("episode_run_time") val episodeRunTime: List<Int> = emptyList(),
     val genres: List<TmdbGenre>? = null,
+    @SerialName("content_ratings") val contentRatings: TmdbContentRatings? = null,
 ) {
     val year: Int? get() = firstAirDate?.take(4)?.toIntOrNull()
 }

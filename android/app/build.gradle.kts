@@ -18,14 +18,15 @@ val releaseSigningEnabled = when (providers.gradleProperty("cinevault.releaseSig
 android {
     namespace = "com.dineshdevkota.cinevault"
     compileSdk = 36
+    sourceSets.named("androidTest") { assets.srcDir(rootProject.file("../CineVaultTests/Fixtures")) }
 
     defaultConfig {
         applicationId = "com.dineshdevkota.cinevault"
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 5
-        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.3.0"
+        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 6
+        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.4.0"
     }
 
     if (releaseSigningEnabled) {
@@ -110,10 +111,14 @@ dependencies {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk15on")
     }
     implementation(libs.media3.exoplayer)
+    implementation(libs.media3.hls)
+    implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.okhttp)
     testImplementation(libs.junit)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

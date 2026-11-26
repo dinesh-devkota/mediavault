@@ -1,6 +1,8 @@
 package com.dineshdevkota.cinevault.library
 
 import androidx.room.withTransaction
+import com.dineshdevkota.cinevault.cloud.DriveDocumentPath
+import com.dineshdevkota.cinevault.core.EpisodeParser
 import com.dineshdevkota.cinevault.core.FilenameParser
 import com.dineshdevkota.cinevault.core.MediaFile
 import com.dineshdevkota.cinevault.core.MediaKind
@@ -10,6 +12,8 @@ import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SecretBox
+import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.jellyfin.importJellyfinLibrary
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.dineshdevkota.cinevault.smb.ScanProgress
@@ -70,38 +74,54 @@ class LibraryScanner(
         statusFlow.value = "Scanning ${source.name}…"
         var partialAdded = 0
         try {
+            if (source.sourceType == JELLYFIN) {
+                val result = importJellyfinLibrary(database, source, secrets) {
+                    statusFlow.value = "Scanning ${source.name}: $it catalog items…"
+                }
+                statusFlow.value = if (result == null) "${source.name} changed during the scan. Scan the source again."
+                    else "${source.name}: ${result.first} items (${result.second} new)."
+                return
+            }
             val movies = database.movies()
             val config = source.config(secrets)
             val foundPaths = mutableSetOf<String>()
             val scanned = if (scanWithProgress == null) scanVideos(config) else scanWithProgress(config) { progress ->
                 val allowed = progress.files.filter {
-                    MediaFile.shouldIndex(it.path, it.size) &&
-                        !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles)
+                    MediaFile.shouldIndex(displayPath(config, it), it.size) &&
+                        !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.caseSensitivePaths)
                 }
-                database.withTransaction {
+                if (!config.isGoogleDrive) database.withTransaction {
                     check(database.sources().get(source.id) == source) { "The NAS source changed during the scan. Scan again." }
                     val existing = if (allowed.isEmpty()) emptyMap() else
                         movies.forPaths(source.id, allowed.map { it.path }).associateBy { it.filePath }
                     for (file in allowed) {
                         val current = existing[file.path]
-                        if (current == null) { movies.insert(newEntry(source.id, file)); partialAdded++ }
+                        if (current == null) { movies.insert(newEntry(source.id, file, config)); partialAdded++ }
                         else movies.markPresent(current.id, file.size)
                     }
                 }
                 foundPaths.addAll(allowed.map { it.path })
                 statusFlow.value = "Scanning ${source.name}: ${foundPaths.size} items in ${progress.folders} folders…"
             }
-            val files = scanned.filter { MediaFile.shouldIndex(it.path, it.size) &&
-                !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles) }
+            val files = scanned.filter { MediaFile.shouldIndex(displayPath(config, it), it.size) &&
+                !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.caseSensitivePaths) }
             val added = database.withTransaction {
                 // An edit/delete can finish while the NAS operation is suspended. Never apply
                 // the old share's results to the replacement source (or recreate deleted rows).
                 if (database.sources().get(source.id) != source) return@withTransaction null
-                val diff = LibrarySync.diff(movies.forSource(source.id), files) { it.filePath }
-                diff.present.forEach { (movie, file) -> movies.markPresent(movie.id, file.size) }
+                fun key(path: String) = if (config.isGoogleDrive) DriveDocumentPath.fileID(path) ?: path else path
+                val diff = LibrarySync.diff(movies.forSource(source.id), files, fileKey = { key(it.path) }) { key(it.filePath) }
+                diff.present.forEach { (movie, file) ->
+                    if (config.isGoogleDrive && movie.filePath != file.path) {
+                        // Drive IDs survive rename and moves inside a grant. Keep the row and household history.
+                        val display = displayPath(config, file)
+                        movies.update(movie.copy(filePath = file.path, fileName = display.substringAfterLast('/'),
+                            fileSize = file.size, isMissing = false))
+                    } else movies.markPresent(movie.id, file.size)
+                }
                 diff.missing.forEach { movies.markMissing(it.id) }
                 diff.added.forEach { file ->
-                    movies.insert(newEntry(source.id, file))
+                    movies.insert(newEntry(source.id, file, config))
                 }
                 database.sources().setLastScan(source.id, System.currentTimeMillis())
                 diff.added.size + partialAdded
@@ -126,18 +146,27 @@ class LibraryScanner(
             statusFlow.value = "Scan cancelled for ${source.name}. Items already found are kept."
             throw e
         } catch (e: Exception) {
-            val reason = SmbService.describe(e).trimEnd().removeSuffix(".")
+            val reason = if (source.sourceType == JELLYFIN) {
+                (e as? com.dineshdevkota.cinevault.jellyfin.JellyfinException)?.message
+                    ?: "Could not read the Jellyfin library"
+            } else SmbService.describe(e).trimEnd().removeSuffix(".")
             statusFlow.value = "Scan failed for ${source.name}: $reason. Items already found are kept. Retry from Sources."
         }
     }
 
-    private fun newEntry(sourceId: String, file: RemoteFile): MovieEntity {
-        val parsed = FilenameParser.parse(file.path)
-        val localTitle = MediaFile.isAudio(file.path) || MediaFile.isPhoto(file.path)
-        val title = if (localTitle) file.fileName.substringBeforeLast('.') else parsed.title
-        return MovieEntity(sourceId = sourceId, filePath = file.path, fileName = file.fileName, fileSize = file.size,
+    private fun displayPath(config: SourceConfig, file: RemoteFile): String =
+        if (config.isGoogleDrive) DriveDocumentPath.displayPath(file.path) ?: file.path else file.path
+
+    private fun newEntry(sourceId: String, file: RemoteFile, config: SourceConfig): MovieEntity {
+        val visibleFile = if (config.isGoogleDrive) file.copy(path = displayPath(config, file)) else file
+        val parsed = FilenameParser.parse(visibleFile.path)
+        val localTitle = MediaFile.isAudio(visibleFile.path) || MediaFile.isPhoto(visibleFile.path)
+        val title = if (localTitle) visibleFile.fileName.substringBeforeLast('.') else parsed.title
+        val episode = if (config.isGoogleDrive && !localTitle) EpisodeParser.parse(visibleFile.path) else null
+        return MovieEntity(sourceId = sourceId, filePath = file.path, fileName = visibleFile.fileName, fileSize = file.size,
             parsedTitle = title, parsedYear = if (localTitle) null else parsed.year, tmdbId = if (localTitle) null else parsed.tmdbId,
-            year = if (localTitle) null else parsed.year, title = if (localTitle) title else LibrarySync.initialTitle(file, parsed),
+            year = if (localTitle) null else parsed.year, title = if (localTitle) title else LibrarySync.initialTitle(visibleFile, parsed),
+            seriesTitle = episode?.seriesTitle, seasonNumber = episode?.season, episodeNumber = episode?.episode,
             metadataFetched = localTitle)
     }
 }

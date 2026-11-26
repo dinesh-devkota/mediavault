@@ -103,6 +103,13 @@ public struct SubtitleFile: Identifiable, Equatable, Sendable {
     public let language: String?
     public let forced: Bool
     public let hearingImpaired: Bool
+    public init(path: String, language: String?, forced: Bool = false, hearingImpaired: Bool = false) {
+        self.path = path
+        self.language = language
+        self.forced = forced
+        self.hearingImpaired = hearingImpaired
+    }
+
     public var id: String { path }
     public var preference: String { ["local", language ?? "und", forced ? "forced" : "", hearingImpaired ? "sdh" : ""].joined(separator: "|") }
     public var label: String {
@@ -111,7 +118,7 @@ public struct SubtitleFile: Identifiable, Equatable, Sendable {
     }
 
     /// Source and file paths are share-relative; reject traversal rather than standardizing it away.
-    public static func safePath(_ path: String, within root: String, allowRoot: Bool = false) -> String? {
+    public static func safePath(_ path: String, within root: String, allowRoot: Bool = false, caseSensitive: Bool = false) -> String? {
         func parts(_ path: String) -> [String]? {
             let slashed = path.replacingOccurrences(of: "\\", with: "/")
             guard !slashed.hasPrefix("//"), !slashed.contains(":"),
@@ -121,31 +128,37 @@ public struct SubtitleFile: Identifiable, Equatable, Sendable {
             return values
         }
         guard let path = parts(path), let root = parts(root), path.count >= root.count,
-              zip(root, path).allSatisfy({ $0.0.lowercased() == $0.1.lowercased() }),
+              zip(root, path).allSatisfy({ left, right in
+                  caseSensitive ? left.utf8.elementsEqual(right.utf8) : left.lowercased() == right.lowercased()
+              }),
               allowRoot || path.count > root.count else { return nil }
         return path.joined(separator: "/")
     }
 
-    public static func directory(for videoPath: String, rootPath: String) -> String? {
-        guard let path = safePath(videoPath, within: rootPath) else { return nil }
+    public static func directory(for videoPath: String, rootPath: String, caseSensitive: Bool = false) -> String? {
+        guard let path = safePath(videoPath, within: rootPath, caseSensitive: caseSensitive) else { return nil }
         return path.split(separator: "/").dropLast().joined(separator: "/")
     }
 
     public static func match(name: String, videoPath: String, rootPath: String,
-                             ignoredFolders: [String] = [], ignoredFiles: [String] = []) -> SubtitleFile? {
+                             ignoredFolders: [String] = [], ignoredFiles: [String] = [], caseSensitive: Bool = false) -> SubtitleFile? {
         guard !name.contains("/"), !name.contains("\\"),
-              let directory = directory(for: videoPath, rootPath: rootPath),
-              !ScanExclusions.isFileExcluded(path: videoPath, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles) else { return nil }
+              let directory = directory(for: videoPath, rootPath: rootPath, caseSensitive: caseSensitive),
+              !ScanExclusions.isFileExcluded(path: videoPath, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles, caseSensitive: caseSensitive) else { return nil }
         let path = directory.isEmpty ? name : directory + "/" + name
-        guard let safe = safePath(path, within: rootPath),
-              !ScanExclusions.isFileExcluded(path: safe, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles) else { return nil }
+        guard let safe = safePath(path, within: rootPath, caseSensitive: caseSensitive),
+              !ScanExclusions.isFileExcluded(path: safe, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles, caseSensitive: caseSensitive) else { return nil }
         let ext = (name as NSString).pathExtension.lowercased()
         guard ext == "srt" || ext == "vtt" else { return nil }
-        let base = ((videoPath.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent as NSString).deletingPathExtension.lowercased()
-        let subtitleBase = (name as NSString).deletingPathExtension.lowercased()
-        guard subtitleBase == base || subtitleBase.hasPrefix(base + ".") else { return nil }
-        let suffix = subtitleBase == base ? "" : String(subtitleBase.dropFirst(base.count + 1))
-        guard subtitleBase == base || !suffix.isEmpty else { return nil }
+        let videoStem = ((videoPath.replacingOccurrences(of: "\\", with: "/") as NSString).lastPathComponent as NSString).deletingPathExtension
+        let subtitleStem = (name as NSString).deletingPathExtension
+        let base = caseSensitive ? videoStem : videoStem.lowercased()
+        let subtitleBase = caseSensitive ? subtitleStem : subtitleStem.lowercased()
+        let exact = caseSensitive ? subtitleBase.utf8.elementsEqual(base.utf8) : subtitleBase == base
+        let prefix = caseSensitive ? subtitleBase.utf8.starts(with: (base + ".").utf8) : subtitleBase.hasPrefix(base + ".")
+        guard exact || prefix else { return nil }
+        let suffix = exact ? "" : String(subtitleBase.dropFirst(base.count + 1)).lowercased()
+        guard exact || !suffix.isEmpty else { return nil }
         let tokens = suffix.isEmpty ? [] : suffix.components(separatedBy: ".")
         var language: String?, forced = false, sdh = false
         for token in tokens {

@@ -23,7 +23,8 @@ struct MovieDetailView: View {
     @State private var loadingError: String?
 
     var body: some View {
-        if MediaFile.isPhoto(path: movie.filePath) { PhotoDestination(photo: movie) }
+        if !HouseholdStore.shared.allows(movie) { HouseholdUnavailableView() }
+        else if MediaFile.isPhoto(path: movie.filePath) { PhotoDestination(photo: movie) }
         else { movieContent }
     }
 
@@ -164,35 +165,35 @@ struct MovieDetailView: View {
             }
             Button {
                 if playbackServices.resetProgress(movie) {
-                    movie.isWatched.toggle()
+                    movie.householdWatched.toggle()
                 }
             } label: {
-                Label(movie.isWatched ? "Mark Unwatched" : "Mark Watched",
-                      systemImage: movie.isWatched ? "eye.slash" : "checkmark")
+                Label(movie.householdWatched ? "Mark Unwatched" : "Mark Watched",
+                      systemImage: movie.householdWatched ? "eye.slash" : "checkmark")
             }
             .buttonStyle(.bordered)
-            Button { editing = true } label: {
+            if HouseholdStore.shared.isAdmin { Button { editing = true } label: {
                 Label("Edit", systemImage: "pencil")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.bordered) }
         }
     }
 
     private var personalActions: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                let wasWatchlisted = movie.isWatchlisted
-                movie.isWatchlisted.toggle()
+                let wasWatchlisted = movie.householdWatchlisted
+                movie.householdWatchlisted.toggle()
                 do {
                     try movie.modelContext?.save()
                     watchlistError = nil
                 } catch {
-                    movie.isWatchlisted = wasWatchlisted
+                    movie.householdWatchlisted = wasWatchlisted
                     watchlistError = "Could not save the watchlist: \(error.localizedDescription)"
                 }
             } label: {
-                Label(movie.isWatchlisted ? "Remove from Watchlist" : "Add to Watchlist",
-                      systemImage: movie.isWatchlisted ? "bookmark.fill" : "bookmark")
+                Label(movie.householdWatchlisted ? "Remove from Watchlist" : "Add to Watchlist",
+                      systemImage: movie.householdWatchlisted ? "bookmark.fill" : "bookmark")
             }
             .buttonStyle(.bordered)
             if let watchlistError {
@@ -212,7 +213,7 @@ struct MovieDetailView: View {
                     Label(source.name, systemImage: "externaldrive")
                 }
                 Text(ByteCountFormatter.string(fromByteCount: movie.fileSize, countStyle: .file))
-                if movie.isWatched {
+                if movie.householdWatched {
                     Label("Watched", systemImage: "checkmark.circle.fill")
                 }
                 if movie.isHidden {
@@ -355,7 +356,7 @@ struct EditMovieView: View {
                 Toggle("Hidden from library", isOn: $movie.isHidden)
                 Button("Reset Progress") {
                     if playbackServices.resetProgress(movie) {
-                        movie.isWatched = false
+                        movie.householdWatched = false
                     }
                 }
                 #if CINEVAULT_COMMERCIAL

@@ -4,6 +4,11 @@ MediaVault reads media directly from SMB shares without a media server or
 transcoding. The development build includes library browsing, search, sources,
 movie details, TMDB metadata, playback, photo albums, and library editing.
 
+Optional **Household profiles** in Settings add an Admin PIN, allowed folders,
+US movie/series rating limits and separate viewing history for each person.
+New viewers start with no folder access. See the
+[household setup guide](MEDIA-GUIDE.md#use-household-profiles) before enabling them.
+
 ## Build and install
 
 Install JDK 17 or later, Android SDK Platform 36, and Build-Tools 35.0.0. Set

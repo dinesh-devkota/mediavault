@@ -40,6 +40,39 @@ class SmbDataSourceContractTest {
     private fun spec(position: Long = 0, length: Long = C.LENGTH_UNSET.toLong()) =
         DataSpec.Builder().setUri(uri).setPosition(position).setLength(length).build()
 
+    @Test fun revokedSessionRejectsOpenAndAnAlreadyOpenStream() {
+        var allowed = false
+        var opens = 0
+        val source = SmbDataSource(authorize = { check(allowed) }) { opens++; FakeHandle() }
+        try {
+            assertThrows(IOException::class.java) { source.open(spec()) }
+            assertEquals(0, opens)
+            allowed = true
+            source.open(spec())
+            allowed = false
+            assertThrows(IOException::class.java) { source.read(ByteArray(4), 0, 4) }
+        } finally { source.close() }
+    }
+
+    @Test fun sessionRevokedDuringBlockingReadCannotDeliverTheBytes() {
+        var allowed = true
+        val handle = object : RemoteHandle {
+            override val length = 1L
+            override fun close() = Unit
+            override fun stream(position: Long): InputStream = object : InputStream() {
+                override fun read(): Int { allowed = false; return 42 }
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    allowed = false; buffer[offset] = 42; return 1
+                }
+            }
+        }
+        val source = SmbDataSource(authorize = { check(allowed) }) { handle }
+        try {
+            source.open(spec())
+            assertThrows(IOException::class.java) { source.read(ByteArray(1), 0, 1) }
+        } finally { source.close() }
+    }
+
     @Test
     fun boundedOpenReportsRequestedLengthButReadsOnlyAvailableBytes() {
         val file = FakeHandle()

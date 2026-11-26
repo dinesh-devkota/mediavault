@@ -36,8 +36,17 @@ data class SourceEntity(
     /** Literal folder paths relative to rootPath; excluded rows retain their history. */
     @ColumnInfo(defaultValue = "'[]'") val ignoredFolders: List<String> = emptyList(),
     @ColumnInfo(defaultValue = "'[]'") val ignoredFiles: List<String> = emptyList(),
+    @ColumnInfo(defaultValue = "'smb'") val sourceType: String = "smb",
+    @ColumnInfo(defaultValue = "0") val allowInsecureHttp: Boolean = false,
 ) {
     fun includesFile(filePath: String): Boolean {
+        if (sourceType == com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS) {
+            return com.dineshdevkota.cinevault.cloud.DriveDocumentPath.fileID(filePath) != null
+        }
+        if (sourceType == "webdav") {
+            return com.dineshdevkota.cinevault.webdav.DavAddress.contains(filePath, rootPath) &&
+                !ScanExclusions.isFileExcluded(filePath, rootPath, ignoredFolders, ignoredFiles, caseSensitive = true)
+        }
         val path = ScanExclusions.normalizeFile(filePath) ?: return false
         val root = if (rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(rootPath) ?: return false
         return (root.isEmpty() || path.startsWith("$root/", ignoreCase = true)) &&
@@ -54,6 +63,7 @@ data class SourceEntity(
         password = if (username.isEmpty()) "" else secrets.decrypt(encryptedPassword),
         ignoredFolders = ignoredFolders,
         ignoredFiles = ignoredFiles,
+        sourceType = sourceType, allowInsecureHttp = allowInsecureHttp,
     )
 }
 
@@ -93,6 +103,8 @@ data class MovieEntity(
     override val genres: List<String> = emptyList(),
     val runtimeMinutes: Int? = null,
     override val rating: Double? = null,
+    val ageCertification: String? = null,
+    @ColumnInfo(defaultValue = "0") val certificationFetched: Boolean = false,
     val metadataFetched: Boolean = false,
     /** User renamed / re-matched manually; rescans and auto-match won't overwrite. */
     val isLocked: Boolean = false,

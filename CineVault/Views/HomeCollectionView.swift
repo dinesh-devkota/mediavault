@@ -38,8 +38,8 @@ enum HomeCollection: Hashable, Identifiable {
         let available = Self.available(library)
         switch self {
         case .section(let kind): return available.filter { $0.mediaKind == kind }
-        case .watchlist: return LibrarySort.title.sorted(available.filter(\.isWatchlisted))
-        case .unwatched: return available.filter { !$0.isWatched }
+        case .watchlist: return LibrarySort.title.sorted(available.filter(\.householdWatchlisted))
+        case .unwatched: return available.filter { !$0.householdWatched }
         case .continueWatching: return ContinueWatching.home(available, limit: .max).map(\.movie)
         }
     }

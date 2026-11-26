@@ -1,34 +1,72 @@
 package com.dineshdevkota.cinevault.playback
 
+import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.util.Base64
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.ui.PlayerView
+import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.dineshdevkota.cinevault.MainActivity
+import com.dineshdevkota.cinevault.cloud.DriveDocument
+import com.dineshdevkota.cinevault.cloud.DriveDocumentAccess
+import com.dineshdevkota.cinevault.cloud.DriveDocumentGrant
+import com.dineshdevkota.cinevault.cloud.DriveDocumentPath
+import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
+import com.dineshdevkota.cinevault.cloud.GoogleDriveDocuments
+import com.dineshdevkota.cinevault.cloud.GoogleDriveDocumentsException
+import com.dineshdevkota.cinevault.data.CineVaultDatabase
+import com.dineshdevkota.cinevault.data.SecretBox
+import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.family.FamilyStore
+import com.dineshdevkota.cinevault.family.FolderAccess
+import com.dineshdevkota.cinevault.family.HouseholdProfile
+import com.dineshdevkota.cinevault.library.LibraryScanner
+import com.dineshdevkota.cinevault.photos.NasPhotoLoader
+import com.dineshdevkota.cinevault.photos.photoAlbums
+import com.dineshdevkota.cinevault.smb.RemoteHandle
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
+import com.dineshdevkota.cinevault.webdav.WebDavException
+import com.dineshdevkota.cinevault.webdav.WebDavMedia
+import com.dineshdevkota.cinevault.webdav.WebDavService
+import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.security.KeyStore
+import java.security.cert.CertificateFactory
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
-/** Decodes the fixture's 12-second H.264 movie through the app's real SMB data source. */
+/** Decodes and seeks the fixture movie through the app's file-backed Media3 data source. */
 @RunWith(AndroidJUnit4::class)
 class SmbPlaybackTest {
     @Test
@@ -39,57 +77,181 @@ class SmbPlaybackTest {
         val smb = SmbService()
         try {
             val movie = smb.scanVideos(config).single()
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                var player: ExoPlayer? = null
-                var view: PlayerView? = null
-                val observation = PlaybackObservation()
-                try {
-                    scenario.onActivity { activity ->
-                        val files = DataSource.Factory { SmbDataSource { smb.open(config, movie.path) } }
-                        val sources = ProgressiveMediaSource.Factory(
-                            files, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
-                        ).setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
-                        val exo = ExoPlayer.Builder(activity, DefaultRenderersFactory(activity).setEnableDecoderFallback(true))
-                            .setMediaSourceFactory(sources)
-                            .build()
-                        player = exo
-                        exo.addListener(observation)
-                        // This callback is on the playback thread; all other observations are on Main.
-                        exo.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
-                            observation.frameTimeUs.set(presentationTimeUs)
-                        }
-                        view = PlayerView(activity).apply {
-                            useController = false
-                            keepScreenOn = true
-                            this.player = exo
-                        }
-                        // An actual attached SurfaceView exercises decoding/rendering on the emulator.
-                        activity.setContentView(view)
-                        exo.setMediaItem(MediaItem.fromUri(PlayerActivity.smbUri(config, movie.path)))
-                        exo.prepare()
-                        exo.play()
-                    }
-                    val exo = checkNotNull(player)
-                    awaitPlayback(exo, observation, positionMs = 500)
-                    withContext(Dispatchers.Main) {
-                        assertTrue("The scanned movie must expose a seekable timeline", exo.isCurrentMediaItemSeekable)
-                        exo.seekTo(8_000)
-                        exo.play()
-                    }
-                    awaitPlayback(exo, observation, positionMs = 8_500)
-                    withContext(Dispatchers.Main) {
-                        assertTrue("Media3 must acknowledge the requested seek", observation.seekObserved)
-                        observation.throwIfFailed()
-                    }
-                } finally {
-                    withContext(NonCancellable + Dispatchers.Main) {
-                        view?.player = null
-                        player?.release()
-                    }
-                }
-            }
+            verifyPlayback(config, movie.path) { smb.open(config, movie.path) }
         } finally {
             smb.reset(config.id)
+        }
+    }
+
+    @Test
+    fun webDavAuthenticationScanPlaybackAndSeek() = runBlocking {
+        val fixtureCertificate = InstrumentationRegistry.getArguments().getString("webDavCertificate")
+        assumeTrue("Pass webDavCertificate to run the disposable WebDAV fixture.", !fixtureCertificate.isNullOrBlank())
+        val certificate = Base64.decode(checkNotNull(fixtureCertificate), Base64.DEFAULT).inputStream().use {
+            CertificateFactory.getInstance("X.509").generateCertificate(it)
+        }
+        val trust = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
+            load(null, null)
+            setCertificateEntry("webdav-fixture", certificate)
+        }
+        val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(trust) }
+        val manager = factory.trustManagers.filterIsInstance<X509TrustManager>().single()
+        val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf(manager), null) }
+        val http = OkHttpClient.Builder().sslSocketFactory(tls.socketFactory, manager)
+            .followRedirects(false).followSslRedirects(false).build()
+        val provider = WebDavMedia(WebDavService(http))
+        val config = SourceConfig(
+            UUID.randomUUID().toString(), "https://10.0.2.2:15443/dav/", null, "", "Movies",
+            "cinevault", "fixture-only", sourceType = "webdav",
+        )
+        try {
+            provider.service.list(config.copy(password = "invalid"))
+            fail("The fixture must reject incorrect credentials")
+        } catch (error: WebDavException) {
+            assertEquals(401, error.status)
+        }
+        val movie = provider.scan(config) {}.single()
+        assertEquals("Movies/Film.mp4", movie.path)
+        assertEquals("https://10.0.2.2:15443/dav/Movies/Film.mp4", PlayerActivity.filePlaybackUri(config, movie.path).toString())
+        val captions = provider.subtitles(config, movie.path, "en")
+        assertEquals(1, captions.files.size)
+        verifyPlayback(config, movie.path) { provider.service.open(config, movie.path) }
+    }
+
+    @Test
+    fun googleDriveFolderImportPhotosCaptionsAndSeekRequireAnExplicitHouseholdGrant() = runBlocking<Unit> {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val fixture = DriveFixture()
+        val drive = GoogleDriveDocuments(fixture, DriveFixture.AUTHORITY)
+        val service = SmbService(driveDocuments = drive)
+        val familyPreferences = "drive-fixture-${UUID.randomUUID()}"
+        val secrets = SecretBox()
+        val family = FamilyStore(context, secrets, familyPreferences)
+        val source = SourceEntity(
+            name = "Drive fixture", host = "google-drive", share = "selected", username = "android-documents",
+            encryptedPassword = secrets.encrypt(DriveDocumentGrant(tree = fixture.tree.toString()).encode()),
+            sourceType = GOOGLE_DRIVE_DOCUMENTS,
+        )
+        val config = source.config(secrets)
+        val database = Room.inMemoryDatabaseBuilder(context, CineVaultDatabase::class.java).build()
+        try {
+            database.sources().upsert(source)
+            val scanner = LibraryScanner(database, secrets, service::scanVideos, scanWithProgress = service::scanMedia)
+            scanner.scan(source.id)
+            val films = database.movies().forSource(source.id)
+            assertEquals(2, films.size)
+            val movie = films.single { !it.isPhoto }
+            val photo = films.single { it.isPhoto }
+            assertEquals("Fixture Film (2026).mp4", movie.fileName)
+            assertEquals("Movies/Fixture Film (2026).mp4", DriveDocumentPath.displayPath(movie.filePath))
+            assertEquals("Movies", photoAlbums(listOf(photo), listOf(source)).single().title)
+            fixture.movie = fixture.movie.copy(name = "Renamed Fixture (2026).mp4")
+            scanner.scan(source.id)
+            val renamed = checkNotNull(database.movies().get(movie.id))
+            assertEquals("Renamed Fixture (2026).mp4", renamed.fileName)
+            assertTrue(!renamed.isMissing)
+            assertEquals(2, database.movies().forSource(source.id).size)
+            fixture.caption = fixture.caption.copy(name = "Renamed Fixture (2026).en.srt")
+
+            family.setup("123456", "123456")
+            assertNull(family.unlock(HouseholdProfile.ADMIN, "123456"))
+            val viewer = HouseholdProfile("viewer", "Viewer")
+            family.saveProfile(viewer, null)
+            assertNull(family.unlock(viewer.id, ""))
+            val authorize = {
+                if (!family.permits(renamed)) throw IOException("Viewer access denied.")
+            }
+            val photos = NasPhotoLoader(context, database, secrets, smb = service, family = family)
+            val file = SmbDataSource(authorize) { service.open(config, renamed.filePath) }
+            assertTrue(runCatching { photos.load(photo.id) }.isFailure)
+            assertTrue(runCatching { service.readSubtitleSidecars(config, renamed.filePath, "en", authorize) }.isFailure)
+            assertTrue(runCatching { file.open(DataSpec(PlayerActivity.filePlaybackUri(config, renamed.filePath))) }.isFailure)
+            file.close()
+            assertEquals(0, fixture.reads)
+
+            assertNull(family.unlock(HouseholdProfile.ADMIN, "123456"))
+            family.saveProfile(viewer.copy(folders = listOf(FolderAccess(source.id, "", caseSensitive = true))), null)
+            assertNull(family.unlock(viewer.id, ""))
+            val captions = service.readSubtitleSidecars(config, renamed.filePath, "en", authorize).files
+            assertEquals(1, captions.size)
+            assertTrue(captions.single().bytes.decodeToString().contains("Synthetic Drive caption"))
+            assertEquals(96, photos.load(photo.id).width)
+            verifyPlayback(config, renamed.filePath, authorize) { service.open(config, renamed.filePath) }
+            family.lock()
+            assertTrue(runCatching { photos.load(photo.id) }.isFailure)
+            photos.clearMemory()
+        } finally {
+            context.deleteSharedPreferences(familyPreferences)
+            database.close()
+        }
+    }
+
+    @Test
+    fun googleDriveExplicitDocumentsCannotReadAnUnselectedFile() = runBlocking<Unit> {
+        val fixture = DriveFixture()
+        val drive = GoogleDriveDocuments(fixture, DriveFixture.AUTHORITY)
+        val allowed = DocumentsContract.buildDocumentUri(DriveFixture.AUTHORITY, fixture.movie.id)
+        fixture.grants += allowed
+        val config = SourceConfig("fixture", "google-drive", null, "selected", "", "android-documents",
+            DriveDocumentGrant(documents = listOf(allowed.toString())).encode(), sourceType = GOOGLE_DRIVE_DOCUMENTS)
+        val catalog = drive.scan(config) {}
+        assertEquals(listOf(fixture.movie.id), catalog.map { DriveDocumentPath.fileID(it.path) })
+        val other = DriveDocumentPath.child(DriveDocumentPath.ROOT, fixture.photo.id, fixture.photo.name)
+        assertTrue(runCatching { drive.open(config, other).close() }.exceptionOrNull() is GoogleDriveDocumentsException)
+        assertEquals(0, fixture.reads)
+    }
+
+    private suspend fun verifyPlayback(
+        config: SourceConfig, path: String, authorize: () -> Unit = {}, openFile: () -> RemoteHandle,
+    ) {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var player: ExoPlayer? = null
+            var view: PlayerView? = null
+            val observation = PlaybackObservation()
+            try {
+                scenario.onActivity { activity ->
+                    val files = DataSource.Factory { SmbDataSource(authorize = authorize, openFile = openFile) }
+                    val sources = ProgressiveMediaSource.Factory(
+                        files, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true),
+                    ).setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
+                    val exo = ExoPlayer.Builder(activity, DefaultRenderersFactory(activity).setEnableDecoderFallback(true))
+                        .setMediaSourceFactory(sources)
+                        .build()
+                    player = exo
+                    exo.addListener(observation)
+                    // This callback is on the playback thread; all other observations are on Main.
+                    exo.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
+                        observation.frameTimeUs.set(presentationTimeUs)
+                    }
+                    view = PlayerView(activity).apply {
+                        useController = false
+                        keepScreenOn = true
+                        this.player = exo
+                    }
+                    // An actual attached SurfaceView exercises decoding/rendering on the emulator.
+                    activity.setContentView(view)
+                    exo.setMediaItem(MediaItem.fromUri(PlayerActivity.filePlaybackUri(config, path)))
+                    exo.prepare()
+                    exo.play()
+                }
+                val exo = checkNotNull(player)
+                awaitPlayback(exo, observation, positionMs = 500)
+                withContext(Dispatchers.Main) {
+                    assertTrue("The scanned movie must expose a seekable timeline", exo.isCurrentMediaItemSeekable)
+                    exo.seekTo(8_000)
+                    exo.play()
+                }
+                awaitPlayback(exo, observation, positionMs = 8_500)
+                withContext(Dispatchers.Main) {
+                    assertTrue("Media3 must acknowledge the requested seek", observation.seekObserved)
+                    observation.throwIfFailed()
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    view?.player = null
+                    player?.release()
+                }
+            }
         }
     }
 
@@ -111,7 +273,50 @@ class SmbPlaybackTest {
             @Suppress("UNREACHABLE_CODE")
             false
         } ?: false
-        assertTrue("SMB playback did not advance past $positionMs ms: $snapshot", advanced)
+        assertTrue("Fixture playback did not advance past $positionMs ms: $snapshot", advanced)
+    }
+
+    private class DriveFixture : DriveDocumentAccess {
+        private val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        private val video = assets.open("playback.mp4").use { it.readBytes() }
+        private val picture = assets.open("Photos/01.jpg").use { it.readBytes() }
+        private val cue = "1\n00:00:00,100 --> 00:00:02,500\nSynthetic Drive caption\n".encodeToByteArray()
+        val tree = DocumentsContract.buildTreeDocumentUri(AUTHORITY, "root")
+        val grants = mutableSetOf(tree)
+        private val root = DriveDocument("root", "Drive fixture", DocumentsContract.Document.MIME_TYPE_DIR, 0)
+        private val folder = DriveDocument("folder", "Movies", root.mime, 0)
+        var movie = DriveDocument("movie", "Fixture Film (2026).mp4", "video/mp4", 64L * 1024 * 1024)
+        val photo = DriveDocument("photo", "Still.jpg", "image/jpeg", picture.size.toLong())
+        var caption = DriveDocument("caption", "Fixture Film (2026).en.srt", "application/x-subrip", cue.size.toLong())
+        var reads = 0
+            private set
+
+        override fun hasGrant(uri: Uri): Boolean = uri in grants
+        override fun document(uri: Uri): DriveDocument =
+            listOf(root, folder, movie, photo, caption).single { it.id == DocumentsContract.getDocumentId(uri) }
+        override fun children(uri: Uri): List<DriveDocument> = when (DocumentsContract.getDocumentId(uri)) {
+            root.id -> listOf(folder)
+            folder.id -> listOf(movie, photo, caption)
+            else -> emptyList()
+        }
+
+        override fun open(uri: Uri, size: Long): RemoteHandle {
+            reads++
+            val payload = when (DocumentsContract.getDocumentId(uri)) {
+                movie.id -> video
+                photo.id -> picture
+                caption.id -> cue
+                else -> error("Unexpected Drive fixture document.")
+            }
+            return object : RemoteHandle {
+                override val length = payload.size.toLong()
+                override fun stream(position: Long): ByteArrayInputStream =
+                    ByteArrayInputStream(payload, position.toInt(), payload.size - position.toInt())
+                override fun close() = Unit
+            }
+        }
+
+        companion object { const val AUTHORITY = "fixture.drive.documents" }
     }
 
     private class PlaybackObservation : Player.Listener {
@@ -129,7 +334,7 @@ class SmbPlaybackTest {
         }
 
         fun throwIfFailed() {
-            error?.let { throw AssertionError("Media3 failed to play the SMB fixture: ${it.errorCodeName}", it) }
+            error?.let { throw AssertionError("Media3 failed to play the fixture: ${it.errorCodeName}", it) }
         }
     }
 }

@@ -12,6 +12,7 @@ import androidx.media3.datasource.DataSourceException
 import androidx.media3.datasource.DataSpec
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
+import com.dineshdevkota.cinevault.cloud.DriveDocumentHandle
 import com.dineshdevkota.cinevault.smb.RemoteHandle
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.hierynomus.mssmb2.SMBApiException
@@ -21,7 +22,7 @@ import java.io.InputStream
  * Streams one NAS file to ExoPlayer. Every open() starts a read at the requested byte offset, so
  * playback and seeking never download the whole file (the tvOS SMBResourceLoader equivalent).
  */
-class SmbDataSource(private val openFile: () -> RemoteHandle) : BaseDataSource(/* isNetwork = */ true) {
+class SmbDataSource(private val authorize: () -> Unit = {}, private val openFile: () -> RemoteHandle) : BaseDataSource(/* isNetwork = */ true) {
     private var handle: RemoteHandle? = null
     private var input: InputStream? = null
     private var uri: Uri? = null
@@ -32,10 +33,12 @@ class SmbDataSource(private val openFile: () -> RemoteHandle) : BaseDataSource(/
         uri = dataSpec.uri
         transferInitializing(dataSpec)
         try {
+            authorize()
             val file = openFile()
             handle = file
+            authorize()
             bytesRemaining = bytesToServe(dataSpec.position, dataSpec.length, file.length)
-            input = file.stream(dataSpec.position)
+            input = if (file is DriveDocumentHandle) file.stream(dataSpec.position, authorize) else file.stream(dataSpec.position)
         } catch (e: Exception) {
             // SMBJ may throw a runtime exception while opening the stream as well as the file.
             // Media3's loader handles IOExceptions; close() still releases a partial open.
@@ -52,7 +55,8 @@ class SmbDataSource(private val openFile: () -> RemoteHandle) : BaseDataSource(/
         if (length == 0) return 0
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
         val read = try {
-            checkNotNull(input).read(buffer, offset, minOf(length.toLong(), bytesRemaining).toInt())
+            authorize()
+            checkNotNull(input).read(buffer, offset, minOf(length.toLong(), bytesRemaining).toInt()).also { authorize() }
         } catch (e: Exception) {
             throw asDataSourceException(e)
         }

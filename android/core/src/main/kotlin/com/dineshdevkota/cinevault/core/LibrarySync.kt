@@ -13,15 +13,19 @@ data class ScanDiff<T>(
 )
 
 object LibrarySync {
-    fun <T> diff(existing: Collection<T>, files: List<RemoteFile>, pathOf: (T) -> String): ScanDiff<T> {
+    fun <T> diff(
+        existing: Collection<T>, files: List<RemoteFile>, fileKey: (RemoteFile) -> String = RemoteFile::path,
+        pathOf: (T) -> String,
+    ): ScanDiff<T> {
         val byPath = LinkedHashMap<String, T>()
         for (item in existing) byPath.putIfAbsent(pathOf(item), item)
         val seen = HashSet<String>()
         val present = mutableListOf<Pair<T, RemoteFile>>()
         val added = mutableListOf<RemoteFile>()
         for (file in files) {
-            if (!seen.add(file.path)) continue
-            val item = byPath.remove(file.path)
+            val key = fileKey(file)
+            if (!seen.add(key)) continue
+            val item = byPath.remove(key)
             if (item != null) present += item to file else added += file
         }
         return ScanDiff(present, added, byPath.values.toList())
