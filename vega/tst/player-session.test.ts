@@ -9,13 +9,14 @@ function deferred<T>() {
 const sessions: PlayerSession[] = [];
 const flush = async () => { for (let i = 0; i < 10; i++) { await Promise.resolve(); } };
 function make() {
-  const raw = {position: 0, duration: 100, paused: true, ended: false, seeking: false, error: null as NativeVideo['error']};
+  const raw = {position: 0, duration: 100, paused: true, ended: false, seeking: false, acceptSeek: true, error: null as NativeVideo['error']};
   const order: string[] = [], seeks: number[] = [];
   const listeners = new Map<string, () => void>();
   const video: NativeVideo = {
     src: '',
+    defaultSeekIntervalInSec: 0,
     get currentTime() { return raw.position; },
-    set currentTime(value) { seeks.push(value); raw.position = value; },
+    set currentTime(value) { seeks.push(value); if (raw.acceptSeek) { raw.position = value; } },
     get duration() { return raw.duration; }, get paused() { return raw.paused; },
     get ended() { return raw.ended; }, get seeking() { return raw.seeking; }, get error() { return raw.error; },
     initialize: jest.fn(async () => { order.push('initialize'); }),
@@ -84,6 +85,94 @@ test('manual seek is not evidence of playback and pause state comes from the nat
   expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({started: false, position: 30, paused: true}));
   session.toggle(); value.raw.position = 30.25; await jest.advanceTimersByTimeAsync(250);
   expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({started: true, paused: false}));
+});
+
+test('rejected paused seek acknowledges the native position without ending playback or publishing its target', async () => {
+  const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
+  value.raw.position = 1; value.emit('timeupdate'); session.toggle();
+  value.raw.acceptSeek = false; session.seek(30); value.emit('seeking'); value.emit('seeked');
+  expect(value.seeks).toEqual([31]);
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 1, paused: true, ready: true, seekWarning: expect.stringContaining('could not be reached')}));
+  expect(value.options.state.mock.calls.every(([state]) => state.position !== 31)).toBe(true);
+  expect(value.options.failed).not.toHaveBeenCalled(); expect(value.video.deinitialize).not.toHaveBeenCalled();
+  session.toggle(); value.raw.position = 2; await jest.advanceTimersByTimeAsync(5000);
+  expect(value.options.progress).toHaveBeenLastCalledWith(2, 100, false);
+  value.raw.acceptSeek = true; session.seek(30);
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 32, seekWarning: undefined}));
+});
+
+test('missing seek completion is bounded and a later valid seek recovers without reinitializing', async () => {
+  const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
+  value.raw.position = 1; value.emit('timeupdate'); session.toggle();
+  value.raw.acceptSeek = false; value.raw.seeking = true; session.seek(30);
+  await jest.advanceTimersByTimeAsync(10_000);
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 1, seekWarning: expect.stringContaining('could not be reached')}));
+  value.raw.seeking = false; value.raw.acceptSeek = true; session.seek(30);
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 31, seekWarning: undefined}));
+  expect(value.video.initialize).toHaveBeenCalledTimes(1); expect(value.options.failed).not.toHaveBeenCalled();
+});
+
+test('failed resume retains its checkpoint through progress and close until actual playback catches up', async () => {
+  const value = make(); value.raw.acceptSeek = false;
+  const session = value.create({resume: {position: 25, duration: 100, watched: false, updatedAt: 1}});
+  session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush(); value.emit('seeked');
+  value.raw.position = 1; value.emit('timeupdate'); value.raw.position = 8; await jest.advanceTimersByTimeAsync(5000);
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 8, started: true, seekWarning: expect.stringContaining('saved position')}));
+  expect(value.options.progress).not.toHaveBeenCalled();
+  await session.stop(); expect(value.options.progress).not.toHaveBeenCalled();
+
+  const caughtUp = make(); caughtUp.raw.acceptSeek = false;
+  const next = caughtUp.create({resume: {position: 25, duration: 100, watched: false, updatedAt: 1}});
+  next.start(Promise.resolve()); await flush(); next.attachSurface('surface'); await flush(); caughtUp.emit('seeked');
+  caughtUp.raw.position = 24; caughtUp.emit('timeupdate'); caughtUp.raw.position = 25.25; caughtUp.emit('timeupdate');
+  expect(caughtUp.options.progress).toHaveBeenLastCalledWith(25.25, 100, false);
+  expect(caughtUp.options.state).toHaveBeenLastCalledWith(expect.objectContaining({seekWarning: undefined}));
+});
+
+test('validated on-screen or SDK remote seek can replace a protected failed-resume checkpoint', async () => {
+  for (const remote of [false, true]) {
+    const value = make(); value.raw.acceptSeek = false;
+    const session = value.create({resume: {position: 25, duration: 100, watched: false, updatedAt: 1}});
+    session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush(); value.emit('seeked');
+    value.raw.position = 1; value.emit('timeupdate'); value.raw.position = 2; value.emit('timeupdate'); session.toggle();
+    if (remote) {
+      value.emit('seeking'); value.emit('seeked');
+      expect(value.options.progress).not.toHaveBeenCalled(); // Failed remote seek preserves the saved checkpoint too.
+      expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({seekWarning: expect.stringContaining('could not be confirmed')}));
+      value.emit('seeking'); value.raw.position = 12; value.emit('seeked');
+    } else { value.raw.acceptSeek = true; session.seek(10); }
+    expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 12, seekWarning: undefined}));
+    await session.stop(); expect(value.options.progress).toHaveBeenLastCalledWith(12, 100, false);
+  }
+});
+
+test('normal playback during a slow rejected SDK seek never validates a new resume checkpoint', async () => {
+  const value = make(); value.raw.acceptSeek = false;
+  const session = value.create({resume: {position: 40, duration: 100, watched: false, updatedAt: 1}});
+  session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush(); value.emit('seeked');
+  value.raw.position = 1; value.emit('timeupdate'); value.raw.position = 2; value.emit('timeupdate');
+  value.emit('seeking');
+  for (let second = 0; second < 5; second++) {
+    value.raw.position++; await jest.advanceTimersByTimeAsync(1000);
+  }
+  value.emit('seeked');
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 7, seekWarning: expect.stringContaining('could not be confirmed')}));
+  expect(value.options.progress).not.toHaveBeenCalled();
+  // Missing seeked is bounded independently, and continued natural playback is
+  // still not evidence that the user's requested seek actually succeeded.
+  value.emit('seeking'); value.raw.position = 17; await jest.advanceTimersByTimeAsync(10_000);
+  expect(value.options.progress).not.toHaveBeenCalled();
+  await session.stop(); expect(value.options.progress).not.toHaveBeenCalled();
+});
+
+test('seek timeout and delayed native events after stop cannot update state or a successor session', async () => {
+  const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
+  value.raw.position = 1; value.emit('timeupdate'); value.raw.acceptSeek = false; session.seek(30);
+  await session.stop(); const count = value.options.state.mock.calls.length;
+  value.raw.position = 31; value.emit('seeked'); await jest.advanceTimersByTimeAsync(10_000);
+  expect(value.options.state).toHaveBeenCalledTimes(count);
+  expect(value.options.progress.mock.calls.some(([position]) => position === 31)).toBe(false);
+  expect(value.options.failed).not.toHaveBeenCalled(); expect(value.options.releaseResource).toHaveBeenCalledTimes(1);
 });
 
 test('native ended is handled once without an event and cleanup cannot clear completed status', async () => {

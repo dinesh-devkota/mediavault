@@ -212,24 +212,30 @@ on every target. Evidence is in `.artifacts/android-tv-b98f180`,
 `.artifacts/android-phone-b98f180` and `.artifacts/fire-compat-b98f180`.
 
 Vega follow-ups are on `codex/mediavault-vega-keyboard-visibility`, not PR20's
-remote head. Latest tested `9bee02d`, run `45766726436`, passed all package/native
-checks and stages 01-02, including strict cold-start/native Back focus and a
-non-first poster reached with arrows and restored after Back. Stage03 now reaches
-Clear, exact rename acknowledgement (7 -> 0 -> 11 characters), save/removal,
-detail collection cancellation and persisted name checks. It stopped on an
-immediate selection-count assertion while the previous Collections page was
-still publishing. The next XML/image shows exactly three selected files and
-both original groups selected. A bounded acknowledgement of selecting Home,
-exact count and both descriptions now precedes the retained assertions. Stage08
-also waits for the actual Collections page before checking profile isolation.
-All 17 harness contracts pass. Playback/photo/household stages remain unvisited.
+remote head. Latest tested `0e21f3a`, run `45768740001`, passed all three production
+packages, fixture packaging, native regressions, production startup and stages
+01-05. Native cold-start/Back focus, non-first poster restoration, complete bulk
+collection create/rename/remove/cancel/persisted selection, show/season/episode
+navigation and actual photo loading passed. All four bulk actions fit one row;
+612px viewports fully contain the 604px watched cards and their focus borders.
+Focused selected tiles are white; other selected tiles remain orange. Show/photo
+end captures return to Home, so they are functional evidence, not visual review
+of those intermediate screens.
 
-Screenshots confirm the duplicate initial empty-grid panel is removed. Newly
-reached bulk mode wrapped its four regular actions into two rows, cropping the
-604px posters inside a 404px viewport. The follow-up makes those actions compact,
-keeps text/poster dimensions, reduces grid top padding to avoid an eight-pixel
-bottom border clip, and gives focused selected tiles a white border. These style
-changes still need native visual verification.
+Stage06 plays MKV with actual advancing time and pauses, but native seek fails.
+The first application +30s request receives native error50004 before the SDK's
+duplicate +10s request. The SDK emits seeked despite rejection, leaving actual
+position near1s. The app's pending-seek guard can then prevent all further progress
+updates. The follow-up fixes use the documented SDK as the sole owner of remote
+media keys (explicit10s both directions), keep on-screen Forward30/Back10, recover
+from rejected/timed-out seeks without optimistic position, and protect saved
+resume after failed restoration. Harness assertions will separately prove each
+remote/on-screen seek, native control focus, paused stability and real advancement.
+All 69 app/SDK regressions and typecheck pass; lint has zero errors and 50 existing warnings.
+The underlying native rejection is still unresolved; removing duplication does
+not establish a fix. Fixture-only bounded numeric relay diagnostics are being
+prepared without paths, tokens, credentials or media content. Stages07-09 continuous
+TV and household/PIN remain unvisited. Evidence: `.artifacts/vega-ui-45768740001`.
 
 Earlier `3e4b813`, run `45765161506`, established that FlatList's `library-grid`
 ID is absent from the native publisher. Home/lock predicates now use actual

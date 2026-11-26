@@ -25,6 +25,7 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState('Opening media…');
   const [error, setError] = useState<string>();
+  const [seekWarning, setSeekWarning] = useState<string>();
   const [paused, setPaused] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -44,16 +45,15 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   useTVEventHandler(event => {
     if (event.eventKeyAction === 1) { return; }
     setControlsVisible(true); setInteraction(value => value + 1);
-    if (event.eventType === 'playpause') { togglePlayback(); }
-    else if (event.eventType === 'rewind' || event.eventType === 'skip_backward') { seek(-10); }
-    else if (event.eventType === 'forward' || event.eventType === 'fastforward' || event.eventType === 'skip_forward') { seek(30); }
-    else if (event.eventType === 'stop') { callbacks.current.onClose(); }
+    // The SDK player session already handles play/pause, stop (pause), and
+    // 10-second remote seeks. Raw TV events only reveal controls; handling the
+    // commands here too would apply the same physical press twice.
   });
   useEffect(() => {
-    if (paused || status || error || countdown !== undefined) { setControlsVisible(true); return; }
+    if (paused || status || error || seekWarning || countdown !== undefined) { setControlsVisible(true); return; }
     const timer = setTimeout(() => setControlsVisible(false), 6000);
     return () => clearTimeout(timer);
-  }, [paused, status, error, countdown, interaction]);
+  }, [paused, status, error, seekWarning, countdown, interaction]);
   useEffect(() => {
     const configuration = startConfiguration.current;
     const video = new VideoPlayer();
@@ -83,6 +83,7 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
       },
       state: value => {
         setPosition(value.position); setDuration(value.duration); setPaused(value.paused); setReady(value.ready);
+        setSeekWarning(value.seekWarning);
         if (value.ended) { setStatus('Finished'); }
         else if (value.started) { setStatus(''); }
         tracks();
@@ -122,10 +123,11 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
     {controlsVisible && <View style={styles.controls}>
       {!!status && <Text style={shared.subtitle}>{status}</Text>}
       {!!error && <Text style={shared.error} testID="player-error">{error}</Text>}
+      {!!seekWarning && <Text style={shared.subtitle} testID="player-seek-warning">{seekWarning}</Text>}
       <Text style={shared.text} testID="player-position">{time(position)} / {time(duration)}</Text>
       <View style={shared.row}>
-        <Action label="Back" onPress={onClose}/>
-        <Action label={paused ? 'Play' : 'Pause'} preferred disabled={!ready || !!error} onPress={togglePlayback}/>
+        <Action label="Back" preferred={!ready || !!error} onPress={onClose}/>
+        <Action label={paused ? 'Play' : 'Pause'} preferred={ready && !error} disabled={!ready || !!error} onPress={togglePlayback}/>
         <Action label="Back 10 seconds" disabled={!ready || !!error} onPress={() => seek(-10)}/>
         <Action label="Forward 30 seconds" disabled={!ready || !!error} onPress={() => seek(30)}/>
       </View>

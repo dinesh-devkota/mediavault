@@ -3,9 +3,10 @@ import type {PlaybackResource, ViewingState} from '../domain/model';
 
 // This is the installed SDK's actual surface, not a browser video or synthetic clock.
 // Its implementation initializes error to null although the declaration omits null.
-export type NativeVideo = Pick<VideoPlayer, 'initialize' | 'deinitialize' | 'src' | 'currentTime' | 'duration' | 'paused' | 'ended' | 'seeking' |
+export type NativeVideo = Pick<VideoPlayer, 'initialize' | 'deinitialize' | 'src' | 'currentTime' | 'duration' | 'paused' | 'ended' | 'seeking' | 'defaultSeekIntervalInSec' |
   'play' | 'pause' | 'setSurfaceHandle' | 'clearSurfaceHandle' | 'setCaptionViewHandle' | 'clearCaptionViewHandle' | 'addEventListener' | 'removeEventListener'> & {readonly error: VideoPlayer['error'] | null};
-export interface PlaybackState { position: number; duration: number; paused: boolean; started: boolean; ended: boolean; ready: boolean }
+export interface PlaybackState { position: number; duration: number; paused: boolean; started: boolean; ended: boolean; ready: boolean; seekWarning?: string }
+const SEEK_TIMEOUT_MS = 10_000;
 interface SessionOptions {
   load: () => Promise<PlaybackResource>;
   releaseResource: (uri: string) => Promise<void>;
@@ -25,7 +26,10 @@ export class PlayerSession {
   private finished = false;
   private sourceSet = false;
   private resumeChecked = false;
-  private resumeTarget?: number;
+  private pendingSeek?: {target: number; resume: boolean; deadline: number};
+  private protectedResumePosition?: number;
+  private externalSeekOrigin?: {position: number; startedAt: number; paused: boolean};
+  private seekWarning?: string;
   private lastPosition?: number;
   private lastWrite = 0;
   private surface?: string;
@@ -41,7 +45,13 @@ export class PlayerSession {
   get active(): boolean { return !this.stopped; }
 
   start(predecessor: Promise<void>): void {
-    this.events = Object.fromEntries(['loadedmetadata', 'durationchange', 'canplay', 'play', 'playing', 'pause', 'timeupdate', 'seeked'].map(name => [name, () => this.sample()]));
+    this.events = Object.fromEntries(['loadedmetadata', 'durationchange', 'canplay', 'play', 'playing', 'pause', 'timeupdate'].map(name => [name, () => this.sample()]));
+    this.events.seeking = () => {
+      if (!this.stopped && !this.pendingSeek) {
+        this.externalSeekOrigin = {position: this.video.currentTime, startedAt: Date.now(), paused: this.video.paused};
+      }
+    };
+    this.events.seeked = () => this.sample(false, true);
     this.events.ended = () => this.sample(true);
     this.events.error = () => this.fail('This file could not be played on this device. Try another version or a compatible server stream.');
     for (const [event, listener] of Object.entries(this.events)) { this.video.addEventListener(event, listener); }
@@ -63,6 +73,9 @@ export class PlayerSession {
     try { await this.video.initialize(); this.initialized = true; }
     finally { this.initializing = false; }
     if (this.stopped) { return; }
+    // W3C Media's legacy player session owns remote media keys. The public SDK
+    // setting applies to both forward and rewind; on-screen buttons are separate.
+    this.video.defaultSeekIntervalInSec = 10;
     this.options.initialized();
     // React can mount later. Only the native surface callback starts URL loading.
     this.startSource();
@@ -119,12 +132,27 @@ export class PlayerSession {
       const position = this.video.currentTime, duration = this.video.duration;
       if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) { return; }
       const target = Math.max(0, Math.min(duration, position + delta));
-      this.resumeChecked = true; this.resumeTarget = target; this.lastPosition = target;
+      this.resumeChecked = true;
+      this.pendingSeek = {target, resume: false, deadline: Date.now() + SEEK_TIMEOUT_MS};
+      this.seekWarning = undefined;
       this.video.currentTime = target;
       this.sample();
-    } catch { this.fail('This file could not seek to that position.'); }
+    } catch { this.rejectSeek(); this.sample(); }
   }
-  private sample(endEvent = false): void {
+  private rejectSeek(): void {
+    const resume = this.pendingSeek?.resume;
+    this.pendingSeek = undefined;
+    this.externalSeekOrigin = undefined;
+    this.lastPosition = undefined;
+    this.seekWarning = resume
+      ? 'Your saved position could not be reached. It will be kept until playback catches up or you choose another position.'
+      : 'That position could not be reached. You can continue from the current position.';
+  }
+  private canSaveProgress(position: number): boolean {
+    return !this.pendingSeek && !this.video.seeking &&
+      (this.protectedResumePosition === undefined || position >= this.protectedResumePosition);
+  }
+  private sample(endEvent = false, seekCompleted = false): void {
     if (this.stopped || !this.initialized || !this.sourceSet || this.finished) { return; }
     try {
       if (this.video.error) { this.fail('This file could not be played on this device. Try another version or a compatible server stream.'); return; }
@@ -135,29 +163,62 @@ export class PlayerSession {
         this.resumeChecked = true;
         const saved = this.options.resume;
         if (saved && !saved.watched && saved.position > 5 && saved.position < duration - 10) {
-          this.resumeTarget = saved.position; this.lastPosition = saved.position;
-          this.video.currentTime = saved.position;
-          return;
+          this.protectedResumePosition = saved.position;
+          this.pendingSeek = {target: saved.position, resume: true, deadline: Date.now() + SEEK_TIMEOUT_MS};
+          try { this.video.currentTime = saved.position; }
+          catch { this.rejectSeek(); }
+          // Read the actual position again on the next sample, never publish the requested target.
+          if (this.pendingSeek) { return; }
         }
       }
-      if (this.resumeTarget !== undefined) {
-        if (this.video.seeking || Math.abs(position - this.resumeTarget) > 2) { return; }
-        this.lastPosition = position; this.resumeTarget = undefined;
+      if (this.pendingSeek) {
+        if (!this.video.seeking && Math.abs(position - this.pendingSeek.target) <= 2) {
+          this.lastPosition = position; this.pendingSeek = undefined;
+          this.protectedResumePosition = undefined; this.seekWarning = undefined;
+        } else if ((seekCompleted && !this.video.seeking) || Date.now() >= this.pendingSeek.deadline) {
+          // SDK 2.3 can emit seeked even when the native engine rejects the seek.
+          // A missing event is bounded too; keep showing native state after either failure.
+          this.rejectSeek();
+        }
+      } else if (this.externalSeekOrigin !== undefined) {
+        // A successful SDK-owned remote seek is also an explicit choice. A
+        // rejected seek may still allow normal playback to advance. Require a
+        // discontinuity beyond that elapsed playback before replacing a saved
+        // resume checkpoint; the SDK does not expose its requested seek target.
+        const origin = this.externalSeekOrigin;
+        const elapsed = Math.max(0, Date.now() - origin.startedAt);
+        if (seekCompleted && !this.video.seeking) {
+          const displacement = position - origin.position;
+          const naturalAdvance = origin.paused ? 0 : elapsed / 1000;
+          if (Number.isFinite(origin.position) && (displacement < -2 || displacement > naturalAdvance + 2)) {
+            this.protectedResumePosition = undefined; this.seekWarning = undefined;
+            this.lastPosition = position; // A seek jump alone does not prove playback.
+          } else {
+            this.seekWarning = 'A new seek position could not be confirmed. You can continue playing.';
+          }
+          this.externalSeekOrigin = undefined;
+        } else if (elapsed >= SEEK_TIMEOUT_MS) {
+          this.seekWarning = 'A new seek position could not be confirmed. You can continue playing.';
+          this.externalSeekOrigin = undefined;
+        }
       }
       const paused = this.video.paused;
-      if (!paused && !this.video.seeking && this.lastPosition !== undefined && position > this.lastPosition) {
+      if (!this.pendingSeek && !paused && !this.video.seeking && this.lastPosition !== undefined && position > this.lastPosition) {
         this.started = true; if (this.startupTimer !== undefined) { clearTimeout(this.startupTimer); }
+        if (this.protectedResumePosition !== undefined && position >= this.protectedResumePosition) {
+          this.protectedResumePosition = undefined; this.seekWarning = undefined;
+        }
       }
       this.lastPosition = position;
       // Completion requires the native ended state/event, never a guessed percentage.
       if (endEvent || this.video.ended) {
         this.finished = true; if (this.startupTimer !== undefined) { clearTimeout(this.startupTimer); } if (this.sampleTimer !== undefined) { clearInterval(this.sampleTimer); }
-        if (validDuration) { this.options.progress(position, duration, true); }
+        if (validDuration && this.canSaveProgress(position)) { this.options.progress(position, duration, true); }
         this.options.state({position, duration: validDuration ? duration : 0, paused: true, started: this.started, ended: true, ready: false});
         this.options.ended(); return;
       }
-      this.options.state({position, duration: validDuration ? duration : 0, paused, started: this.started, ended: false, ready: validDuration});
-      if (this.started && validDuration && Date.now() - this.lastWrite >= 5000) {
+      this.options.state({position, duration: validDuration ? duration : 0, paused, started: this.started, ended: false, ready: validDuration, seekWarning: this.seekWarning});
+      if (this.started && validDuration && this.canSaveProgress(position) && Date.now() - this.lastWrite >= 5000) {
         this.lastWrite = Date.now(); this.options.progress(position, duration, false);
       }
     } catch { this.fail('Playback state could not be read. Go back and open this media again.'); }
@@ -195,7 +256,7 @@ export class PlayerSession {
     if (this.initialized) {
       try {
         // A completed episode must never be overwritten by an unfinished cleanup checkpoint.
-        if (this.started && !this.finished && this.resumeTarget === undefined && Number.isFinite(this.video.currentTime) && Number.isFinite(this.video.duration) && this.video.duration > 0) {
+        if (this.started && !this.finished && this.canSaveProgress(this.video.currentTime) && Number.isFinite(this.video.currentTime) && Number.isFinite(this.video.duration) && this.video.duration > 0) {
           this.options.progress(this.video.currentTime, this.video.duration, false);
         }
         this.video.pause();

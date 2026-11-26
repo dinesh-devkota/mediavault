@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
+import {ModuleKind, transpileModule} from 'typescript';
 import type {TextTrack} from '@amazon-devices/react-native-w3cmedia';
 import {NativeVideo, PlayerSession} from '../src/ui/PlayerSession';
 import {SubtitleSelection} from '../src/ui/PlaybackTracks';
@@ -18,6 +19,70 @@ function sdkModule(file: string, dependencies: Record<string, unknown>): Record<
 }
 const log = {LogUtil: {debug: () => {}, info: () => {}, warn: () => {}}};
 const flush = async () => { for (let i = 0; i < 20; i++) { await Promise.resolve(); } };
+
+test('the installed SDK owns remote transport once with the explicit ten-second interval', () => {
+  // These enums are supplied by the system bundle on Vega. Compile their pinned
+  // declarations for this native-free boundary instead of inventing enum values.
+  const types: Record<string, any> = {};
+  const typePath = require.resolve('@amazon-devices/react-native-kepler/Libraries/PlayerSession/api/PlayerSessionTypes.d.ts');
+  runInNewContext(transpileModule(readFileSync(typePath, 'utf8').replace(/export declare enum/g, 'export enum'),
+    {compilerOptions: {module: ModuleKind.CommonJS}}).outputText, {exports: types});
+  const typeDependency = {'@amazon-devices/react-native-kepler/Libraries/PlayerSession/api/PlayerSessionTypes': types};
+  const stateUtils = sdkModule('playersessionclient/PlaybackStateUtils.js', typeDependency);
+  const defaults = sdkModule('playersessionclient/PlayerSessionClientTypes.js', typeDependency);
+  const {PlayerSessionClient} = sdkModule('playersessionclient/PlayerSessionClient.js', {
+    ...typeDependency, '../LogUtils': log, './PlaybackStateUtils': stateUtils, './PlayerSessionClientTypes': defaults,
+  });
+  const native = {getCurrentTime: () => 20, seek: jest.fn()};
+  const {MediaPlayer} = sdkModule('MediaPlayer.js', {
+    './LogUtils': log, './interface/HTMLMediaElement': {HTMLMediaElement: class {}}, './turbo-modules/W3CMediaTurboModule': native,
+  });
+  const client = new PlayerSessionClient();
+  MediaPlayer.isPlayerSessionEnabled = true; MediaPlayer.playerSessionClient = client;
+  const sdk = Object.assign(Object.create(MediaPlayer.prototype), {mediaElement: {id: 1}, play: jest.fn(), pause: jest.fn()});
+  client.mediaPlayer = sdk; client.playerState = types.PlayerState.PLAYER_STATE_PAUSED;
+  sdk.defaultSeekIntervalInSec = 10;
+  expect(sdk.defaultSeekIntervalInSec).toBe(10);
+  client.callbacks.onFastForward(-1, -1);
+  expect(native.seek).toHaveBeenCalledTimes(1); expect(native.seek).toHaveBeenLastCalledWith(sdk.mediaElement, 30);
+  client.callbacks.onRewind(-1, -1);
+  expect(native.seek).toHaveBeenCalledTimes(2); expect(native.seek).toHaveBeenLastCalledWith(sdk.mediaElement, 10);
+  client.callbacks.onPlay(); expect(sdk.play).toHaveBeenCalledTimes(1);
+  client.playerState = types.PlayerState.PLAYER_STATE_PLAYING;
+  client.callbacks.onPause(); expect(sdk.pause).toHaveBeenCalledTimes(1);
+  client.callbacks.onStop(); expect(sdk.pause).toHaveBeenCalledTimes(2); // Stop is a pause, not app dismissal.
+});
+
+test('a pinned SDK seek setter can return without moving and the session recovers on failed seeked', async () => {
+  jest.useFakeTimers();
+  const boundary = {position: 1, acceptsSeek: false};
+  const native = {getCurrentTime: () => boundary.position,
+    seek: jest.fn((_element: unknown, position: number) => { if (boundary.acceptsSeek) { boundary.position = position; } })};
+  const {MediaPlayer} = sdkModule('MediaPlayer.js', {
+    './LogUtils': log, './interface/HTMLMediaElement': {HTMLMediaElement: class {}}, './turbo-modules/W3CMediaTurboModule': native,
+  });
+  const sdk = Object.assign(Object.create(MediaPlayer.prototype), {mediaElement: {id: 1}});
+  const events = new Map<string, () => void>();
+  const video = {
+    src: '', defaultSeekIntervalInSec: 0, duration: 60, paused: true, seeking: false, ended: false, error: null,
+    get currentTime() { return sdk.currentTime; }, set currentTime(position: number) { sdk.currentTime = position; },
+    initialize: async () => {}, deinitialize: jest.fn(async () => {}), play: async () => {}, pause: () => {},
+    setSurfaceHandle: () => {}, clearSurfaceHandle: () => {}, setCaptionViewHandle: () => {}, clearCaptionViewHandle: () => {},
+    addEventListener: (name: string, callback: () => void) => events.set(name, callback), removeEventListener: (name: string) => events.delete(name),
+  } as unknown as NativeVideo;
+  const state = jest.fn(), failed = jest.fn();
+  const session = new PlayerSession(video, {load: async () => ({uri: 'http://127.0.0.1/fixture', mime: 'video/x-matroska'}),
+    releaseResource: async () => {}, initialized: () => {}, sourceStarted: () => {}, state, failed, progress: () => {}, ended: () => {}});
+  try {
+    session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
+    session.seek(30); events.get('seeked')?.();
+    expect(native.seek).toHaveBeenCalledWith(sdk.mediaElement, 31);
+    expect(state).toHaveBeenLastCalledWith(expect.objectContaining({position: 1, paused: true, seekWarning: expect.stringContaining('could not be reached')}));
+    expect(failed).not.toHaveBeenCalled(); expect(video.deinitialize).not.toHaveBeenCalled();
+    boundary.acceptsSeek = true; session.seek(30); events.get('seeked')?.();
+    expect(state).toHaveBeenLastCalledWith(expect.objectContaining({position: 31, seekWarning: undefined}));
+  } finally { await session.stop(); jest.useRealTimers(); }
+});
 
 test('startup timeout aborts the pinned SDK initialization and destroys a late native element', async () => {
   expect(JSON.parse(readFileSync(require.resolve('@amazon-devices/react-native-w3cmedia/package.json'), 'utf8')).version).toBe('2.3.5');
