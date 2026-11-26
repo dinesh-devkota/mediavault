@@ -252,3 +252,7 @@ An owner can link using the code shown in Sources, choose an advertised Plex Med
 The implementation supports protected Plex artwork, photo thumbnails, native MP4/M4V/MOV direct play with byte-range seeking, and matching external SRT or WebVTT tracks. A disposable HTTPS fixture covers Plex linking, discovery, catalog groups, paging, media ranges, restricted artwork, and caption playback. The branch also adds a remote navigation test for the owner's setup entry. Local cloud checks use Python transport tests and Swift source parsing. The Apple TV hosted jobs are the compile and runtime gate.
 
 Before shipping, validate a real Plex server and account against Apple TV hardware. Plex transcoding, Relay-only connections, and full-size original Plex photos are pending. Apple simulator and unsigned release checks require no distribution credentials. App Store submission and approval require the owner's separate Apple process.
+
+### Plex on iPhone
+
+The separate iPhone Plex branch reuses the Apple TV catalog, credential scope, photos, subtitles and range-backed player. The iPhone shows its own device name and uses touch source setup from Manage. The simulator CI starts disposable Plex services and requires both the shared import, playback, seek and subtitle tests and a touch test covering PIN linking, server selection, and library import. Live Plex accounts, signing and physical-device checks remain separate.
