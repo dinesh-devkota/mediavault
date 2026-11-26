@@ -234,11 +234,16 @@ depends on a signed-in Google Drive app enabled in Files. PR #16 ports the
 verified iPhone provider flows onto current development and keeps the
 existing offline policy with the Files data flow added. The initial
 combined run passed scoped Files, OneDrive and Plex, and Dropbox media
-requests. Draft `456e11f` fixes the stale Dropbox Film locator and ports the
-WebDAV touch validated in #31. The combined iPhone path still needs hosted
-validation, including the two unchanged SMB/MKV playback checks.
-[Development iPhone port #16](https://github.com/dinesh-devkota/mediavault/pull/16) Private Drive on Apple TV needs a registered
-Google OAuth/Picker flow and a reviewable HTTPS companion.
+requests. Tested `456e11f` fixes the stale Dropbox Film locator and ports the
+WebDAV touch validated in #31. The exact tree passed all 255 iPhone tests,
+257 Apple TV tests, 17 Android phone tests, Android TV, Swift Core, and the
+unsigned Apple release builds. Android phone passed after a failed-job-only
+retry, including the original collection navigation test. On November 26,
+#16 merged into development at `2dc56fd`, with the same verified tree.
+[Development iPhone port #16](https://github.com/dinesh-devkota/mediavault/pull/16)
+
+Private Drive on Apple TV needs a registered Google OAuth/Picker flow and a
+reviewable HTTPS companion.
 [Android Drive #7](https://github.com/dinesh-devkota/mediavault/pull/7)
 · [iPhone Drive #23](https://github.com/dinesh-devkota/mediavault/pull/23)
 
@@ -277,6 +282,34 @@ Its real signed preview passed Home and Detail, then exposed unreadable
 Apple TV filter labels. Current draft `1d050fb` fixes the affected label
 contrast and waits on the hosted screenshot and simulator checks.
 [Apple simulator reliability #31](https://github.com/dinesh-devkota/mediavault/pull/31)
+
+## Active merge candidates after the iPhone provider port
+
+- Android Google Drive #7 `4b2077b` preserves the merged iPhone Files route.
+  Its synthetic Plex fixture performs bounded TLS handshakes in worker threads.
+  A local regression covers linking while an idle TCP client remains connected.
+  All 22 Python script tests passed. The exact combined simulator runs remain
+  under the PR's checks.
+- Emby #17 `fbc3091` preserves the iPhone provider port and the Apple privacy gate.
+  The current branch gates require Emby's native playback and the shared Apple
+  and Android journeys. Local fixture smoke covered trusted TLS, protected MP4
+  ranges, HLS, subtitles, and session cleanup. Exact hosted validation is pending.
+- Fire TV and Vega #20 `db5334f` checks the original native keyboard window is
+  hidden and the Done control is absent from a valid native hierarchy containing
+  the same form field. The iPhone fixture checks real MKV pause and teardown
+  after touch and allows WebDAV time to surface its configured transport error.
+  All 32 Vega harness checks and 23 package checks passed locally. Exact hosted
+  Fire OS, Android, Apple, and Vega validation is pending.
+- Apple simulator reliability #31 now includes the merged iPhone sources at
+  `b7920f5`. Its photo controls use the existing TV bordered style, making
+  Previous, Next, and Back readable. The earlier exact `0ae7fdf` signed preview
+  passed all eight screens and 46 OCR assertions, including the photo and Search.
+  The new exact combined preview is
+  [run 45881798358](https://github.com/dinesh-devkota/mediavault/actions/runs/45881798358).
+
+Use test-only local providers, synthetic media, and hosted disposable simulators.
+The external provider registrations, physical device checks, and App Review
+remain separate from repository merge validation.
 
 ## tvOS submission readiness
 
