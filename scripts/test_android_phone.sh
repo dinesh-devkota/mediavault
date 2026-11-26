@@ -12,19 +12,27 @@ if [[ -z "$SERIAL" || "$SERIAL" == *$'\n'* || "$(adb -s "$SERIAL" shell getprop 
   exit 1
 fi
 export ANDROID_SERIAL="$SERIAL"
+DROPBOX_FIXTURE="${RUNNER_TEMP:?}/android-phone-dropbox"
+bash scripts/start_dropbox_fixture.sh "$DROPBOX_FIXTURE"
+DROPBOX_PID=$(cat "$DROPBOX_FIXTURE/server.pid")
+trap 'kill "$DROPBOX_PID" 2>/dev/null || true' EXIT
+DROPBOX_CERTIFICATE=$(openssl base64 -A -in "$DROPBOX_FIXTURE/fixture.cer")
+app_id=com.dineshdevkota.cinevault
+phone_class="$app_id.AndroidPhoneNavigationTest"
+library_classes="$app_id.LibraryFeaturesNavigationTest,$app_id.library.LocalLibraryIntegrationTest"
+media_class="$app_id.playback.SmbPlaybackTest"
+plex_class="$app_id.plex.PlexTlsIntegrationTest"
+onedrive_classes="$app_id.cloud.OneDriveSetupNavigationTest,$app_id.cloud.OneDriveMediaIntegrationTest,$app_id.cloud.OneDriveAccountStoreInstrumentedTest"
+metadata_class="$app_id.metadata.MetadataMutationTest"
+metadata_cases="$metadata_class#plexManualMovieMatchKeepsTheRatingUpdatedWhileItsReplyWasPending,$metadata_class#plexManualTvMatchPreservesRestrictedAndUnknownServerRatings,$metadata_class#plexResetAndAutomaticMetadataCannotDiscardServerIdentityOrClassification"
+classes="$phone_class,$library_classes,$media_class#mkvPlaybackAndSeekFromNas,$plex_class,$onedrive_classes,$metadata_cases,$media_class#dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate"
 PLEX_CERTIFICATE=$(base64 -w0 "$RUNNER_TEMP/phone-plex/fixture.cer")
-PHONE_CASES=com.dineshdevkota.cinevault.AndroidPhoneNavigationTest
-LIBRARY_CASES=com.dineshdevkota.cinevault.LibraryFeaturesNavigationTest,com.dineshdevkota.cinevault.library.LocalLibraryIntegrationTest
-PLAYBACK_CASES=com.dineshdevkota.cinevault.playback.SmbPlaybackTest#mkvPlaybackAndSeekFromNas
-PLEX_CASES=com.dineshdevkota.cinevault.plex.PlexTlsIntegrationTest
-ONEDRIVE_CASES=com.dineshdevkota.cinevault.cloud.OneDriveSetupNavigationTest,com.dineshdevkota.cinevault.cloud.OneDriveMediaIntegrationTest,com.dineshdevkota.cinevault.cloud.OneDriveAccountStoreInstrumentedTest
-METADATA_TEST=com.dineshdevkota.cinevault.metadata.MetadataMutationTest
-METADATA_CASES="$METADATA_TEST#plexManualMovieMatchKeepsTheRatingUpdatedWhileItsReplyWasPending,$METADATA_TEST#plexManualTvMatchPreservesRestrictedAndUnknownServerRatings,$METADATA_TEST#plexResetAndAutomaticMetadataCannotDiscardServerIdentityOrClassification"
 cd android
 status=0
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
-  -Pandroid.testInstrumentationRunnerArguments.class="$PHONE_CASES,$LIBRARY_CASES,$PLAYBACK_CASES,$PLEX_CASES,$ONEDRIVE_CASES,$METADATA_CASES" \
+  "-Pandroid.testInstrumentationRunnerArguments.class=$classes" \
+  "-Pandroid.testInstrumentationRunnerArguments.dropboxCertificate=$DROPBOX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
   -Pandroid.testInstrumentationRunnerArguments.plexCertificate="$PLEX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.libraryUiFixture=true \
@@ -57,6 +65,7 @@ expected = {
     "ownerCanOpenOneDriveSetupAndRecoverFromInvalidPublicApplicationId",
     "stagedSignInImportsSelectedFolderAndPlaysWithBoundedReadsAndCaptions",
     "refreshRecordIsEncryptedOnDiskAndRemovable",
+    "dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate",
 }
 failures = 0
 for case in cases:

@@ -17,17 +17,17 @@ AUTHORIZATION = "Basic " + base64.b64encode(b"cinevault:fixture-only").decode("a
 SAMPLE_DIR = Path(__file__).resolve().parents[1] / "CineVaultTests" / "Fixtures"
 
 
-def create_certificate(directory):
+def create_certificate(directory, provider="WebDAV"):
     directory.mkdir(parents=True, exist_ok=True)
     config = directory / "openssl.cnf"
-    config.write_text("""
+    config.write_text(f"""
 [req]
 distinguished_name = subject
 prompt = no
 x509_extensions = extensions
 
 [subject]
-CN = Disposable MediaVault WebDAV
+CN = Disposable MediaVault {provider}
 
 [extensions]
 basicConstraints = critical,CA:TRUE

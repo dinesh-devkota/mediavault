@@ -84,6 +84,11 @@ struct NASSetupView: View {
             NavigationLink("Connect OneDrive") {
                 OneDriveSourceEditor(source: nil, onSaved: { dismiss() })
             }.accessibilityIdentifier("add-onedrive-source")
+            #if os(tvOS)
+            NavigationLink("Connect Dropbox") {
+                DropboxSourceEditor(source: nil, onSaved: { dismiss() })
+            }.accessibilityIdentifier("add-dropbox-source")
+            #endif
             NavigationLink("Connect Jellyfin") {
                 JellyfinSourceEditor(source: nil, onSaved: { dismiss() })
             }

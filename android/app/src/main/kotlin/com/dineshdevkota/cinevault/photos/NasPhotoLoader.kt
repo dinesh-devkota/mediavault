@@ -51,7 +51,8 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
     private val secrets: SecretBox, private val smb: SmbService = photoService(),
     private val family: com.dineshdevkota.cinevault.family.FamilyStore,
     private val fixtureHttp: OkHttpClient? = null,
-    private val openFile: (SourceConfig, String) -> com.dineshdevkota.cinevault.smb.RemoteHandle = smb::open) {
+    private val openFile: (SourceConfig, String) -> com.dineshdevkota.cinevault.smb.RemoteHandle = smb::open,
+    private val openDropbox: (SourceConfig, String, () -> Unit) -> com.dineshdevkota.cinevault.smb.RemoteHandle = smb::openDropbox) {
     private val cacheDirectory = File(context.cacheDir, "nas-photos").apply {
         mkdirs()
         // Only our own temporary files can survive a killed process; no persistent photo copies.
@@ -153,7 +154,13 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                             body.byteStream().use { copy(it, body.contentLength()) }
                         }
                     } else {
-                        openFile(checkNotNull(config), remotePath).use { remote ->
+                        val fileConfig = checkNotNull(config)
+                        val handle = if (fileConfig.isDropbox) {
+                            openDropbox(fileConfig, remotePath) { authorize(photo) }
+                        } else {
+                            openFile(fileConfig, remotePath)
+                        }
+                        handle.use { remote ->
                             authorize(photo)
                             remote.stream(0).use { copy(it, remote.length) }
                         }
