@@ -46,7 +46,8 @@ struct PlexAccountClient: Sendable {
             connections.filter {
                 guard let url = URLComponents(url: $0.uri, resolvingAgainstBaseURL: false) else { return false }
                 return url.scheme == "https" && url.host?.isEmpty == false && url.user == nil &&
-                    url.password == nil && url.query == nil && url.fragment == nil
+                    url.password == nil && url.query == nil && url.fragment == nil &&
+                    (url.percentEncodedPath.isEmpty || url.percentEncodedPath == "/")
             }
         }
     }
@@ -77,7 +78,8 @@ struct PlexAccountClient: Sendable {
     func beginLink() async throws -> LinkCode {
         let data = try await send("pins", method: "POST", query: [URLQueryItem(name: "strong", value: "false")])
         let pin = try JSONDecoder().decode(LinkCode.self, from: data)
-        guard pin.id > 0, (1...32).contains(pin.code.utf8.count), pin.expiresIn > 0 else {
+        guard pin.id > 0, (1...32).contains(pin.code.utf8.count), pin.expiresIn > 0,
+              pin.code.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) }) else {
             throw PlexAccountError.invalidResponse
         }
         return pin

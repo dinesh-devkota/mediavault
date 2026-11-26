@@ -111,7 +111,7 @@ struct RootView: View {
 
     @ViewBuilder private var adminSources: some View {
         #if DEBUG
-        if HouseholdPreview.isEnabled {
+        if HouseholdPreview.isEnabled && !ProcessInfo.processInfo.arguments.contains("--ui-preview-plex-entry") {
             ContentUnavailableView("Sample media", systemImage: "externaldrive", description: Text("This isolated preview does not connect to real NAS sources."))
         } else { SourcesView() }
         #else
