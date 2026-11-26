@@ -19,13 +19,17 @@ export function subtitleLanguageName(code: string): string {
   return code.toUpperCase();
 }
 
-export function matchingSubtitles(item: MediaItem, paths: string[]): SubtitleFile[] {
-  const mediaStem = stem(baseName(item.path)).toLowerCase();
+export function matchingSubtitles(item: MediaItem, paths: string[], caseSensitive = false): SubtitleFile[] {
+  const compareStem = (path: string): string => {
+    const name = stem(baseName(path));
+    return caseSensitive ? name : name.toLowerCase();
+  };
+  const mediaStem = compareStem(item.path);
   return paths.filter(path => parentPath(path) === parentPath(item.path) && /\.(srt|vtt)$/i.test(path))
     .flatMap(path => {
-      const name = stem(baseName(path)).toLowerCase();
+      const name = compareStem(path);
       if (name !== mediaStem && !name.startsWith(mediaStem + '.') && !name.startsWith(mediaStem + ' ')) { return []; }
-      const suffix = name.slice(mediaStem.length).replace(/^[. ]+/, '').split(/[. ]+/).filter(Boolean);
+      const suffix = name.slice(mediaStem.length).toLowerCase().replace(/^[. ]+/, '').split(/[. ]+/).filter(Boolean);
       if (suffix.some(part => !['forced', 'sdh', 'hi', 'cc'].includes(part) && !/^[a-z]{2,3}(?:-[a-z]{2})?$/.test(part))) { return []; }
       return [{path, language: suffix.find(part => /^[a-z]{2,3}(?:-[a-z]{2})?$/.test(part) && !['sdh', 'hi', 'cc'].includes(part)), forced: suffix.includes('forced'), hearingImpaired: suffix.includes('sdh') || suffix.includes('hi') || suffix.includes('cc')}];
     });
@@ -53,9 +57,9 @@ export function parseSubtitles(value: string): SubtitleCue[] {
 }
 
 
-export async function loadMatchingSubtitles(item: MediaItem, paths: string[], readText: SourceClient['readText'], assertActive: () => void): Promise<{label: string; language: string; cues: SubtitleCue[]}[]> {
+export async function loadMatchingSubtitles(item: MediaItem, paths: string[], readText: SourceClient['readText'], assertActive: () => void, caseSensitive = false): Promise<{label: string; language: string; cues: SubtitleCue[]}[]> {
   const result: {label: string; language: string; cues: SubtitleCue[]}[] = [];
-  for (const match of matchingSubtitles(item, paths).slice(0, 8)) {
+  for (const match of matchingSubtitles(item, paths, caseSensitive).slice(0, 8)) {
     assertActive();
     try {
       const value = await readText(match.path, 2 * 1024 * 1024); assertActive();

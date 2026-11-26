@@ -219,7 +219,8 @@ const MediaVaultApp = () => {
       subtitles={async () => {
         if (currentSource.kind === 'jellyfin') { return []; }
         const client = platformServices.client(currentSource), entries = await client.list(parentPath(item.path)); assertSession(token);
-        return loadMatchingSubtitles(item, entries.filter(entry => !entry.directory).map(entry => entry.path), client.readText, () => assertSession(token));
+        return loadMatchingSubtitles(item, entries.filter(entry => !entry.directory).map(entry => entry.path),
+          client.readText, () => assertSession(token), currentSource.kind === 'webdav');
       }}
       onProgress={(position, duration, ended) => { if (token === sessionRef.current && unlockedRef.current) { updatePersonal(value => ({...value, viewing: {...value.viewing, [item.id]: progressState(position, duration, value.viewing[item.id], ended)}}), token); } }}
       releaseResource={uri => platformServices.revokeResource(uri)}

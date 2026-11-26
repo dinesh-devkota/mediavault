@@ -383,15 +383,18 @@ initial full GET and no seek-time byte-range request. Those observations do
 not identify the fault in the native stack, request handling, or container.
 Stages 07–09 remain pending. The standalone run `45775008538` verified fixture
 packet equality and host HTTP ranges, but the probe stayed on the launcher
-and no stock media case ran.
+and no stock media case ran. The single-launch retry `45779284821` also
+passed the host HTTP and coded-packet checks, then failed waiting for its
+banner. Its artifact `15098057008` contains no in-app seek outcome.
 
 The current verification branch checks the native clock before saving a seek,
 bounds keyboard-window observation without weakening same-window or field
 checks, and uses one verified foreground launch before its standalone MKV/MP4
 probe. Vega's subtitle menu announces and displays the active track, names
 local languages and variants, and keeps Off and explicit track selection stable
-when native tracks arrive or reorder. Local synthetic validation at Node
-22.23.5 passed all 82 app/SDK tests, 23 harness tests and 20 Python package
+when native tracks arrive or reorder. WebDAV sidecars match the exact media
+filename case. SMB matching remains case-insensitive. Local synthetic
+validation at Node 22.23.5 passed all 83 app/SDK tests, 23 harness tests and 20 Python package
 contracts, plus typecheck and lint (0 errors, 50 existing warnings).
 
 The catalog review found the rendered Home and collection grids still repeated
@@ -404,8 +407,8 @@ The Release matrix now runs its architecture-independent TypeScript, lint and
 Jest checks once, on x86_64, while every native package retains its own SDK
 doctor, native compilation and package content checks. Superseded PR runs may
 cancel without canceling manual diagnostics. The next native step is the
-corrected standalone seek diagnostic, followed by full simulator acceptance
-of any verified playback remedy. No release job is authorized.
+standalone diagnostic startup, followed by full simulator acceptance of any
+verified playback remedy. No release job is authorized.
 
 Dropbox PR #30 merged into development at `312b9ade` after all exact synthetic
 checks passed. OneDrive iPhone PR #24 merged into the iPhone feature parent at

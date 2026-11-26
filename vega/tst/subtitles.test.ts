@@ -44,3 +44,15 @@ test('subtitles name regional language, forced and reduced-hearing variants', as
     [path('pt-br.forced'), path('es.sdh'), path('xho')], async () => subtitle('Caption'), () => {});
   expect(result.map(track => track.label)).toEqual(['Portuguese (BR) · Forced', 'Spanish · SDH', 'XHO']);
 });
+
+test('WebDAV captions keep exact media stem case without treating language tags as case-sensitive', async () => {
+  const original = itemFromFile('nas', 'Movies/Film.mp4', 100)!;
+  const paths = ['Movies/film.en.srt', 'Movies/Film.ES.srt'];
+  const read = jest.fn(async () => subtitle('Test'));
+  const exact = await loadMatchingSubtitles(original, paths, read, () => {}, true);
+  expect(exact.map(track => track.language)).toEqual(['es']);
+  expect(read.mock.calls).toHaveLength(1);
+  expect(read).toHaveBeenCalledWith('Movies/Film.ES.srt', 2 * 1024 * 1024);
+  const smb = await loadMatchingSubtitles(original, paths, read, () => {});
+  expect(smb.map(track => track.language)).toEqual(['en', 'es']);
+});
