@@ -1,11 +1,44 @@
 # MediaVault — agent handoff
 
-**Current name:** the owner requested **MediaVault** for the app and `mediavault`
-for the public repository, now `dinesh-devkota/mediavault`. Local origin
-is `https://github.com/dinesh-devkota/mediavault.git`. Historical links and snapshots
-below retain their original names. Development work remains on
-`dinesh-devkota-sonepar-build-cinevault-tvos-app`; the workspace and private
-`CineVaultCommercial` repository retain their existing names.
+The product name is **MediaVault**. The public origin is
+`https://github.com/dinesh-devkota/mediavault.git`. Changing the repository’s
+capitalization to `MediaVault` needs GitHub Administration write access.
+Feature pull requests target `dinesh-devkota-sonepar-build-cinevault-tvos-app`.
+
+## Current cloud checkpoint — November 26, 2026
+
+Development is `61e90aa` after merging the tested iPhone provider port (#16),
+Android Google Drive (#7), Apple simulator reliability (#31), opt-in Android NFS
+(#8), and Emby (#17). The exact Emby merge tree passed 269 iPhone, 272 Apple TV,
+122 Android TV, 20 Android phone, and 84 Swift Core tests. The hosted NFS gate
+passed four emulator cases and five native host cases. Both unsigned Apple
+release builds passed with SDK 26.5 and their privacy resources.
+[Development](https://github.com/dinesh-devkota/mediavault/commit/61e90aa9d02db552765903beda81331cae2f2ba1)
+
+Fire TV and Vega PR #20 is at `0520447`. The only file changed since
+`4c38f28` is the Vega synthetic journey. The exact `4c38f28` iPhone, Apple TV,
+Swift Core, Android TV, Android phone, NFS, and Fire OS workflows all passed.
+The Vega retry played MP4 and MKV and then entered Collections before the
+next-episode action. The new test checks the exact completed source scan,
+returns to Home with the remote, and confirms the expected media and native
+Play focus before selecting. It also handles the empty-library Add source
+prompt and sources below the visible part of the list. Native tests and all
+Vega packages for the new head passed. Its virtual-device run is the merge gate.
+[PR #20](https://github.com/dinesh-devkota/mediavault/pull/20) ·
+[Vega hosted run](https://github.com/dinesh-devkota/mediavault/actions/runs/45906396086)
+
+Local review branches contain subtitle source wording and download feedback
+(`4b2296b`), shared Apple release validation and Android preboot fixture builds
+(`f9b5700`), the Apple App Review handoff (`0618bd3`), platform-specific device
+names for Emby (`b0d284b`) and Jellyfin (`b28c41b`), and exact Google Drive
+Picker selection checks (`4a34f58`). Android subtitle changes passed 281 local
+unit tests, instrumentation compilation and lint. Five opt-in fixture tests
+require their local servers. See the individual branches for test scope.
+
+The owner’s NAS and emulator are outside fixture testing. Physical Apple and
+Vega devices, real provider accounts, signing, and App Review require separate
+verification. See the [cloud integration handoff](../docs/CLOUD-INTEGRATIONS-HANDOFF.md)
+for source coverage and provider prerequisites.
 
 ## Fire TV and Vega acceptance update — November 26, 2026
 

@@ -1,5 +1,22 @@
 # Cloud continuation: media sources
 
+## Connectors in the tested development branch
+
+| Source | Android phone and TV | iPhone and Apple TV |
+| --- | --- | --- |
+| SMB and WebDAV | Source setup, scoped folders, media, photos and sibling SRT/WebVTT | Same source coverage |
+| Jellyfin and Emby | Server sign-in, imported libraries, protected playback and server caption tracks | Same source coverage |
+| Plex | Account linking, server and library choice, supported direct-play media | Same source coverage |
+| Personal OneDrive and Dropbox | Device or browser approval, folder selection, scoped playback and reconnect | Same source coverage |
+| Google Drive | Read-only Android document-picker grants on devices with a Drive provider | iPhone Files grants with Google Drive enabled. Apple TV direct linking needs a registered companion. |
+| NFS | Native read-only Android Debug option with explicit local opt-in | Host fixture and ABI compile pilot. App integration and distribution license review remain pending. |
+
+All viewer profiles need owner-granted access to each source. Providers authenticate
+separately from local household profiles. Same-folder SRT/WebVTT reads use the
+source’s path rules. Optional SubDL search and download use the owner’s separate
+API key. The development revision and hosted test results are recorded at the top
+of the [agent handoff](../dist/AGENT-HANDOFF.md).
+
 ## User request and order
 
 The user requested WebDAV on a new branch, then asked to implement all assessed
