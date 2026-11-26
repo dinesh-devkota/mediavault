@@ -56,8 +56,8 @@ jobs:
   commercial:
     name: Build the licensed app
     needs: preflight
-    runs-on: macos-15
-    timeout-minutes: 45
+    runs-on: macos-26
+    timeout-minutes: 60
     environment: commercial
     env:
       APP_BUNDLE_ID: ${{ vars.APP_BUNDLE_ID || 'com.dineshdevkota.cinevault' }}
@@ -209,6 +209,61 @@ jobs:
               -derivedDataPath "$RUNNER_TEMP/cinevault-commercial-tests" \
               -parallel-testing-enabled NO -only-testing:CommercialIntegrationTests \
               CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES test-without-building
+      - name: Generate and build the unsigned licensed iPhone app
+        run: |
+          bash scripts/run_commercial_stage.sh "iPhone release project generation" \
+            "$RUNNER_TEMP/cinevault-commercial.log" xcodegen generate --spec project.ios-commercial.yml
+          bash scripts/run_commercial_stage.sh "Unsigned licensed iPhone build" \
+            "$RUNNER_TEMP/cinevault-commercial.log" \
+            xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+              -destination 'generic/platform=iOS' -configuration Release \
+              -derivedDataPath "$RUNNER_TEMP/cinevault-commercial-phone-release" \
+              CODE_SIGNING_ALLOWED=NO "PRODUCT_BUNDLE_IDENTIFIER=$APP_BUNDLE_ID.ios" \
+              "CINEVAULT_MONTHLY_PRODUCT_ID=$CINEVAULT_MONTHLY_PRODUCT_ID" \
+              "CINEVAULT_LIFETIME_PRODUCT_ID=$CINEVAULT_LIFETIME_PRODUCT_ID" build
+          bash scripts/run_commercial_stage.sh "iPhone purchase identifier verification" \
+            "$RUNNER_TEMP/cinevault-commercial.log" \
+            python3 scripts/check_commercial_products.py \
+              "$RUNNER_TEMP/cinevault-commercial-phone-release/Build/Products/Release-iphoneos/CineVault.app/Info.plist" \
+              "$APP_BUNDLE_ID.ios" "$CINEVAULT_MONTHLY_PRODUCT_ID" "$CINEVAULT_LIFETIME_PRODUCT_ID"
+      - name: Prepare licensed iPhone simulator tests
+        run: |
+          bash scripts/run_commercial_stage.sh "iPhone simulator test configuration" \
+            "$RUNNER_TEMP/cinevault-commercial.log" \
+            python3 commercial/scripts/prepare_official.py \
+              --public-root "$GITHUB_WORKSPACE" --package-root "$GITHUB_WORKSPACE/commercial" \
+              --include-tests --platform ios
+          bash scripts/run_commercial_stage.sh "iPhone simulator project generation" \
+            "$RUNNER_TEMP/cinevault-commercial.log" xcodegen generate --spec project.ios-commercial-tests.yml
+      - name: Select an iPhone simulator for licensed playback
+        id: phone
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk=$(xcrun --sdk iphonesimulator --show-sdk-version | tr '.' '-')
+          device=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          runtime = "com.apple.CoreSimulator.SimRuntime.iOS-" + sys.argv[1]
+          candidates = [d for d in json.load(sys.stdin)["devices"].get(runtime, [])
+                        if d.get("isAvailable") and d["name"].startswith("iPhone")]
+          if not candidates:
+              sys.exit("No available iPhone simulator for " + runtime)
+          print(candidates[0]["udid"])
+          ' "$sdk")
+          echo "device=$device" >> "$GITHUB_OUTPUT"
+      - name: Build and test licensed iPhone playback
+        run: |
+          set -euo pipefail
+          device='${{ steps.phone.outputs.device }}'
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          bash scripts/run_commercial_stage.sh "Licensed iPhone integration tests" \
+            "$RUNNER_TEMP/cinevault-commercial.log" \
+            xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+              -destination "id=$device" -configuration Debug \
+              -derivedDataPath "$RUNNER_TEMP/cinevault-commercial-phone-tests" \
+              -parallel-testing-enabled NO -only-testing:CommercialIntegrationTests \
+              CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES test
       - name: Regenerate the release project for TestFlight
         if: inputs.upload_testflight
         run: |

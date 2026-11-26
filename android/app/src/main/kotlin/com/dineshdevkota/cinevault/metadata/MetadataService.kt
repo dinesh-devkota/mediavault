@@ -48,6 +48,42 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
     /** Re-fetches every movie; existing matches and locked titles are kept. */
     suspend fun refreshAll(): MetadataFetchSummary? = runBatch(refreshAll = true)
 
+    /** Adds franchise membership to older libraries without replacing their titles, artwork or viewing history. */
+    suspend fun refreshMovieCollections(authorize: () -> Unit = {}) {
+        authorize()
+        if (!tmdb.hasKey()) { statusFlow.value = "Local NFO movie series appear after a scan. Add a TMDB key in Settings to find more online."; return }
+        active.incrementAndGet(); running.value = true
+        try {
+            batchLock.withLock {
+                val providers = database.sources().all().filter { it.sourceType == JELLYFIN }.map { it.id }.toSet()
+                val pending = database.movies().available().filter { it.tmdbId != null && it.episodeInfo == null && !it.isPhoto && it.sourceId !in providers }
+                var failed = 0
+                for ((index, queued) in pending.withIndex()) {
+                    authorize(); statusFlow.value = "Finding movie series ${index + 1} of ${pending.size}…"
+                    try {
+                        mutationLock.withLock {
+                            val current = database.movies().get(queued.id)?.takeUnless { it.isMissing } ?: return@withLock
+                            val id = current.tmdbId ?: return@withLock
+                            val details = tmdb.details(id)
+                            database.withTransaction {
+                                authorize()
+                                val latest = database.movies().get(current.id) ?: return@withTransaction
+                                if (sameMatch(latest, current)) {
+                                    val online = latest.copy(franchiseId = details.collection?.id, franchiseName = details.collection?.name?.takeIf { it.isNotBlank() })
+                                    database.movies().update(LocalMetadataImporter.reapply(online))
+                                }
+                            }
+                        }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (failure: MetadataException) { if (failure.isAuthFailure) throw failure; failed++ }
+                    catch (_: Exception) { failed++ }
+                }
+                statusFlow.value = if (failed > 0) "Movie series updated; $failed titles could not be checked. Try again when connected."
+                    else "Movie series updated. Collections with two or more titles appear here."
+            }
+        } finally { if (active.decrementAndGet() == 0) running.value = false }
+    }
+
     private suspend fun runBatch(refreshAll: Boolean): MetadataFetchSummary? {
         val hasKey = try {
             tmdb.hasKey()
@@ -113,6 +149,9 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
 
     private suspend fun matchLocked(movie: MovieEntity, authorize: () -> Unit = {}) {
         authorize()
+        // Plex supplies the catalog identity and authoritative household rating. A direct
+        // match/backfill call must respect the same boundary as the batch filter.
+        if (database.sources().get(movie.sourceId)?.sourceType == PLEX) return
         if (MediaFile.isAudio(movie.filePath) || movie.isPhoto) return
         if (movie.metadataFetched && !movie.certificationFetched) {
             val certification = when {
@@ -124,6 +163,7 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
                 if (certification != null) database.withTransaction {
                     authorize()
                     val current = database.movies().get(movie.id) ?: return@withTransaction
+                    if (database.sources().get(current.sourceId)?.sourceType == PLEX) return@withTransaction
                     if (sameMatch(current, movie)) database.movies().setCertification(movie.id, certification.first)
                 }
                 return
@@ -131,8 +171,8 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
         }
         movie.episodeInfo?.let { return matchTVLocked(movie, it, authorize) }
         movie.tmdbId?.let { return applyLocked(it, movie.id, authorize = authorize) }
-        val title = if (movie.isLocked) movie.title else movie.parsedTitle
-        val year = if (movie.isLocked) movie.year else movie.parsedYear
+        val title = if (movie.isLocked || movie.hasLocalMetadata) movie.title else movie.parsedTitle
+        val year = if (movie.isLocked || movie.hasLocalMetadata) movie.year else movie.parsedYear
         val best = title.takeIf { it.isNotBlank() }?.let { TitleMatcher.bestMatch(it, year, tmdb.search(it, year)) }
         if (best != null) applyLocked(best.id, movie.id, authorize = authorize) else database.withTransaction {
             authorize()
@@ -154,6 +194,7 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
             database.withTransaction {
                 authorize()
                 val current = database.movies().get(movie.id) ?: return@withTransaction
+                if (database.sources().get(current.sourceId)?.sourceType == PLEX) return@withTransaction
                 if (sameMatch(current, movie)) {
                     database.movies().rememberEpisode(movie.id, info.seriesTitle, info.season, info.episode)
                 }
@@ -194,7 +235,11 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
             val title = episode?.name?.takeIf { it.isNotBlank() } ?: movie.title
             details.contentRatings?.let { movies.setCertification(movie.id, it.usRating) }
             movies.applyMatchedTitle(movie.id, title, WatchRules.sortTitle(title), details.year ?: info.year, force)
-            if (force) movies.lock(movie.id)
+            if (force) movies.get(movie.id)?.let {
+                movies.update(it.copy(isLocked = true, hasLocalMetadata = false, localMetadataJson = null, edition = null))
+            }
+            else movies.get(movie.id)?.let { movies.update(LocalMetadataImporter.reapply(it)) }
+            preservePlexCertification(current)
         }
     }
 
@@ -213,6 +258,9 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
         val fromFile = MovieEdits.fromFile(movie.filePath)
         database.withTransaction {
             authorize()
+            if (database.sources().get(movie.sourceId)?.sourceType == PLEX) {
+                throw MetadataException("Plex supplies this title and episode information. Rescan its source to refresh it.")
+            }
             movies.resetToFile(movieId, fromFile.title, WatchRules.sortTitle(fromFile.title), fromFile.year,
                 fromFile.tmdbId, converters.fromList(emptyList()))
         }
@@ -247,10 +295,26 @@ class MetadataService(private val database: CineVaultDatabase, val tmdb: TmdbCli
                 genresJson = converters.fromList(details.genres.orEmpty().map { it.name }.filter { it.isNotBlank() }),
             )
             details.releaseDates?.let { movies.setCertification(movieId, it.usRating) }
+            movies.setFranchise(movieId, details.collection?.id, details.collection?.name?.takeIf { it.isNotBlank() })
             if (details.title.isNotBlank()) {
                 movies.applyMatchedTitle(movieId, details.title, WatchRules.sortTitle(details.title), details.year, force)
             }
-            if (force) movies.lock(movieId)
+            if (force) movies.get(movieId)?.let {
+                movies.update(it.copy(isLocked = true, hasLocalMetadata = false, localMetadataJson = null, edition = null))
+            }
+            else movies.get(movieId)?.let { movies.update(LocalMetadataImporter.reapply(it)) }
+            preservePlexCertification(current)
+        }
+    }
+
+    /** Called within the write transaction, using the rating read after the network reply. */
+    private suspend fun preservePlexCertification(current: MovieEntity) {
+        if (database.sources().get(current.sourceId)?.sourceType != PLEX) return
+        database.movies().get(current.id)?.let { updated ->
+            database.movies().update(updated.copy(
+                ageCertification = current.ageCertification,
+                certificationFetched = current.certificationFetched,
+            ))
         }
     }
 }

@@ -37,7 +37,8 @@ struct SourcesView: View {
                         Label(source.name, systemImage: "externaldrive.connected.to.line.below").font(.headline)
                         Text(location(of: source)).font(.caption).foregroundStyle(.secondary)
                         if let lastScan = source.lastScanDate {
-                            Text("\(source.movies.filter { !$0.isMissing }.count) items · Scanned \(lastScan.formatted(date: .abbreviated, time: .shortened))")
+                            let itemCount = source.movies.filter { !$0.isMissing }.count
+                            Text("\(itemCount) \(itemCount == 1 ? "item" : "items") · Scanned \(lastScan.formatted(date: .abbreviated, time: .shortened))")
                                 .font(.caption2).foregroundStyle(.secondary)
                         } else {
                             Text("Ready for its first scan").font(.caption2).foregroundStyle(.secondary)
@@ -48,6 +49,9 @@ struct SourcesView: View {
                             .disabled(scanner.isScanning)
                         Button { editing = source } label: { Label("Edit", systemImage: "slider.horizontal.3") }
                     }
+                    #if os(iOS)
+                    .buttonStyle(.bordered)
+                    #endif
                 }
             }
             if !sources.isEmpty {
@@ -62,6 +66,8 @@ struct SourcesView: View {
         .sheet(item: $editing) { source in
             NavigationStack {
                 if source.isPlex { PlexSourceEditor(source: source) }
+                else if source.cloudFileProvider == .oneDrive { OneDriveSourceEditor(source: source) }
+                else if source.cloudFileProvider == .dropbox { DropboxSourceEditor(source: source) }
                 else if source.isJellyfin { JellyfinSourceEditor(source: source) }
                 else { SourceEditorView(source: source) }
             }
@@ -70,6 +76,7 @@ struct SourcesView: View {
 
     private func location(of source: MediaSource) -> String {
         if source.isPlex { return "Plex · " + (URL(string: source.host)?.host ?? "Server") }
+        if let provider = source.cloudFileProvider { return provider.title }
         if source.isJellyfin { return source.host }
         if source.isWebDAV { return [source.host, source.rootPath].filter { !$0.isEmpty }.joined(separator: " / ") }
         let address = (try? NASAddress.parse(source.host, port: source.port))?.authority ?? "NAS"
@@ -135,7 +142,10 @@ struct SourceEditorView: View {
             if busy || message != nil || scanner.isScanning {
                 Section {
                     if busy { ProgressView(progress) }
-                    if let message { Text(message).foregroundStyle(.secondary) }
+                    if let message {
+                        Text(message).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("source-connection-message")
+                    }
                     if scanner.isScanning { Text("A library scan is running. Editing will be available when it finishes.").foregroundStyle(.secondary) }
                 }
             }
@@ -144,6 +154,11 @@ struct SourceEditorView: View {
                 TextField(isWebDAV ? "HTTPS WebDAV address" : "NAS name or IP address", text: Binding(get: { host }, set: { value in
                     if host != value { clearExclusionsForChangedRoot(); shares = []; message = nil }; host = value
                 }))
+                #if os(iOS)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
                 if !isWebDAV { Toggle("Advanced", isOn: $advanced) }
                 if !isWebDAV && advanced {
                     TextField("Port (default 445)", text: Binding(get: { port }, set: { value in
@@ -155,9 +170,16 @@ struct SourceEditorView: View {
                 Toggle("Guest access", isOn: Binding(get: { guestAccess }, set: {
                     guestAccess = $0; shares = []; message = nil
                 }))
+                .accessibilityIdentifier("source-guest-access")
                 if !guestAccess {
                     TextField("Username", text: Binding(get: { username }, set: { username = $0; shares = []; message = nil }))
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    #endif
+                    .accessibilityIdentifier("source-username")
                     SecureField("Password", text: Binding(get: { password }, set: { password = $0; shares = []; message = nil }))
+                        .accessibilityIdentifier("source-password")
                 }
                 if credentialReadFailed {
                     Button("Retry loading saved password") { loadPassword() }
@@ -195,8 +217,9 @@ struct SourceEditorView: View {
                 if let deletedSourceID {
                     Button("Retry removing stored password") { removePassword(for: deletedSourceID) }
                 } else {
-                    Button("Save & scan") { validateAndSave() }.buttonStyle(.borderedProminent)
-                        .disabled(fieldsDisabled || (credentialReadFailed && !guestAccess))
+                    #if os(tvOS)
+                    saveButton.buttonStyle(.borderedProminent)
+                    #endif
                     Button("Test connection") { testConnection() }.disabled(fieldsDisabled || (credentialReadFailed && !guestAccess))
                     if source != nil {
                         Button("Remove source", role: .destructive) { confirmingDelete = true }.disabled(fieldsDisabled)
@@ -207,6 +230,14 @@ struct SourceEditorView: View {
                 }
             }
         }
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            if deletedSourceID == nil {
+                ToolbarItem(placement: .confirmationAction) { saveButton }
+            }
+        }
+        #endif
         .navigationTitle(isWebDAV ? (source == nil ? "Connect WebDAV" : "Edit WebDAV") : (source == nil ? "Add NAS" : "Edit NAS"))
         .confirmationDialog("Remove this source from MediaVault? Your NAS files will be kept.", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Remove source", role: .destructive) { delete() }
@@ -214,7 +245,13 @@ struct SourceEditorView: View {
         }
         .onAppear { if !loaded { load(); loaded = true } }
         .onDisappear { cancelRequest() }
-        .onExitCommand { if busy { cancelRequest() } else { dismiss() } }
+        .onTVExit { if busy { cancelRequest() } else { dismiss() } }
+    }
+
+    private var saveButton: some View {
+        Button("Save & scan", action: validateAndSave)
+            .disabled(fieldsDisabled || (credentialReadFailed && !guestAccess))
+            .accessibilityIdentifier("source-save-and-scan")
     }
 
     private func clearExclusionsForChangedRoot() {
@@ -428,8 +465,12 @@ struct SettingsView: View {
                 Text(appVersion).font(.caption).foregroundStyle(.secondary)
                     .focusable()
                     .accessibilityIdentifier("app-version")
-                Text("MediaVault plays MP4/M4V/MOV directly from your NAS over SMB. Other video containers require conversion to a supported container and compatible codecs.")
+                Text("Play movies, shows, music and photos from your connected sources. Format support varies by device.")
                     .font(.caption)
+                NavigationLink("Playback library & license") { PlaybackAcknowledgementsView() }
+                #if os(iOS)
+                PhonePrivacyPolicyLink()
+                #endif
                 Text("This product uses the TMDB API but is not endorsed or certified by TMDB.").font(.caption)
             }
         }

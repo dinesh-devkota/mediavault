@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalTvMaterial3Api::class)
+@file:OptIn(ExperimentalTvMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package com.dineshdevkota.cinevault.ui
 
@@ -6,6 +6,8 @@ import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,8 +35,10 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
 import com.dineshdevkota.cinevault.cloud.GoogleDriveDocuments
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.BuildConfig
+import com.dineshdevkota.cinevault.cloud.DROPBOX
 import com.dineshdevkota.cinevault.core.NasAddress
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
@@ -63,12 +67,14 @@ fun SourcesTab(movies: List<MovieEntity>) {
         contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { ScreenHeader("Sources", kicker = "YOUR NAS") }
+        item { ScreenHeader("Sources") }
         item {
-            AdaptiveActions() {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Button(onClick = { NasSetupActivity.start(context) }) { Text("Add NAS Source") }
                 OutlinedButton(onClick = { JellyfinSetupActivity.start(context) }) { Text("Connect Jellyfin") }
                 OutlinedButton(onClick = { PlexSetupActivity.start(context) }) { Text("Connect Plex") }
+                OutlinedButton(onClick = { OneDriveSetupActivity.start(context) }) { Text("Connect OneDrive") }
+                OutlinedButton(onClick = { DropboxSetupActivity.start(context) }) { Text("Connect Dropbox") }
                 if (driveAvailable) OutlinedButton(onClick = { GoogleDriveSetupActivity.start(context) }) { Text("Add Google Drive") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
@@ -88,7 +94,7 @@ fun SourcesTab(movies: List<MovieEntity>) {
             }
         }
         if (sources.isEmpty()) {
-            item { EmptyState("No NAS sources yet", "Find your NAS, sign in if needed, then choose your movie folder.") }
+            item { EmptyState("No sources yet", "Connect a source and choose a media folder or library.") }
         }
         items(sources, key = { it.id }) { source ->
             SourceRow(
@@ -100,6 +106,8 @@ fun SourcesTab(movies: List<MovieEntity>) {
                     when (source.sourceType) {
                         JELLYFIN -> JellyfinSetupActivity.start(context, source.id)
                         PLEX -> PlexSetupActivity.start(context, source.id)
+                        ONEDRIVE -> OneDriveSetupActivity.start(context, source.id)
+                        DROPBOX -> DropboxSetupActivity.start(context, source.id)
                         GOOGLE_DRIVE_DOCUMENTS -> GoogleDriveSetupActivity.start(context, source.id)
                         else -> SourceEditorActivity.start(context, source.id)
                     }
@@ -139,7 +147,9 @@ private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onSca
 }
 
 fun sourceUrl(source: SourceEntity): String {
+    if (source.sourceType == DROPBOX) return "Dropbox / ${source.rootPath}"
     if (source.sourceType == JELLYFIN || source.sourceType == PLEX) return source.host
+    if (source.sourceType == ONEDRIVE) return "OneDrive · ${source.username}"
     if (source.sourceType == GOOGLE_DRIVE_DOCUMENTS) return "Google Drive · Android file picker"
     if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"

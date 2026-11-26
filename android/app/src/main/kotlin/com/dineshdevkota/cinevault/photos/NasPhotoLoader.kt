@@ -26,6 +26,7 @@ import com.dineshdevkota.cinevault.plex.PLEX
 import com.dineshdevkota.cinevault.plex.authorizedItem
 import com.dineshdevkota.cinevault.plex.plexClient
 import com.dineshdevkota.cinevault.plex.plexItemId
+import com.dineshdevkota.cinevault.smb.FileSourceTransport
 import com.dineshdevkota.cinevault.smb.SmbService
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.hierynomus.security.bc.BCSecurityProvider
@@ -47,10 +48,11 @@ class PhotoLoadException(message: String) : Exception(message)
 
 /** Bounded image loading. Source credentials stay out of URLs and decoded images stay in memory. */
 class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
-    private val secrets: SecretBox, private val smb: SmbService = photoService(context),
+    private val secrets: SecretBox, private val smb: SmbService = photoService(),
     private val family: com.dineshdevkota.cinevault.family.FamilyStore,
     private val fixtureHttp: OkHttpClient? = null,
-    private val openFile: (SourceConfig, String) -> com.dineshdevkota.cinevault.smb.RemoteHandle = smb::open) {
+    private val openFile: (SourceConfig, String) -> com.dineshdevkota.cinevault.smb.RemoteHandle = smb::open,
+    private val openDropbox: (SourceConfig, String, () -> Unit) -> com.dineshdevkota.cinevault.smb.RemoteHandle = smb::openDropbox) {
     private val cacheDirectory = File(context.cacheDir, "nas-photos").apply {
         mkdirs()
         // Only our own temporary files can survive a killed process; no persistent photo copies.
@@ -68,10 +70,10 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
     suspend fun load(photoId: String, thumbnail: Boolean = false): Bitmap =
         loadImage(photoId, if (thumbnail) PhotoDecodePolicy.THUMBNAIL_EDGE else PhotoDecodePolicy.VIEWER_EDGE)
 
-    internal suspend fun loadArtwork(mediaId: String, width: Int, image: JellyfinImage): Bitmap =
-        loadImage(mediaId, width, image)
+    internal suspend fun loadArtwork(mediaId: String, width: Int, image: JellyfinImage, season: Boolean = false): Bitmap =
+        loadImage(mediaId, width, image, season)
 
-    private suspend fun loadImage(photoId: String, edge: Int, artwork: JellyfinImage? = null): Bitmap = withContext(Dispatchers.IO) {
+    private suspend fun loadImage(photoId: String, edge: Int, artwork: JellyfinImage? = null, season: Boolean = false): Bitmap = withContext(Dispatchers.IO) {
         val session = family.current
         slots.withPermit {
             currentCoroutineContext().ensureActive()
@@ -83,9 +85,17 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                 PLEX -> plexItemId(photo.filePath).takeIf { artwork != null || photo.isPhoto }
                 else -> null
             }
-            val config = source.takeIf { it.sourceType != JELLYFIN && it.sourceType != PLEX && artwork == null }?.config(secrets)
+            val localArtwork = if (source.sourceType !in setOf(JELLYFIN, PLEX) && artwork != null) when (artwork) {
+                JellyfinImage.Backdrop -> photo.localBackdropPath ?: photo.localPosterPath
+                else -> if (season) photo.localSeasonPosterPath ?: photo.localPosterPath else photo.localPosterPath
+            } else null
+            val remotePath = localArtwork ?: photo.filePath
+            val config = source.takeIf { it.sourceType !in setOf(JELLYFIN, PLEX) && (artwork == null || localArtwork != null) }?.config(secrets)
             fun validateItem(item: MovieEntity) {
-                if (config != null) validate(item, config)
+                if (config != null && localArtwork != null) {
+                    if (item.isMissing || item.isHidden || !source.includesFile(item.filePath) || !source.includesFile(localArtwork) ||
+                        localArtwork !in listOf(item.localPosterPath, item.localBackdropPath, item.localSeasonPosterPath)) throw PhotoLoadException("This artwork is unavailable.")
+                } else if (config != null) validate(item, config)
                 else if (providerItem == null || item.isMissing || item.isHidden) {
                     throw PhotoLoadException("This image is unavailable.")
                 }
@@ -95,7 +105,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             }
             validateItem(photo)
             // Source changes and completed rescans invalidate decoded content.
-            val key = CacheKey(photo.id, photo.filePath, source, photo.fileSize, edge, artwork)
+            val key = CacheKey(photo.id, remotePath, source, photo.fileSize, edge, artwork)
             cache.get(key)?.let {
                 authorize(photo)
                 return@withPermit it
@@ -144,7 +154,13 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                             body.byteStream().use { copy(it, body.contentLength()) }
                         }
                     } else {
-                        openFile(checkNotNull(config), photo.filePath).use { remote ->
+                        val fileConfig = checkNotNull(config)
+                        val handle = if (fileConfig.isDropbox) {
+                            openDropbox(fileConfig, remotePath) { authorize(photo) }
+                        } else {
+                            openFile(fileConfig, remotePath)
+                        }
+                        handle.use { remote ->
                             authorize(photo)
                             remote.stream(0).use { copy(it, remote.length) }
                         }
@@ -195,7 +211,7 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             }
             return
         }
-        if (config.isWebDav) {
+        if (config.caseSensitivePaths) {
             if (!com.dineshdevkota.cinevault.webdav.DavAddress.contains(photo.filePath, config.rootPath) ||
                 !MediaFile.shouldIndex(photo.filePath, photo.fileSize) ||
                 ScanExclusions.isFileExcluded(photo.filePath, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = true)) {
@@ -256,10 +272,10 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
 
     companion object {
         /** Short photo timeouts never interrupt or reset the separate playback connection cache. */
-        private fun photoService(context: Context): SmbService = SmbService(SMBClient(SmbConfig.builder()
+        internal fun photoService(fileSources: Map<String, FileSourceTransport> = emptyMap()): SmbService =
+            SmbService(SMBClient(SmbConfig.builder()
             .withSecurityProvider(BCSecurityProvider()).withTimeout(8, TimeUnit.SECONDS)
-            .withSoTimeout(10, TimeUnit.SECONDS).withReadBufferSize(64 * 1024).build()),
-            driveDocuments = com.dineshdevkota.cinevault.cloud.GoogleDriveDocuments(context))
+            .withSoTimeout(10, TimeUnit.SECONDS).withReadBufferSize(64 * 1024).build()), fileSources)
 
         fun describe(error: Throwable): String = when (error) {
             is PhotoLoadException -> error.message.orEmpty()

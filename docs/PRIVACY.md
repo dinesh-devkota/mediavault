@@ -6,13 +6,13 @@ versions may behave differently.
 ## Your library and playback
 
 MediaVault connects directly to the SMB shares and HTTPS WebDAV sources you configure. Library entries,
-watched status, resume positions, and playback usage are stored locally on your device.
+watched status, resume positions, personal collections, and playback usage are stored locally on your device.
 The official commercial version also stores local playback allowance information.
 MediaVault does not operate a user-account service or send your viewing history or
 playback time to developer-operated servers. Profiles and history do not sync
 between devices.
 
-SMB and WebDAV passwords and the optional TMDB and SubDL API credentials use the Keychain on Apple TV.
+SMB and WebDAV passwords and the optional TMDB and SubDL API credentials use the Keychain on Apple devices.
 On Android, they are encrypted with a key held in the Android Keystore.
 The device reads media directly from your configured source for playback. MediaVault does not upload your media.
 A WebDAV connection sends your configured credentials and media paths to your WebDAV server over HTTPS.
@@ -32,7 +32,7 @@ own resume positions and Watchlist separate for each household profile.
 Household profiles are local to this installation. Names, allowed folders and
 rating restrictions are stored on the device. PINs are verified using salted,
 derived values; plaintext PINs are not stored. Profile permissions and PIN verifiers
-use protected local storage: Keychain on Apple TV and Keystore-backed encryption
+use protected local storage: Keychain on Apple devices and Keystore-backed encryption
 on Android. Failed-attempt delays survive app restarts.
 
 Each viewer has separate local watched status, resume positions and Watchlist.
@@ -41,7 +41,7 @@ commercial playback allowances or purchases. Viewer access rules hide restricted
 library content and apply to media access within MediaVault; they do not change
 NAS permissions or restrict other apps on the device.
 
-When an age limit is selected, MediaVault uses US movie or series certifications from TMDB and
+When an age limit is selected, MediaVault uses US movie or series certifications from local NFO files or TMDB and
 keeps unknown or unrated video hidden. Photos and audio use folder permissions.
 Ratings lookup uses the optional TMDB connection described below. No household
 profile names or PINs are sent to TMDB.
@@ -58,6 +58,17 @@ These requests disclose your network address to those services. TMDB's own
 [privacy policy](https://www.themoviedb.org/privacy-policy) governs its processing.
 You can use your NAS library without configuring TMDB.
 Photo files are read from your NAS for display and are not sent to TMDB for matching.
+
+Local NFO/XML metadata and artwork are read from the source folders you allow.
+MediaVault does not upload these files, rewrite them, or follow remote links
+contained in them. These details work without a TMDB connection. Personal
+collections are stored separately for each local household profile and do not
+sync to a server or another installation.
+
+Additional Apple playback formats use a bundled VideoLAN library. It receives
+a temporary address on the device for the authorized file, rather than NAS
+credentials. Its streaming access ends when playback is stopped or the profile
+loses access. The playback library does not require a VideoLAN account.
 
 ## Optional subtitles
 

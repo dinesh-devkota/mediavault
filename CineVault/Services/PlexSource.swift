@@ -62,7 +62,7 @@ enum PlexSourceError: LocalizedError {
         case .serverUnavailable: return "MediaVault could not verify a direct HTTPS connection to this Plex server."
         case .linkExpired: return "This Plex link code expired. Request a new code."
         case .selectionUnavailable: return "The linked account does not have access to this Plex library."
-        case .unsupportedVideo: return "Plex did not offer a compatible direct-play file for this Apple TV."
+        case .unsupportedVideo: return "Plex did not offer a compatible direct-play file for this device."
         }
     }
 }

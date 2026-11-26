@@ -33,6 +33,8 @@ final class MediaSource {
     var isWebDAV: Bool { sourceProtocol == "webdav" }
     var isJellyfin: Bool { sourceProtocol == "jellyfin" }
     var isPlex: Bool { sourceProtocol == "plex" }
+    var cloudFileProvider: CloudFileProvider? { sourceProtocol.flatMap(CloudFileProvider.init(rawValue:)) }
+    var caseSensitivePaths: Bool { isWebDAV || isJellyfin || cloudFileProvider != nil }
 
     private var passwordAccount: String { "source-\(id.uuidString)" }
 
@@ -46,15 +48,15 @@ final class MediaSource {
 
     func config() throws -> SourceConfig {
         var secret = ""
-        if !username.isEmpty { secret = try password() }
+        if cloudFileProvider == nil, !username.isEmpty { secret = try password() }
         return SourceConfig(id: id, host: host, port: port, share: share, rootPath: rootPath,
                             username: username, password: secret, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [],
-                            isWebDAV: isWebDAV, isJellyfin: isJellyfin, isPlex: isPlex)
+                            isWebDAV: isWebDAV, isJellyfin: isJellyfin, isPlex: isPlex, cloudFileProvider: cloudFileProvider)
     }
 
     func isIgnored(filePath: String) -> Bool {
         ScanExclusions.isFileExcluded(path: filePath, rootPath: rootPath,
-                                      ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [], caseSensitive: isWebDAV)
+                                      ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [], caseSensitive: caseSensitivePaths)
     }
 
     /// Keep records and playback history; a later scan restores files that are no longer ignored.
@@ -63,11 +65,11 @@ final class MediaSource {
             var normalized: [String] = []
             var seen: Set<Data> = []
             for path in paths {
-                let candidate = isWebDAV
+                let candidate = caseSensitivePaths
                     ? (WebDAVAddress.contains(path, within: "") ? path : nil)
                     : (folder ? ScanExclusions.normalizeFolder(path: path) : ScanExclusions.normalizeFile(path: path))
                 guard let value = candidate else { throw IgnoredFolderError.invalidPath }
-                if seen.insert(Data((isWebDAV ? value : value.lowercased()).utf8)).inserted { normalized.append(value) }
+                if seen.insert(Data((caseSensitivePaths ? value : value.lowercased()).utf8)).inserted { normalized.append(value) }
             }
             return normalized
         }
@@ -100,32 +102,36 @@ struct SourceConfig: Sendable, Hashable {
     let isWebDAV: Bool
     let isJellyfin: Bool
     let isPlex: Bool
+    let cloudFileProvider: CloudFileProvider?
+    var caseSensitivePaths: Bool { isWebDAV || isJellyfin || cloudFileProvider != nil }
 
     init(id: UUID, host: String, port: Int? = nil, share: String, rootPath: String,
          username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = [],
-         isWebDAV: Bool = false, isJellyfin: Bool = false, isPlex: Bool = false) {
+         isWebDAV: Bool = false, isJellyfin: Bool = false, isPlex: Bool = false, cloudFileProvider: CloudFileProvider? = nil) {
         self.id = id; self.host = host; self.port = port; self.share = share; self.rootPath = rootPath
         self.username = username; self.password = password; self.ignoredFolders = ignoredFolders
-        self.ignoredFiles = ignoredFiles; self.isWebDAV = isWebDAV; self.isJellyfin = isJellyfin; self.isPlex = isPlex
+        self.ignoredFiles = ignoredFiles; self.isWebDAV = isWebDAV; self.isJellyfin = isJellyfin
+        self.isPlex = isPlex
+        self.cloudFileProvider = cloudFileProvider
     }
 
     func excludesDirectory(_ path: String) -> Bool {
-        ScanExclusions.isDirectoryExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, caseSensitive: isWebDAV)
+        ScanExclusions.isDirectoryExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, caseSensitive: caseSensitivePaths)
     }
 
     func excludesFile(_ path: String) -> Bool {
-        ScanExclusions.isFileExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles, caseSensitive: isWebDAV)
+        ScanExclusions.isFileExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles, caseSensitive: caseSensitivePaths)
     }
 
     var serverURL: URL? {
-        (isJellyfin || isPlex) ? nil : (try? NASAddress.parse(host, port: port))?.serverURL
+        (isJellyfin || isPlex || cloudFileProvider != nil) ? nil : (try? NASAddress.parse(host, port: port))?.serverURL
     }
 }
 
 @Model
 final class Movie {
     var mediaKind: MediaKind {
-        MediaFile.kind(path: filePath, genres: genres, matched: metadataFetched && tmdbID != nil,
+        MediaFile.kind(path: filePath, genres: genres, matched: localMetadataImported == true || (metadataFetched && tmdbID != nil),
                        isEpisode: episodeInfo != nil)
     }
     var episodeInfo: EpisodeInfo? {
@@ -165,6 +171,17 @@ final class Movie {
     var seasonPosterPath: String?
     var posterPath: String?
     var backdropPath: String?
+    /// Safe source-relative paths, independent from online artwork identifiers.
+    var localPosterPath: String?
+    var localBackdropPath: String?
+    var localSeasonPosterPath: String?
+    var localMetadataImported: Bool?
+    var localMetadataFields: [String]?
+    var localMetadataSignature: Data?
+    var localEdition: String?
+    var collectionID: Int?
+    var collectionName: String?
+    var collectionLookupComplete: Bool?
     var genres: [String] = []
     var runtimeMinutes: Int?
     var rating: Double?
@@ -226,6 +243,16 @@ final class Movie {
         tagline = nil
         posterPath = nil
         backdropPath = nil
+        localPosterPath = nil
+        localBackdropPath = nil
+        localSeasonPosterPath = nil
+        localMetadataImported = nil
+        localMetadataFields = nil
+        localMetadataSignature = nil
+        localEdition = nil
+        collectionID = nil
+        collectionName = nil
+        collectionLookupComplete = nil
         genres = []
         runtimeMinutes = nil
         rating = nil

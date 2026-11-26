@@ -2,9 +2,22 @@
 
 Add one parent NAS folder to build your Movies, Documentaries, TV Shows, Music, and Photos library. See the [media setup and naming guide](docs/MEDIA-GUIDE.md) for folder examples, photo albums, free personal TMDB setup, and playback help. Updates preserve your saved library, NAS credentials, and playback history.
 
-A personal media library for **Apple TV and Android TV** that plays movies,
-shows and music and displays photo albums directly from a NAS over SMB.
-Built with SwiftUI on tvOS and Compose for TV on Android.
+A personal media library for **Apple TV, iPhone, Android TV, and Android phones**
+that plays movies, shows and music and displays photo albums from SMB, HTTPS
+WebDAV, Jellyfin, Plex, and personal OneDrive sources. Built with SwiftUI on Apple devices and Compose
+on Android, with remote controls on TVs and touch navigation on phones.
+
+The **1.5.0, build 7** feature branch adds local NFO/XML details and artwork,
+personal collections, automatic movie series, and grouped movie versions across
+all four platforms. Apple playback gains an additional VideoLAN engine for
+formats such as MKV, AVI, and WebM. See the [organization guide](docs/MEDIA-GUIDE.md#use-local-artwork-and-details)
+and [playback implementation and limits](docs/PLAYBACK-ENGINE.md). Build and
+device validation status is recorded in the [handoff](dist/AGENT-HANDOFF.md).
+
+Plex setup uses an on-screen link code, then lets you choose a server and library.
+Server artwork and age ratings stay with imported titles. Apple Plex playback
+currently requires compatible MP4/M4V/MOV files; transcoding and Relay-only
+connections remain unsupported. See [Plex setup](docs/MEDIA-GUIDE.md#connect-a-plex-library).
 
 The Library remembers your last section when you return or reopen the app.
 Find the installed version and build in **Settings**.
@@ -59,7 +72,7 @@ device and NAS validation has not yet been completed.
 
 ### Format support
 
-For video on Apple TV, MediaVault checks MP4, M4V, and MOV files with the native player before playback. The codecs inside the file must also work on the device. The [Media Guide](docs/MEDIA-GUIDE.md#check-the-scan-and-playback) lists the supported video and audio formats on each platform and explains how the scanner distinguishes MPEG-TS recordings from TypeScript files. Photos are grouped into albums by NAS source and folder; JPEG, PNG, WebP, HEIC, and HEIF viewing depends on the device's image decoder.
+Apple TV and iPhone use native playback where possible and VideoLAN playback for additional direct-file formats. Android TV and phones use Media3 with device decoders. A recognized container does not guarantee every codec or encoding will play. The [Media Guide](docs/MEDIA-GUIDE.md#check-the-scan-and-playback) lists candidates and explains how MPEG-TS recordings are distinguished from TypeScript files. Photos are grouped by source and folder; JPEG, PNG, WebP, HEIC, and HEIF viewing depends on the device's image decoder.
 
 ## Screenshots
 

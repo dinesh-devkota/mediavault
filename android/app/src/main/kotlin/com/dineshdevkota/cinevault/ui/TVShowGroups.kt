@@ -29,7 +29,7 @@ internal fun collectionItems(movies: List<MovieEntity>, limit: Int = Int.MAX_VAL
     return buildList<CollectionItem>(minOf(movies.size, limit)) {
         for (movie in movies) {
             val show = showByEpisode[movie.id]
-            if (show == null) add(CollectionItem.Movie(movie))
+            if (show == null) { if (emitted.add(com.dineshdevkota.cinevault.library.movieVersionKey(movie))) add(CollectionItem.Movie(movie)) }
             else if (emitted.add(show.id)) add(CollectionItem.Show(show))
             if (size == limit) break
         }

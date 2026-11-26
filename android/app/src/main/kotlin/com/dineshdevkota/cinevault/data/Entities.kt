@@ -6,6 +6,9 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
+import com.dineshdevkota.cinevault.cloud.DriveDocumentPath
+import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.core.LibraryEntry
 import com.dineshdevkota.cinevault.core.EpisodeInfo
 import com.dineshdevkota.cinevault.core.EpisodeParser
@@ -40,10 +43,8 @@ data class SourceEntity(
     @ColumnInfo(defaultValue = "0") val allowInsecureHttp: Boolean = false,
 ) {
     fun includesFile(filePath: String): Boolean {
-        if (sourceType == com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS) {
-            return com.dineshdevkota.cinevault.cloud.DriveDocumentPath.fileID(filePath) != null
-        }
-        if (sourceType == "webdav") {
+        if (sourceType == GOOGLE_DRIVE_DOCUMENTS) return DriveDocumentPath.fileID(filePath) != null
+        if (sourceType == "webdav" || sourceType == ONEDRIVE) {
             return com.dineshdevkota.cinevault.webdav.DavAddress.contains(filePath, rootPath) &&
                 !ScanExclusions.isFileExcluded(filePath, rootPath, ignoredFolders, ignoredFiles, caseSensitive = true)
         }
@@ -61,7 +62,7 @@ data class SourceEntity(
         share = share,
         rootPath = rootPath,
         username = username,
-        password = if (username.isEmpty()) "" else secrets.decrypt(encryptedPassword),
+        password = if (username.isEmpty() || sourceType == ONEDRIVE) "" else secrets.decrypt(encryptedPassword),
         ignoredFolders = ignoredFolders,
         ignoredFiles = ignoredFiles,
         sourceType = sourceType, allowInsecureHttp = allowInsecureHttp,
@@ -101,6 +102,14 @@ data class MovieEntity(
     val seasonPosterPath: String? = null,
     val posterPath: String? = null,
     val backdropPath: String? = null,
+    val localPosterPath: String? = null,
+    val localMetadataJson: String? = null,
+    val edition: String? = null,
+    val localBackdropPath: String? = null,
+    val localSeasonPosterPath: String? = null,
+    @ColumnInfo(defaultValue = "0") val hasLocalMetadata: Boolean = false,
+    val franchiseId: Int? = null,
+    val franchiseName: String? = null,
     override val genres: List<String> = emptyList(),
     val runtimeMinutes: Int? = null,
     override val rating: Double? = null,
@@ -131,7 +140,7 @@ data class MovieEntity(
         }
 
     val mediaKind: MediaKind
-        get() = MediaFile.kind(filePath, genres, matched = metadataFetched && tmdbId != null, isEpisode = episodeInfo != null)
+        get() = MediaFile.kind(filePath, genres, matched = hasLocalMetadata || (metadataFetched && tmdbId != null), isEpisode = episodeInfo != null)
 
     val seriesKey: String?
         get() {

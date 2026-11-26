@@ -76,17 +76,23 @@ PY
 
 status=0
 WEBDAV_CERTIFICATE=$(openssl base64 -A -in "$RUNNER_TEMP/android-webdav-fixture/fixture.cer")
+DROPBOX_CERTIFICATE=$(openssl base64 -A -in "$RUNNER_TEMP/android-dropbox-fixture/fixture.cer")
 # AGP normally uninstalls the app after instrumentation. Keep this disposable
 # installation for the explicit reset between phases and screenshot export.
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
+  -Pandroid.testInstrumentationRunnerArguments.libraryUiFixture=true \
   "-Pandroid.testInstrumentationRunnerArguments.jellyfinCertificate=$JELLYFIN_CERTIFICATE" \
   "-Pandroid.testInstrumentationRunnerArguments.webDavCertificate=$WEBDAV_CERTIFICATE" \
+  "-Pandroid.testInstrumentationRunnerArguments.dropboxCertificate=$DROPBOX_CERTIFICATE" \
   "-Pandroid.testInstrumentationRunnerArguments.plexCertificate=$PLEX_CERTIFICATE" \
   "-Pandroid.testInstrumentationRunnerArguments.notClass=$FAMILY_TEST,$PHONE_TEST" || status=$?
+adb -s "$SERIAL" pull "/sdcard/Android/data/$APP_ID/files/test-artifacts" "$RESULTS/library-screenshots" || true
 archive_results baseline
 if [[ "$status" != "0" ]]; then exit "$status"; fi
+test -s "$RESULTS/library-screenshots/library-version-picker-tv.png"
+test -s "$RESULTS/library-screenshots/library-custom-collection-tv.png"
 
 # The baseline suite uses shared synthetic app data. The household journey starts
 # from an empty app and checks that condition itself before creating any profile.

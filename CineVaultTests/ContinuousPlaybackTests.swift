@@ -87,17 +87,32 @@ final class ContinuousPlaybackTests: XCTestCase {
         XCTAssertNil(flow.next)
     }
 
-    func testSubtitleSheetDisappearanceKeepsPlaybackAliveButExitStopsIt() throws {
-        for reason in ["subtitle sheet", "actual disappearance", "explicit close"] {
+    func testPlaybackOptionsDisappearanceKeepsPlaybackAliveButExitStopsIt() throws {
+        for reason in ["subtitle sheet", "audio sheet", "actual disappearance", "explicit close"] {
             let items = episodes(), controller = try controller(items[0])
             let flow = ContinuousPlayback(controller: controller, services: PlaybackServices(), defaults: defaults, library: { items })
-            controller.subtitles.presented = reason != "actual disappearance"
+            controller.subtitles.presented = reason == "subtitle sheet" || reason == "explicit close"
+            controller.audioSelectionPresented = reason == "audio sheet"
             if reason == "explicit close" { flow.stop() }
             else { flow.viewDisappeared() }
             end(controller)
-            XCTAssertEqual(controller.didEndNaturally, reason == "subtitle sheet", reason)
+            XCTAssertEqual(controller.didEndNaturally, reason == "subtitle sheet" || reason == "audio sheet", reason)
             flow.stop()
         }
+    }
+
+    func testAudioPickerSuppressesNextEpisodeUntilItCloses() throws {
+        defaults.set(true, forKey: ContinuousPlayback.enabledKey)
+        let items = episodes(), controller = try controller(items[0])
+        let flow = ContinuousPlayback(controller: controller, services: PlaybackServices(), defaults: defaults, library: { items })
+        defer { flow.stop() }
+        controller.audioSelectionPresented = true
+        end(controller); flow.offerNext(startTimer: false)
+        XCTAssertNil(flow.next)
+        flow.viewDisappeared()
+        controller.audioSelectionPresented = false
+        flow.offerNext(startTimer: false)
+        XCTAssertEqual(flow.next?.movie.id, items[1].id)
     }
 
     func testLaunchRevalidatesMissingAndIgnoredNextEpisode() throws {

@@ -68,6 +68,7 @@ struct BulkWatchSheet: View {
     @EnvironmentObject private var playbackServices: PlaybackServices
     @State private var selected: Set<UUID>
     @State private var error: String?
+    @State private var addingToCollection = false
     @FocusState private var focus: String?
 
     init(movieIDs: [UUID], scope: String, startsSelected: Bool, groupShows: Bool,
@@ -111,7 +112,7 @@ struct BulkWatchSheet: View {
         VStack(alignment: .leading, spacing: 22) {
             HStack {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Watched status").font(.largeTitle.bold())
+                    Text("Selected titles").font(.largeTitle.bold())
                     Text(scope).font(.title3).foregroundStyle(CinemaTheme.secondaryText)
                 }
                 Spacer()
@@ -120,12 +121,14 @@ struct BulkWatchSheet: View {
             }
             Text("\(selectedMovies.count) of \(available.count) files selected")
                 .accessibilityIdentifier("bulk-watch-count")
-            HStack(spacing: 24) {
+            CinemaTheme.actionLayout {
                 Button("Select all results") { selected = Set(available.map(\.id)) }
                     .disabled(available.isEmpty).focused($focus, equals: "all")
                     .accessibilityIdentifier("bulk-watch-all")
                 Button("Clear") { selected.removeAll() }.disabled(selected.isEmpty)
                     .focused($focus, equals: "clear")
+                Button("Add to collection") { addingToCollection = true }
+                    .disabled(!selectedMovies.contains(where: { LibraryCollectionsStore.available($0) })).accessibilityIdentifier("bulk-add-collection")
                 Button("Mark watched (\(selectedMovies.count))") { apply(watched: true) }
                     .disabled(selectedMovies.isEmpty).focused($focus, equals: "watched")
                     .accessibilityIdentifier("bulk-watch-watched")
@@ -155,14 +158,14 @@ struct BulkWatchSheet: View {
                         .accessibilityIdentifier("bulk-watch-row-\(row.id)")
                         .accessibilityValue(row.ids.isSubset(of: selected) ? "Selected" : "Not selected")
                         .accessibilityAddTraits(row.ids.isSubset(of: selected) ? .isSelected : [])
-                        .onMoveCommand { direction in
+                        .onTVMove { direction in
                             if direction == .right && !selectedMovies.isEmpty { focus = "watched" }
                         }
                     }
                 }.padding(18)
             }
         }
-        .padding(48)
+        .padding(CinemaTheme.featuredInset)
         .frame(maxWidth: 1550)
         .task {
             await Task.yield()
@@ -175,7 +178,8 @@ struct BulkWatchSheet: View {
             if let focus, focus != "done", !["all", "clear", "watched", "unwatched"].contains(focus),
                !rows.contains(where: { $0.id == focus }) { self.focus = "done" }
         }
-        .onExitCommand { dismiss() }
+        .onTVExit { dismiss() }
+        .sheet(isPresented: $addingToCollection) { CollectionPickerSheet(movieIDs: selectedMovies.map(\.id)) }
     }
 
     private func toggle(_ row: Row) {

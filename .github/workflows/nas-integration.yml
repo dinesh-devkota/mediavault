@@ -16,15 +16,21 @@ permissions:
 
 concurrency:
   group: nas-integration-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep the active simulator's evidence; newer commits replace only queued runs.
+  cancel-in-progress: false
 
 jobs:
   nas-integration:
     name: ${{ inputs.ui_only && 'Test Apple TV remote navigation' || 'Test SMB on Apple TV simulator' }}
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Cache pinned Apple playback dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/apple-packages
+          key: apple-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('project.yml', 'project.ios.yml') }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -58,10 +64,14 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -project CineVault.xcodeproj -scheme CineVault \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
             -destination 'id=${{ steps.simulator.outputs.device }}' \
             -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-tests" \
-            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing | tail -n 160
-      - name: Test against local SMB, WebDAV, Jellyfin, and Plex fixtures
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing 2>&1 | tee "$RUNNER_TEMP/tvos-build.log" | tail -n 160
+      - name: Report compiler errors
+        if: failure()
+        run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/tvos-build.log" || true
+      - name: Test against local SMB, WebDAV, Jellyfin, Plex, and Dropbox fixtures
         env:
           UI_ONLY: ${{ inputs.ui_only || false }}
         run: |
@@ -79,6 +89,9 @@ jobs:
           bash scripts/start_plex_fixture.sh "$RUNNER_TEMP/plex-fixture"
           PLEX_PID=$(cat "$RUNNER_TEMP/plex-fixture/server.pid")
           trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$PLEX_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_dropbox_fixture.sh "$RUNNER_TEMP/dropbox-fixture"
+          DROPBOX_PID=$(cat "$RUNNER_TEMP/dropbox-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$PLEX_PID" "$DROPBOX_PID" 2>/dev/null || true' EXIT
           for attempt in {1..30}; do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               cat "$RUNNER_TEMP/nas-fixture.log" >&2
@@ -98,9 +111,11 @@ jobs:
           # Install the ephemeral fixture's trust anchor only on this simulator.
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
           xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/plex-fixture/fixture.cer"
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/dropbox-fixture/fixture.cer"
           # Bash 3.2 treats an empty array as unset under nounset. Keep the full
           # invocation nonempty, then append the optional focused-test filters.
           TEST_ARGS=(-project CineVault.xcodeproj -scheme CineVault
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages"
             -destination "id=$DEVICE" -configuration Debug
             -derivedDataPath "$RUNNER_TEMP/cinevault-tests"
             -resultBundlePath "$RUNNER_TEMP/nas-results.xcresult"
@@ -108,7 +123,7 @@ jobs:
           if [[ "$UI_ONLY" == "true" ]]; then
             TEST_ARGS+=(-only-testing:CineVaultUITests -only-testing:CineVaultTests/HomeCollectionTests)
           fi
-          xcodebuild "${TEST_ARGS[@]}" test-without-building | tail -n 200
+          xcodebuild "${TEST_ARGS[@]}" test-without-building 2>&1 | tee "$RUNNER_TEMP/tvos-tests.log" | tail -n 200
       - name: Report simulator test results
         if: always()
         env:
@@ -120,12 +135,35 @@ jobs:
             exit 1
           fi
           xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/nas-results.xcresult" > "$RUNNER_TEMP/nas-summary.json"
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/nas-results.xcresult" > "$RUNNER_TEMP/nas-tests.json"
           if [[ "$UI_ONLY" == "true" ]]; then
             python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json"
           else
-            xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/nas-results.xcresult" > "$RUNNER_TEMP/nas-tests.json"
             python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json" --require-suite "$RUNNER_TEMP/nas-tests.json" PlexFixtureTests
+            python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json" --require-suite "$RUNNER_TEMP/nas-tests.json" OneDriveClientTests
+            python3 scripts/report_xcresult.py "$RUNNER_TEMP/nas-summary.json" --require-suite "$RUNNER_TEMP/nas-tests.json" CloudFileTransportTests
           fi
+          python3 - "$RUNNER_TEMP/nas-tests.json" <<'PY'
+          import json, os, sys
+          def passed(nodes):
+              for node in nodes:
+                  if node.get("result") == "Passed":
+                      yield node.get("name", "").removesuffix("()")
+                  yield from passed(node.get("children", []))
+          with open(sys.argv[1]) as source:
+              tests = set(passed(json.load(source)["testNodes"]))
+          required = {"testCreateEditCollectionAndChooseAlternateVersion",
+                      "testMKVRemotePlaybackSeekingSubtitlesAndAudioKeepSession"}
+          if os.environ["UI_ONLY"] != "true":
+              required |= {"testCommonContainersDecodeAndSeekOverGuardedSMB",
+                           "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey",
+                           "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek",
+                           "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot"}
+          missing = sorted(required - tests)
+          if missing:
+              sys.exit("Required Apple TV fixture cases did not pass: " + ", ".join(missing))
+          print("Required Apple TV fixture cases passed.")
+          PY
       - name: Export remote test screenshots
         if: always()
         run: |
@@ -148,9 +186,12 @@ jobs:
           name: nas-integration-diagnostics
           path: |
             ${{ runner.temp }}/nas-fixture.log
+            ${{ runner.temp }}/tvos-build.log
+            ${{ runner.temp }}/tvos-tests.log
             ${{ runner.temp }}/jellyfin-fixture/server.log
             ${{ runner.temp }}/webdav-fixture/server.log
             ${{ runner.temp }}/plex-fixture/server.log
+            ${{ runner.temp }}/dropbox-fixture/server.log
             ${{ runner.temp }}/nas-results.xcresult
           if-no-files-found: warn
           retention-days: 7

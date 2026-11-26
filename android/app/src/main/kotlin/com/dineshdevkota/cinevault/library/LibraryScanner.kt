@@ -35,6 +35,7 @@ class LibraryScanner(
     private val scanVideos: suspend (SourceConfig) -> List<RemoteFile>,
     /** Runs after a successful scan (metadata matching); returns a failure message to append, if any. */
     var afterScan: (suspend () -> String?)? = null,
+    private val importLocalMetadata: (suspend (String) -> Unit)? = null,
     private val scanWithProgress: (suspend (SourceConfig, suspend (ScanProgress) -> Unit) -> List<RemoteFile>)? = null,
 ) {
     private val mutex = Mutex()
@@ -104,7 +105,8 @@ class LibraryScanner(
                     }
                 }
                 foundPaths.addAll(allowed.map { it.path })
-                statusFlow.value = "Scanning ${source.name}: ${foundPaths.size} items in ${progress.folders} folders…"
+                val discovered = if (config.isDropbox) progress.found else foundPaths.size
+                statusFlow.value = "Scanning ${source.name}: $discovered items in ${progress.folders} folders…"
             }
             val files = scanned.filter { MediaFile.shouldIndex(displayPath(config, it), it.size) &&
                 !ScanExclusions.isFileExcluded(it.path, config.rootPath, config.ignoredFolders, config.ignoredFiles, caseSensitive = config.caseSensitivePaths) }
@@ -136,6 +138,7 @@ class LibraryScanner(
             val scanStatus = "${source.name}: ${files.size} items ($added new). Updating categories and artwork…"
             statusFlow.value = scanStatus
             try {
+                importLocalMetadata?.invoke(source.id)
                 val metadataFailure = afterScan?.invoke()
                 val currentCounts = movies.forSource(source.id).filter { !it.isMissing }.groupingBy { it.mediaKind }.eachCount()
                 val complete = "${source.name}: ${currentCounts[MediaKind.MOVIE] ?: 0} movies, ${currentCounts[MediaKind.DOCUMENTARY] ?: 0} documentaries, ${currentCounts[MediaKind.TV_SHOW] ?: 0} TV episodes, ${currentCounts[MediaKind.MUSIC] ?: 0} music items, ${currentCounts[MediaKind.PHOTO] ?: 0} photos ($added new)"

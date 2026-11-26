@@ -9,6 +9,8 @@ import android.provider.DocumentsContract.Document
 import com.dineshdevkota.cinevault.core.MediaFile
 import com.dineshdevkota.cinevault.core.RemoteFile
 import com.dineshdevkota.cinevault.core.SubtitleSidecars
+import com.dineshdevkota.cinevault.smb.FileSourceTransport
+import com.dineshdevkota.cinevault.smb.NasEntry
 import com.dineshdevkota.cinevault.smb.RemoteHandle
 import com.dineshdevkota.cinevault.smb.ScanProgress
 import com.dineshdevkota.cinevault.smb.SourceConfig
@@ -59,7 +61,7 @@ internal object DriveDocumentPath {
         return "$parent/$token~$name"
     }
 
-    private fun parts(path: String): List<Pair<String, String>>? {
+    fun parts(path: String): List<Pair<String, String>>? {
         if (!path.startsWith("$ROOT/")) return null
         return path.removePrefix("$ROOT/").split('/').map { component ->
             val token = component.substringBefore('~')
@@ -98,8 +100,40 @@ internal interface DriveDocumentAccess {
 class GoogleDriveDocuments internal constructor(
     private val access: DriveDocumentAccess,
     private val authority: String,
-) {
+) : FileSourceTransport {
     constructor(context: Context) : this(AndroidDriveDocumentAccess(context.contentResolver), GOOGLE_DRIVE_AUTHORITY)
+
+    override suspend fun listEntries(config: SourceConfig): List<NasEntry> = runInterruptible(Dispatchers.IO) {
+        val grant = DriveDocumentGrant.decode(config.password)
+        val atRoot = config.rootPath.isEmpty() || config.rootPath == DriveDocumentPath.ROOT
+        val entries = if (grant.tree == null) {
+            if (!atRoot) throw GoogleDriveDocumentsException("Choose a Google Drive folder to browse its contents.")
+            checkedEntries(grant).map { it.second }.filterNot { it.folder }
+        } else {
+            val chain = if (atRoot) emptyList() else DriveDocumentPath.parts(config.rootPath)
+                ?: throw GoogleDriveDocumentsException("This Google Drive folder is invalid.")
+            val (tree, root) = checkedEntries(grant).single()
+            var parent = root.id
+            for ((id, name) in chain) {
+                val children = access.children(DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent))
+                if (children.none { it.folder && it.id == id && it.name == name && !MediaFile.shouldSkipDirectory(name) }) {
+                    throw GoogleDriveDocumentsException("This folder is outside the selected Google Drive folder.")
+                }
+                parent = id
+            }
+            access.children(DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent))
+        }
+        entries.filter { DavAddress.safeComponent(it.name) && (!it.folder || !MediaFile.shouldSkipDirectory(it.name)) }
+            .map { NasEntry(it.name, it.folder) }
+            .distinct()
+            .sortedWith(compareByDescending<NasEntry> { it.isDirectory }.thenBy { it.name })
+    }
+
+    override suspend fun testConnection(config: SourceConfig) {
+        runInterruptible(Dispatchers.IO) { verify(DriveDocumentGrant.decode(config.password)) }
+    }
+
+    override suspend fun reset(sourceId: String) = Unit
 
     internal fun verify(grant: DriveDocumentGrant): String {
         val entries = checkedEntries(grant)
@@ -116,7 +150,7 @@ class GoogleDriveDocuments internal constructor(
         return "Google Drive selection"
     }
 
-    internal suspend fun scan(config: SourceConfig, onProgress: suspend (ScanProgress) -> Unit): List<RemoteFile> {
+    override suspend fun scan(config: SourceConfig, onProgress: suspend (ScanProgress) -> Unit): List<RemoteFile> {
         val grant = DriveDocumentGrant.decode(config.password)
         val roots = runInterruptible(Dispatchers.IO) { checkedEntries(grant) }
         val pending = ArrayDeque<Pair<String, String>>()
@@ -160,13 +194,16 @@ class GoogleDriveDocuments internal constructor(
         return result
     }
 
-    internal suspend fun accepts(config: SourceConfig, path: String, playback: Boolean = false): Boolean {
+    override suspend fun hasPlayableContent(config: SourceConfig, path: String): Boolean =
+        accepts(config, path, playback = true)
+
+    private suspend fun accepts(config: SourceConfig, path: String, playback: Boolean = false): Boolean {
         if (!MediaFile.requiresContentCheck(path)) return true
         val bytes = runInterruptible(Dispatchers.IO) { read(config, path, 1024, prefix = true) }
         return if (playback) MediaFile.isPlayableTransportStream(bytes) else MediaFile.isTransportStream(bytes)
     }
 
-    internal fun open(config: SourceConfig, path: String): RemoteHandle {
+    override fun open(config: SourceConfig, path: String): RemoteHandle {
         val grant = DriveDocumentGrant.decode(config.password)
         val id = DriveDocumentPath.fileID(path) ?: throw GoogleDriveDocumentsException("This Google Drive file is invalid. Rescan the source.")
         val uri = if (grant.tree != null) DocumentsContract.buildDocumentUriUsingTree(treeUri(grant.tree), id)
@@ -177,17 +214,17 @@ class GoogleDriveDocuments internal constructor(
         return access.open(uri, item.size)
     }
 
-    internal suspend fun subtitles(
-        config: SourceConfig, video: String, language: String?, authorize: () -> Unit,
+    override suspend fun subtitles(
+        config: SourceConfig, path: String, preferredLanguage: String?, authorize: () -> Unit,
     ): SubtitleDiscovery {
         authorize()
-        val display = DriveDocumentPath.displayPath(video) ?: return SubtitleDiscovery(emptyList())
+        val display = DriveDocumentPath.displayPath(path) ?: return SubtitleDiscovery(emptyList())
         val grant = DriveDocumentGrant.decode(config.password)
         val entries = runInterruptible(Dispatchers.IO) {
             if (grant.tree == null) checkedEntries(grant).map { it.second }
             else {
                 val tree = treeUri(grant.tree)
-                val parent = DriveDocumentPath.parentID(video) ?: DocumentsContract.getTreeDocumentId(tree)
+                val parent = DriveDocumentPath.parentID(path) ?: DocumentsContract.getTreeDocumentId(tree)
                 access.children(DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent))
             }
         }
@@ -197,9 +234,9 @@ class GoogleDriveDocuments internal constructor(
         }.mapNotNull { file ->
             val sibling = display.substringBeforeLast('/', "").let { if (it.isEmpty()) file.name else "$it/${file.name}" }
             val match = SubtitleSidecars.match(display, sibling, caseSensitive = true) ?: return@mapNotNull null
-            val path = DriveDocumentPath.child(video.substringBeforeLast('/'), file.id, file.name)
-            match to path
-        }.sortedWith(compareByDescending<Pair<SubtitleSidecars.Match, String>> { it.first.language.equals(language, true) }
+            val siblingPath = DriveDocumentPath.child(path.substringBeforeLast('/'), file.id, file.name)
+            match to siblingPath
+        }.sortedWith(compareByDescending<Pair<SubtitleSidecars.Match, String>> { it.first.language.equals(preferredLanguage, true) }
             .thenBy { it.second })
         val files = candidates.take(SubtitleSidecars.MAX_FILES).mapNotNull { (match, path) ->
             try {

@@ -17,7 +17,12 @@ internal const val MAX_CLOUD_RESPONSE = 8 * 1024 * 1024
 internal class CloudHttp(client: OkHttpClient = defaultClient) {
     private val http = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
 
-    suspend fun exchange(request: Request, status: Int = 200, limit: Int = MAX_CLOUD_RESPONSE): CloudResponse =
+    suspend fun exchange(
+        request: Request,
+        status: Int = 200,
+        limit: Int = MAX_CLOUD_RESPONSE,
+        additionalStatus: Int? = null,
+    ): CloudResponse =
         suspendCancellableCoroutine { continuation ->
             val call = http.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }
@@ -29,7 +34,7 @@ internal class CloudHttp(client: OkHttpClient = defaultClient) {
                 override fun onResponse(call: Call, response: Response) {
                     continuation.resumeWith(runCatching {
                         response.use { readable ->
-                            if (readable.code != status) {
+                            if (readable.code != status && readable.code != additionalStatus) {
                                 throw CloudClientException("The provider returned HTTP ${readable.code}.", readable.code)
                             }
                             val body = readable.body ?: throw CloudClientException("Missing response body.")
@@ -37,7 +42,7 @@ internal class CloudHttp(client: OkHttpClient = defaultClient) {
                             if (body.contentLength() > limit || source.request(limit.toLong() + 1)) {
                                 throw CloudClientException("The provider response exceeded the expected size.")
                             }
-                            CloudResponse(readable.headers, source.readByteArray())
+                            CloudResponse(readable.headers, source.readByteArray(), readable.code)
                         }
                     })
                 }
@@ -50,12 +55,12 @@ internal class CloudHttp(client: OkHttpClient = defaultClient) {
     }
 }
 
-internal data class CloudResponse(val headers: Headers, val data: ByteArray) {
-    fun verifiedRange(start: Long, end: Long, length: Int): ByteArray {
+internal class CloudResponse(val headers: Headers, val data: ByteArray, val status: Int) {
+    fun verifiedRange(start: Long, end: Long, length: Int, expectedTotal: Long? = null): ByteArray {
         val prefix = "bytes $start-$end/"
         val range = headers["Content-Range"]
         val total = range?.takeIf { it.startsWith(prefix) }?.removePrefix(prefix)?.toLongOrNull()
-        if (total == null || total <= end || range != "$prefix$total" || data.size != length ||
+        if (total == null || total <= end || (expectedTotal != null && total != expectedTotal) || range != "$prefix$total" || data.size != length ||
             headers["Content-Encoding"]?.equals("identity", ignoreCase = true) == false
         ) {
             throw CloudClientException("The provider returned a different byte range.")

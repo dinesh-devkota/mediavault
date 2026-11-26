@@ -75,7 +75,7 @@ enum HouseholdError: LocalizedError {
 enum HouseholdPolicy {
     static let movieRatings = ["G", "PG", "PG-13", "R", "NC-17"]
     static let tvRatings = ["TV-Y", "TV-G", "TV-Y7", "TV-PG", "TV-14", "TV-MA"]
-    static func allowsPath(profile: HouseholdProfile, sourceID: UUID?, path: String, caseSensitive: Bool = false, entireSourceOnly: Bool = false) -> Bool {
+    static func allowsPath(profile: HouseholdProfile, sourceID: UUID?, path: String, caseSensitive: Bool = false, entireSourceOnly: Bool = false, allowFolderRoot: Bool = false) -> Bool {
         if profile.isAdmin { return true }
         if entireSourceOnly {
             guard let sourceID, WebDAVAddress.contains(path, within: "") else { return false }
@@ -83,7 +83,7 @@ enum HouseholdPolicy {
         }
         if caseSensitive {
             return profile.allowedFolders.contains {
-                $0.sourceID == sourceID && $0.caseSensitive == true && WebDAVAddress.contains(path, within: $0.path)
+                $0.sourceID == sourceID && $0.caseSensitive == true && WebDAVAddress.contains(path, within: $0.path, allowRoot: allowFolderRoot)
             }
         }
         guard let sourceID, let file = ScanExclusions.normalizeFile(path: path)?.lowercased() else { return false }
@@ -108,6 +108,7 @@ final class HouseholdStore: ObservableObject {
     static let shared: HouseholdStore = {
         #if DEBUG
         if HouseholdPreview.isEnabled { return HouseholdPreview.store }
+        if LibraryFeaturesPreview.isEnabled { return LibraryFeaturesPreview.household }
         #endif
         return HouseholdStore()
     }()
@@ -381,17 +382,19 @@ final class HouseholdStore: ObservableObject {
             try persist(next); lock()
         }
     }
-    func allowsPath(sourceID: UUID?, path: String, caseSensitive: Bool = false, entireSourceOnly: Bool = false) -> Bool {
+    func allowsPath(sourceID: UUID?, path: String, caseSensitive: Bool = false, entireSourceOnly: Bool = false, allowFolderRoot: Bool = false) -> Bool {
         synced {
             guard !storageFailure else { return false }
             guard configured else { return true }
             guard let current else { return false }
-            return HouseholdPolicy.allowsPath(profile: current, sourceID: sourceID, path: path, caseSensitive: caseSensitive, entireSourceOnly: entireSourceOnly)
+            return HouseholdPolicy.allowsPath(profile: current, sourceID: sourceID, path: path,
+                                              caseSensitive: caseSensitive, entireSourceOnly: entireSourceOnly,
+                                              allowFolderRoot: allowFolderRoot)
         }
     }
     func allows(_ movie: Movie) -> Bool {
         synced {
-            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath, caseSensitive: movie.source.map { $0.isWebDAV || $0.isJellyfin } == true,
+            guard allowsPath(sourceID: movie.source?.id, path: movie.filePath, caseSensitive: movie.source.map { $0.caseSensitivePaths } == true,
                              entireSourceOnly: movie.source?.isPlex == true) else { return false }
             guard let current, !current.isAdmin else { return !isLocked }
             guard !movie.isHidden else { return false }

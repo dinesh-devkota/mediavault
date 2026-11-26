@@ -229,8 +229,59 @@ checks.
 
 The separate Android phone workflow runs a clean API 36 phone emulator against the synthetic SMB fixture. It verifies launcher discovery, touch source-form validation, credential entry, folder selection and scan, opening the imported movie and seeking through native playback controls. Phone WebDAV reuses the shared implementation and source editor. This phone smoke covers SMB; WebDAV transport has its existing Android TV fixture. Physical phone testing and app distribution remain separate.
 
+## iPhone
 
-### Plex on Apple TV
+The iPhone integration candidate is on `codex/mediavault-ios-integration`.
+It shares the public app’s SMB, HTTPS WebDAV, Jellyfin, and Plex setup, household
+rules, database, and native playback code. The iPhone target uses iOS 17 and
+later, with touch navigation for administrative settings and
+subtitle controls. The app treats each device’s household and library as local.
+It does not sync profiles or progress across devices.
+
+Generate the iPhone Xcode project with `xcodegen generate --spec project.ios.yml`.
+The `CineVaultPhone` scheme builds the app and runs shared tests and iPhone UI
+tests. The hosted `iPhone simulator` workflow builds an unsigned release with iOS SDK 26 or later and runs
+simulator setup and playback tests against temporary SMB, WebDAV, Jellyfin, and Plex fixtures.
+This app branch needs a green simulator run before merge. Physical iPhone testing,
+signing, export-compliance confirmation, App Store Connect setup, and App Review
+are separate release steps.
+
+[Original iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)
+
+## Dropbox on Android and Apple TV
+
+Development includes Dropbox setup and playback on Android TV, Android phones, and Apple TV through [PR #30](https://github.com/dinesh-devkota/mediavault/pull/30). The owner enters
+a public Dropbox app key and approves with a one-time code using Dropbox's
+documented PKCE flow. The phone can open the approval in its browser. A QR code
+lets TV owners approve from a second device. The app stores the refresh
+credential with Android Keystore encryption and keeps access credentials in
+memory. A reconnect keeps the original app key, Dropbox account, and folder.
+Sign-out removes local credentials and requests revocation at Dropbox.
+
+The iPhone setup flow is tracked separately in [PR #27](https://github.com/dinesh-devkota/mediavault/pull/27).
+
+The Android app scans the selected folder and its subfolders into the local
+library. The existing player, photo loader, and subtitle selector use bounded
+HTTPS reads. File metadata and the response range must match before data is
+returned. Household viewers need an explicit grant and cannot use a buffered
+read after a session locks. Each source keeps the existing local history and
+Watchlist behavior. Dropbox filenames match case-insensitively on Android.
+
+The Android TV and phone workflows require the Dropbox fixture to exercise
+one-time code exchange, refreshed credentials, paginated import, photo decode,
+matching captions, playback with a rendered seek, and household access. The TV
+suite also requires the remote-control approval screen test. Only the synthetic
+test client trusts the fixture certificate. The QR code uses the Apache-2.0
+licensed ZXing Core dependency.
+
+Real-account validation needs a registered Dropbox app and eligible test
+account. No account credentials or app secret are included in the project.
+Apple app review and Dropbox production access are separate steps.
+[Dropbox OAuth](https://developers.dropbox.com/oauth-guide) ·
+[Dropbox HTTP API](https://www.dropbox.com/developers/documentation/http/documentation) ·
+[ZXing license](https://github.com/zxing/zxing/blob/master/LICENSE)
+
+## Plex on Apple TV
 
 The isolated `codex/mediavault-plex-tvos` branch starts at development commit `942b1f2`.
 An owner can link using the code shown in Sources, choose an advertised Plex Media Server and choose one movie, TV, or photo library. Reconnect preserves the server and library identity. The source stores its server token in Keychain. Removing the source clears its local catalog and credential. Household profiles need an explicit whole-library grant and keep their local watched, resume and Watchlist records separate from the Plex account.
@@ -238,6 +289,32 @@ An owner can link using the code shown in Sources, choose an advertised Plex Med
 The implementation supports protected Plex artwork, photo thumbnails, native MP4/M4V/MOV direct play with byte-range seeking, and matching external SRT or WebVTT tracks. A disposable HTTPS fixture covers Plex linking, discovery, catalog groups, paging, media ranges, restricted artwork, and caption playback. The branch also adds a remote navigation test for the owner's setup entry. Local cloud checks use Python transport tests and Swift source parsing. The Apple TV hosted jobs are the compile and runtime gate.
 
 Before shipping, validate a real Plex server and account against Apple TV hardware. Plex transcoding, Relay-only connections, and full-size original Plex photos are pending. Apple simulator and unsigned release checks require no distribution credentials. App Store submission and approval require the owner's separate Apple process.
+
+### Android OneDrive application checkpoint
+
+[Android OneDrive PR #4](https://github.com/dinesh-devkota/mediavault/pull/4)
+and [Apple OneDrive PR #22](https://github.com/dinesh-devkota/mediavault/pull/22)
+track their platform runtime checks independently.
+
+The Android OneDrive feature branch integrates a personal account through Microsoft's
+device authorization, a public client ID, and a read-only Graph connection.
+Admin selects the drive root or an explicit folder before saving. The app stages
+credentials in memory until approval and folder selection complete. Android
+Keystore seals the device refresh record under the local source UUID. Reconnect
+checks that the Microsoft drive still matches. Disconnect clears local credentials,
+invalidates open handles, and removes the source and its indexed history.
+
+Android TV and phone share the existing scanner, photo viewer, playback,
+subtitle and household paths. OneDrive uses exact relative names inside the
+selected folder. Each media range resolves the current path to the expected
+Graph item ID before following a fresh download grant without the Graph bearer.
+The household UI can grant selected subfolders. New sources require explicit
+viewer grants. The scanner keeps the existing Android file-path history behavior.
+
+Hosted fixtures are synthetic. Live testing still requires an Entra public
+application configured for personal Microsoft accounts and public client device
+flow with delegated Files.Read, plus a dedicated OneDrive test account. See
+`docs/TESTING.md` for the app setting and build property.
 
 ## Google Drive on Android
 
@@ -250,7 +327,10 @@ Google Drive handles Google account authorization. Reconnect with the same
 selection to keep the source identity, viewer grants, and history. Add a new
 source for a different selection. MediaVault's household administrator grants
 each viewer access explicitly. The source picker opens outside MediaVault, so
-unlock Admin after returning when household controls are enabled.
+unlock Admin after returning when household controls are enabled. Folder listings
+validate each step against the selected tree and respect Drive's case-sensitive
+names. Drive media uses filename and online metadata matching. Local NFO and XML
+import remains available for SMB, WebDAV, and OneDrive.
 
 Google's TV OAuth flow permits the per-file `drive.file` scope and requires a
 client secret during token polling. Broad `drive.readonly` has restricted-scope

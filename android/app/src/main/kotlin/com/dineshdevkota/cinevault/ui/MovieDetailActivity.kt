@@ -78,6 +78,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
     val context = LocalContext.current
     val database = context.container.database
     val scope = rememberCoroutineScope()
+    var showCollections by remember(movieId) { mutableStateOf(false) }
     var updatingWatched by remember(movieId) { mutableStateOf(false) }
     var watchedError by remember(movieId) { mutableStateOf<String?>(null) }
     var updatingWatchlist by remember(movieId) { mutableStateOf(false) }
@@ -90,6 +91,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
         LaunchedEffect(current.id) { PhotoViewerActivity.start(context, current.id); onClose() }
         return
     }
+    if (showCollections) CollectionPicker(setOf(current.id)) { showCollections = false }
     val playbackRejection = PlaybackValidator.rejectionReason(current)
     val sourceName by produceState<String?>(null, current.sourceId) {
         value = database.sources().get(current.sourceId)?.name
@@ -128,9 +130,9 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
             ) {
                 OutlinedButton(onClick = onClose,
                     modifier = if (playbackRejection != null) Modifier.focusRequester(actions) else Modifier) { Text("Back") }
-                if (!isTv && current.posterPath != null) Artwork(
+                if (!isTv && (current.posterPath != null || current.localPosterPath != null)) MediaArtwork(current,
                     Tmdb.imageUrl(current.posterPath, "w500"), current.title,
-                    Modifier.width(104.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)),
+                    Modifier.width(104.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)), width = 500,
                 )
                 Text(
                     "MEDIAVAULT  /  ${current.mediaKind.label.uppercase(Locale.ROOT)}",
@@ -139,6 +141,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                 )
                 Text(
                     current.title,
+                    modifier = Modifier.testTag("detail-title"),
                     style = MaterialTheme.typography.displaySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -191,6 +194,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                             modifier = Modifier.testTag("playback-remaining-time"))
                     }
                 }
+                VersionChoices(current)
                 if (current.episodeInfo != null) NextEpisodeButton(current)
                 AdaptiveActions() {
                     OutlinedButton(
@@ -237,6 +241,7 @@ private fun MovieDetailScreen(movieId: String, onClose: () -> Unit) {
                     }
                 }
                 AdaptiveActions() {
+                    OutlinedButton(onClick = { showCollections = true }, modifier = Modifier.testTag("detail-collections")) { Text("Collections") }
                     OutlinedButton(onClick = { scope.launch { context.container.library.setHidden(current.id, !current.isHidden) } }) {
                         Text(if (current.isHidden) "Unhide" else "Hide")
                     }

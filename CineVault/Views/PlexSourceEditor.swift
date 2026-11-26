@@ -37,8 +37,8 @@ struct PlexSourceEditor: View {
                 }
                 if let message { Text(message).foregroundStyle(.secondary) }
                 if let code {
-                    Section("Link Apple TV") {
-                        Text("On a phone or computer, open plex.tv/link and enter this code.")
+                    Section("Link MediaVault") {
+                        Text("On another device, open plex.tv/link and enter this code.")
                         Text(code).font(.title).accessibilityIdentifier("plex-link-code")
                     }
                 }

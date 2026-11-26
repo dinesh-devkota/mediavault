@@ -2,15 +2,19 @@ name: Android TV
 
 on:
   push:
+    branches: [main, dinesh-devkota-sonepar-build-cinevault-tvos-app]
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
       - "scripts/nas_fixture.py"
+      - "scripts/media_library_fixture.py"
       - "scripts/webdav_fixture.py"
       - "scripts/start_webdav_fixture.sh"
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
       - "scripts/test_jellyfin_fixture.py"
+      - "scripts/dropbox_fixture.py"
+      - "scripts/start_dropbox_fixture.sh"
       - "scripts/start_plex_fixture.sh"
       - "scripts/plex_fixture.py"
       - "scripts/tests/test_plex_fixture.py"
@@ -20,11 +24,14 @@ on:
       - "android/**"
       - ".github/workflows/android.yml"
       - "scripts/nas_fixture.py"
+      - "scripts/media_library_fixture.py"
       - "scripts/webdav_fixture.py"
       - "scripts/start_webdav_fixture.sh"
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
       - "scripts/test_jellyfin_fixture.py"
+      - "scripts/dropbox_fixture.py"
+      - "scripts/start_dropbox_fixture.sh"
       - "scripts/start_plex_fixture.sh"
       - "scripts/plex_fixture.py"
       - "scripts/tests/test_plex_fixture.py"
@@ -35,8 +42,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-${{ github.ref }}
-  cancel-in-progress: true
+  group: android-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -101,15 +108,18 @@ jobs:
             echo '::error title=Android emulator acceleration::The runner cannot read and write /dev/kvm after udev settled.'
             exit 1
           fi
-      - name: Start the synthetic SMB and WebDAV fixtures
+      - name: Start the synthetic SMB, WebDAV, Plex, and Dropbox fixtures
         run: |
           set -euo pipefail
+          command -v ffmpeg >/dev/null || (sudo apt-get update && sudo apt-get install -y ffmpeg)
           python -m pip install -r scripts/nas-test-requirements.txt
           python scripts/nas_fixture.py "$RUNNER_TEMP/android-nas-fixture" >"$RUNNER_TEMP/android-nas-fixture.log" 2>&1 &
           echo "$!" > "$RUNNER_TEMP/android-nas-fixture.pid"
           bash scripts/start_webdav_fixture.sh "$RUNNER_TEMP/android-webdav-fixture"
+          bash scripts/start_dropbox_fixture.sh "$RUNNER_TEMP/android-dropbox-fixture"
           python - <<'PY'
-          import socket, time
+          import os, socket, time
+          from pathlib import Path
           for attempt in range(30):
               try:
                   with socket.create_connection(("127.0.0.1", 1445), timeout=1):
@@ -117,6 +127,7 @@ jobs:
               except OSError:
                   time.sleep(1)
           else:
+              print((Path(os.environ["RUNNER_TEMP"]) / "android-nas-fixture.log").read_text())
               raise SystemExit("SMB fixture did not start")
           PY
       - name: Verify Plex fixture contract
@@ -155,17 +166,23 @@ jobs:
                   detail = (problem.get("message", "") + "\n" + (problem.text or ""))[:4000]
                   detail = detail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
                   print(f"::error title=Android runtime test::{case.get('classname')}.{case.get('name')}: {detail}")
-              elif case.find("skipped") is None and (case.get("classname", "").endswith((".JellyfinAndroidIntegrationTest", ".PlexTlsIntegrationTest"))
-                    or case.get("name", "").startswith("googleDrive")):
+              elif case.find("skipped") is None and (case.get("classname", "").endswith(
+                    (".JellyfinAndroidIntegrationTest", ".PlexTlsIntegrationTest", ".OneDriveMediaIntegrationTest",
+                     ".OneDriveSetupNavigationTest", ".OneDriveAccountStoreInstrumentedTest"))
+                    or case.get("name", "").startswith(("googleDrive", "dropbox"))
+                    or case.get("name") == "mkvPlaybackAndSeekFromNas"):
                   print(f"{case.get('classname')}.{case.get('name')} passed")
           required = {"TVNavigationTest", "SecretBoxInstrumentedTest", "LibraryDatabaseTest", "MetadataMutationTest",
                       "LibraryScannerTest", "SmbDataSourceContractTest", "SmbIntegrationTest", "SmbPlaybackTest",
                       "JellyfinAndroidIntegrationTest", "JellyfinSetupNavigationTest",
+                      "OneDriveMediaIntegrationTest", "OneDriveSetupNavigationTest", "OneDriveAccountStoreInstrumentedTest",
+                      "DropboxSetupNavigationTest",
                       "WatchlistMigrationTest", "WatchlistNavigationTest", "NasBrowserIntegrationTest",
                       "NasDiscoveryIntegrationTest", "SourceEditorPickerTest", "NasSetupNavigationTest",
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",
                       "SubtitleTracksTest", "SubtitleContinuousPlaybackTest", "HomeCollectionNavigationTest",
-                      "FamilyStoreInstrumentedTest", "FamilyNavigationTest", "PlexProviderInstrumentedTest",
+                      "FamilyStoreInstrumentedTest", "FamilyNavigationTest",
+                      "LocalLibraryIntegrationTest", "LibraryFeaturesNavigationTest", "PlexProviderInstrumentedTest",
                       "PlexSetupNavigationTest"}
           executed = {case.get("classname", "").rsplit(".", 1)[-1] for case in cases}
           identities = [(case.get("classname"), case.get("name")) for case in cases]
@@ -176,16 +193,32 @@ jobs:
           )}
           if not drive <= set(identities):
               raise SystemExit("Required Google Drive simulation did not run.")
+          one_drive = {("com.dineshdevkota.cinevault.cloud." + test, method) for test, method in (
+              ("OneDriveSetupNavigationTest", "ownerCanOpenOneDriveSetupAndRecoverFromInvalidPublicApplicationId"),
+              ("OneDriveMediaIntegrationTest", "stagedSignInImportsSelectedFolderAndPlaysWithBoundedReadsAndCaptions"),
+              ("OneDriveAccountStoreInstrumentedTest", "refreshRecordIsEncryptedOnDiskAndRemovable"),
+          )}
+          if not one_drive <= set(identities):
+              raise SystemExit("Required OneDrive fixture tests did not run.")
           plex = ("com.dineshdevkota.cinevault.plex.PlexTlsIntegrationTest", "ownerConnectsOverTlsAndReadsCatalogAndMediaRange")
           if plex not in identities:
               raise SystemExit("Plex TLS connection did not execute in the Android TV emulator")
           webdav = ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "webDavAuthenticationScanPlaybackAndSeek")
           if webdav not in identities:
               raise SystemExit("WebDAV playback did not execute in the Android TV emulator")
+          mkv = ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "mkvPlaybackAndSeekFromNas")
+          if mkv not in identities:
+              raise SystemExit("MKV playback did not execute in the Android TV emulator")
+          dropbox = {
+              ("com.dineshdevkota.cinevault.cloud.DropboxSetupNavigationTest", "dropboxOwnerCanOpenAndCancelTheQrApproval"),
+              ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "dropboxApprovalImportPlaybackSeekPhotosAndHouseholdGate"),
+          }
+          if not dropbox <= set(identities):
+              raise SystemExit("Required Dropbox fixture tests did not run in the Android TV emulator.")
           if not required <= executed or failures or skipped or duplicate:
               raise SystemExit("Required runtime tests did not all execute successfully: " + str(sorted(required - executed)))
           PY
-      - name: Stop the SMB and WebDAV fixtures
+      - name: Stop the SMB, WebDAV, Plex, and Dropbox fixtures
         if: always()
         run: |
           if [[ -f "$RUNNER_TEMP/android-nas-fixture.pid" ]]; then
@@ -193,6 +226,9 @@ jobs:
           fi
           if [[ -f "$RUNNER_TEMP/android-webdav-fixture/server.pid" ]]; then
             kill "$(cat "$RUNNER_TEMP/android-webdav-fixture/server.pid")" 2>/dev/null || true
+          fi
+          if [[ -f "$RUNNER_TEMP/android-dropbox-fixture/server.pid" ]]; then
+            kill "$(cat "$RUNNER_TEMP/android-dropbox-fixture/server.pid")" 2>/dev/null || true
           fi
       - name: Upload runtime test reports
         if: always()
@@ -206,6 +242,7 @@ jobs:
             ${{ runner.temp }}/android-nas-fixture.log
             ${{ runner.temp }}/jellyfin-android.log
             ${{ runner.temp }}/android-webdav-fixture/server.log
+            ${{ runner.temp }}/android-dropbox-fixture/server.log
             ${{ runner.temp }}/android-plex-fixture/server.log
           if-no-files-found: error
           retention-days: 7
