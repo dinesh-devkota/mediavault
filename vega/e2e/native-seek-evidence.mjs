@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+
 const seekRequest = /W3CMEDIA:\[MSE_EME\] MediaPlayerPipelineImpl::seek: Seek time: (\d+(?:\.\d+)?)s$/;
 const unsupportedSeek = /W3CMEDIA:\[MSE_EME\] seek: MPB Call failed with code: 50004\.$/;
 const failedSeek = /W3CMEDIA:\[MSE_EME\] MediaPlayerPipelineImpl::seek: Seek failed, time: (\d+(?:\.\d+)?)s$/;
@@ -27,4 +29,15 @@ export function nativeSeeks(log, packageId) {
     }
   }
   return seeks.map(({requested, outcome}) => ({requested, outcome}));
+}
+
+// Native acceptance can precede the real clock change, and the clock may
+// temporarily show a target while the app still holds the seek operation.
+export function confirmedMp4Seek(requests, expected, {position, paused, controlsReady}) {
+  assert(requests.length <= 1, 'Each MP4 action must issue exactly one native seek.');
+  const request = requests[0];
+  if (!request) { return false; }
+  assert(Math.abs(request.requested - expected) <= 2, 'The MP4 native seek must match the requested target.');
+  assert(['accepted', 'pending'].includes(request.outcome), 'An MP4 native seek was rejected.');
+  return request.outcome === 'accepted' && Math.abs(position - expected) <= 2 && paused && controlsReady;
 }

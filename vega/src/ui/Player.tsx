@@ -28,6 +28,7 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   const [status, setStatus] = useState('Opening media…');
   const [error, setError] = useState<string>();
   const [seekWarning, setSeekWarning] = useState<string>();
+  const [seekPending, setSeekPending] = useState(false);
   const [paused, setPaused] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -45,7 +46,8 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   const startConfiguration = useRef({load, releaseResource, resume, subtitles});
   startConfiguration.current = {load, releaseResource, resume, subtitles};
   const togglePlayback = (): void => { if (ready && !error) { binding?.session.toggle(); } };
-  const seek = (delta: number): void => { if (ready && !error) { binding?.session.seek(delta); } };
+  const seekDisabled = !ready || !!error || seekPending;
+  const seek = (delta: number): void => { if (!seekDisabled) { binding?.session.seek(delta); } };
   useTVEventHandler(event => {
     if (event.eventKeyAction === 1) { return; }
     setControlsVisible(true); setInteraction(value => value + 1);
@@ -117,7 +119,7 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
       },
       state: value => {
         setPosition(value.position); setDuration(value.duration); setPaused(value.paused); setReady(value.ready);
-        setSeekWarning(value.seekWarning);
+        setSeekWarning(value.seekWarning); setSeekPending(value.seekPending);
         if (value.ended) { setStatus('Finished'); }
         else if (value.started) { setStatus(''); }
         tracks();
@@ -174,8 +176,8 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
       <View style={shared.row}>
         <Action label="Back" preferred={!ready || !!error} onPress={onClose}/>
         <Action label={paused ? 'Play' : 'Pause'} preferred={ready && !error && !subtitleMenuOpen && (!returnToSubtitles || !trackChoices.length)} disabled={!ready || !!error} onPress={togglePlayback}/>
-        <Action label="Back 10 seconds" disabled={!ready || !!error} onPress={() => seek(-10)}/>
-        <Action label="Forward 30 seconds" disabled={!ready || !!error} onPress={() => seek(30)}/>
+        <Action label="Back 10 seconds" disabled={seekDisabled} onPress={() => seek(-10)}/>
+        <Action label="Forward 30 seconds" disabled={seekDisabled} onPress={() => seek(30)}/>
         {!!trackChoices.length && <Action testID="player-subtitles" label={`Subtitles · ${selectedSubtitle?.label ?? 'Off'}`}
           preferred={returnToSubtitles && !subtitleMenuOpen} onPress={() => { setReturnToSubtitles(false); setSubtitleMenuOpen(true); }}/>}
       </View>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {nativeSeeks} from './native-seek-evidence.mjs';
+import {confirmedMp4Seek, nativeSeeks} from './native-seek-evidence.mjs';
 
 const fixtureId = 'com.dineshdevkota.mediavault.vvdfixture';
 const line = (record, pid = 3801, id = fixtureId) =>
@@ -31,4 +31,24 @@ test('native success confirms an accepted command, without treating the reported
   assert.deepEqual(nativeSeeks([request, successful.replace('Requested: 0:00:31.245', 'Requested: 0:00:11.245')].join('\n'), fixtureId),
     [{requested: 31.245, outcome: 'pending'}]);
   assert.equal(nativeSeeks([request, successful, request, line(refusal), failed].join('\n'), fixtureId).length, 2);
+});
+
+test('MP4 requires accepted native evidence, the paused target clock, and enabled seek controls together', () => {
+  const target = 31;
+  const sample = {position: target, paused: true, controlsReady: true};
+  const accepted = [{requested: 31.245, outcome: 'accepted'}];
+  assert.equal(confirmedMp4Seek(accepted, target, sample), true);
+  assert.equal(confirmedMp4Seek([], target, sample), false);
+  assert.equal(confirmedMp4Seek([{requested: target, outcome: 'pending'}], target, sample), false);
+  assert.equal(confirmedMp4Seek(accepted, target, {...sample, position: 1}), false);
+  assert.equal(confirmedMp4Seek(accepted, target, {...sample, paused: false}), false);
+  assert.equal(confirmedMp4Seek(accepted, target, {...sample, controlsReady: false}), false);
+});
+
+test('an incorrect, duplicate, or rejected native MP4 seek cannot satisfy the expected action', () => {
+  const sample = {position: 31, paused: true, controlsReady: true};
+  const accepted = {requested: 31.245, outcome: 'accepted'};
+  assert.throws(() => confirmedMp4Seek([accepted, accepted], 31, sample), /exactly one native seek/);
+  assert.throws(() => confirmedMp4Seek([{...accepted, requested: 21}], 31, sample), /must match/);
+  assert.throws(() => confirmedMp4Seek([{...accepted, outcome: 'rejected-50004'}], 31, sample), /was rejected/);
 });

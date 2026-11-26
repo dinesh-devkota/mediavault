@@ -93,7 +93,7 @@ test('rejected paused seek acknowledges the native position without ending playb
   value.raw.acceptSeek = false; session.seek(30); value.emit('seeking'); value.emit('seeked');
   await jest.advanceTimersByTimeAsync(10_000);
   expect(value.seeks).toEqual([31]);
-  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 1, paused: true, ready: true, seekWarning: expect.stringContaining('could not be reached')}));
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 1, paused: true, ready: true, seekPending: false, seekWarning: expect.stringContaining('could not be reached')}));
   expect(value.options.state.mock.calls.every(([state]) => state.position !== 31)).toBe(true);
   expect(value.options.failed).not.toHaveBeenCalled(); expect(value.video.deinitialize).not.toHaveBeenCalled();
   session.toggle(); value.raw.position = 2; await jest.advanceTimersByTimeAsync(5000);
@@ -131,8 +131,8 @@ test('an ineffective boundary press leaves a failed resume checkpoint protected'
 test('an unsettled app seek keeps later screen presses from replacing its native operation', async () => {
   const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
   value.raw.position = 1; value.emit('timeupdate');
-  value.raw.acceptSeek = false; value.raw.seeking = true;
-  session.seek(30); session.seek(-10);
+  value.raw.acceptSeek = false; session.seek(30);
+  value.raw.seeking = true; session.seek(-10);
   expect(value.seeks).toEqual([31]);
   value.raw.position = 31; value.raw.seeking = false; value.emit('seeked');
   expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 31, seekWarning: undefined}));
@@ -158,7 +158,7 @@ test.each(['manual', 'SDK remote'])('%s seek can land after seeked reports the o
   if (mode === 'manual') { session.seek(30); }
   else { value.video.currentTime = 31; } // One SDK-owned FF seek crosses the same native boundary.
   value.emit('seeking'); value.emit('seeked');
-  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 1, paused: true, seekWarning: undefined}));
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 1, paused: true, seekPending: true, seekWarning: undefined}));
   session.seek(-10); // The early event must not unlock later button presses.
   await jest.advanceTimersByTimeAsync(1000);
   expect(value.options.progress).not.toHaveBeenCalled();
@@ -166,7 +166,7 @@ test.each(['manual', 'SDK remote'])('%s seek can land after seeked reports the o
 
   value.raw.position = 31;
   await jest.advanceTimersByTimeAsync(250); // Native time catches up without a second seeked event.
-  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 31, paused: true, seekWarning: undefined}));
+  expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 31, paused: true, seekPending: false, seekWarning: undefined}));
   await session.stop();
   expect(value.options.progress).toHaveBeenLastCalledWith(31, 100, false);
   expect(value.seeks).toEqual([31]);
@@ -175,7 +175,7 @@ test.each(['manual', 'SDK remote'])('%s seek can land after seeked reports the o
 test('missing seek completion is bounded and a later valid seek recovers without reinitializing', async () => {
   const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
   value.raw.position = 1; value.emit('timeupdate'); session.toggle();
-  value.raw.acceptSeek = false; value.raw.seeking = true; session.seek(30);
+  value.raw.acceptSeek = false; session.seek(30); value.raw.seeking = true;
   await jest.advanceTimersByTimeAsync(10_000);
   expect(value.options.state).toHaveBeenLastCalledWith(expect.objectContaining({position: 1, seekWarning: expect.stringContaining('could not be reached')}));
   value.raw.seeking = false; value.raw.acceptSeek = true; session.seek(30);

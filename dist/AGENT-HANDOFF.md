@@ -403,6 +403,15 @@ The product fixture retains the full seek and caption journey on packet-
 equivalent MP4 and independently measures MKV playback, the native request,
 the actual clock and its saved resume position.
 
+Full run `45785271448` passed the native checks, all three production packages,
+the synthetic package, production startup, and stages 01–05. Stage 06
+confirmed one MP4 forward seek and the matching HTTP 206. It sent no second
+native request when the harness tried Forward 30 during settlement of the
+first request. The app now disables both seek controls while the native seek
+is pending. The harness verifies they are enabled and checks remote focus
+before each press, then checks the actual native request and clock. It records
+action timestamps to distinguish a dropped input from a decoder issue.
+
 The current verification branch checks the native clock before saving a seek,
 bounds keyboard-window observation without weakening same-window or field
 checks, and uses one verified foreground launch before its standalone MKV/MP4
@@ -410,7 +419,7 @@ probe. Vega's subtitle menu announces and displays the active track, names
 local languages and variants, and keeps Off and explicit track selection stable
 when native tracks arrive or reorder. WebDAV sidecars match the exact media
 filename case. SMB matching remains case-insensitive. Local synthetic
-validation at Node 22.23.5 passed all 85 app/SDK tests, 26 harness tests and 23 Python package
+validation at Node 22.23.5 passed all 85 app/SDK tests, 28 harness tests and 23 Python package
 contracts, plus typecheck and lint (0 errors, 50 existing warnings).
 
 The catalog review found the rendered Home and collection grids still repeated

@@ -5,7 +5,7 @@ import type {PlaybackResource, ViewingState} from '../domain/model';
 // Its implementation initializes error to null although the declaration omits null.
 export type NativeVideo = Pick<VideoPlayer, 'initialize' | 'deinitialize' | 'src' | 'currentTime' | 'duration' | 'paused' | 'ended' | 'seeking' | 'defaultSeekIntervalInSec' |
   'play' | 'pause' | 'setSurfaceHandle' | 'clearSurfaceHandle' | 'setCaptionViewHandle' | 'clearCaptionViewHandle' | 'addEventListener' | 'removeEventListener'> & {readonly error: VideoPlayer['error'] | null};
-export interface PlaybackState { position: number; duration: number; paused: boolean; started: boolean; ended: boolean; ready: boolean; seekWarning?: string }
+export interface PlaybackState { position: number; duration: number; paused: boolean; started: boolean; ended: boolean; ready: boolean; seekPending: boolean; seekWarning?: string }
 const SEEK_TIMEOUT_MS = 10_000;
 const SEEK_POSITION_RESOLUTION = 0.25;
 interface SessionOptions {
@@ -44,6 +44,7 @@ export class PlayerSession {
 
   constructor(private readonly video: NativeVideo, private readonly options: SessionOptions) {}
   get active(): boolean { return !this.stopped; }
+  private get seekPending(): boolean { return !!(this.pendingSeek || this.externalSeekOrigin || this.video.seeking); }
 
   start(predecessor: Promise<void>): void {
     this.events = Object.fromEntries(['loadedmetadata', 'durationchange', 'canplay', 'play', 'playing', 'pause', 'timeupdate'].map(name => [name, () => this.sample()]));
@@ -55,6 +56,7 @@ export class PlayerSession {
           paused: this.video.paused, completionReported: false,
         };
       }
+      this.sample();
     };
     this.events.seeked = () => this.sample(false, true);
     this.events.ended = () => this.sample(true);
@@ -132,8 +134,9 @@ export class PlayerSession {
     } catch { this.fail('Playback could not continue.'); }
   }
   seek(delta: number): void {
-    if (this.stopped || !this.sourceSet || this.finished || this.pendingSeek || this.externalSeekOrigin || !Number.isFinite(delta)) { return; }
+    if (this.stopped || !this.sourceSet || this.finished || !Number.isFinite(delta)) { return; }
     try {
+      if (this.seekPending) { return; }
       const position = this.video.currentTime, duration = this.video.duration;
       if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) { return; }
       const target = Math.max(0, Math.min(duration, position + delta));
@@ -159,7 +162,7 @@ export class PlayerSession {
       : 'That position could not be reached. You can continue from the current position.';
   }
   private canSaveProgress(position: number): boolean {
-    return !this.pendingSeek && !this.externalSeekOrigin && !this.video.seeking &&
+    return !this.seekPending &&
       (this.protectedResumePosition === undefined || position >= this.protectedResumePosition);
   }
   private sample(endEvent = false, seekCompleted = false): void {
@@ -237,10 +240,13 @@ export class PlayerSession {
       if (endEvent || this.video.ended) {
         this.finished = true; if (this.startupTimer !== undefined) { clearTimeout(this.startupTimer); } if (this.sampleTimer !== undefined) { clearInterval(this.sampleTimer); }
         if (validDuration && this.canSaveProgress(position)) { this.options.progress(position, duration, true); }
-        this.options.state({position, duration: validDuration ? duration : 0, paused: true, started: this.started, ended: true, ready: false});
+        this.options.state({position, duration: validDuration ? duration : 0, paused: true, started: this.started, ended: true, ready: false, seekPending: false});
         this.options.ended(); return;
       }
-      this.options.state({position, duration: validDuration ? duration : 0, paused, started: this.started, ended: false, ready: validDuration, seekWarning: this.seekWarning});
+      this.options.state({
+        position, duration: validDuration ? duration : 0, paused, started: this.started, ended: false, ready: validDuration,
+        seekPending: this.seekPending, seekWarning: this.seekWarning,
+      });
       if (this.started && validDuration && this.canSaveProgress(position) && Date.now() - this.lastWrite >= 5000) {
         this.lastWrite = Date.now(); this.options.progress(position, duration, false);
       }

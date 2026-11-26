@@ -19,7 +19,12 @@ test('loading controls gain preference only when enabled and raw media keys neve
   const english = {id: 'fixture-en', label: '', language: 'en', mode: 'showing'};
   const spanish = {id: 'fixture-es', label: '', language: 'es', mode: 'hidden'};
   const tracks = {0: english, 1: spanish, length: 2, addEventListener: () => {}, removeEventListener: () => {}};
-  const video = {src: '', currentTime: 0, duration: NaN, paused: false, seeking: false, ended: false, error: null,
+  let nativeClock = 0, delaySeek = false;
+  const nativeSeeks: number[] = [];
+  const video = {src: '',
+    get currentTime() { return nativeClock; },
+    set currentTime(position: number) { nativeSeeks.push(position); if (!delaySeek) { nativeClock = position; } },
+    duration: NaN, paused: false, seeking: false, ended: false, error: null,
     defaultSeekIntervalInSec: 0, initialize: jest.fn(async () => {}), deinitialize: jest.fn(async () => {}),
     play: jest.fn(async () => {}), pause: jest.fn(), setSurfaceHandle: jest.fn(), clearSurfaceHandle: jest.fn(),
     setCaptionViewHandle: jest.fn(), clearCaptionViewHandle: jest.fn(),
@@ -72,6 +77,35 @@ test('loading controls gain preference only when enabled and raw media keys neve
     expect(video.currentTime).toBe(30);
     await React.act(async () => { action('Back 10 seconds').props.onPress(); });
     expect(video.currentTime).toBe(20);
+
+    // The SDK emits seeked at the old position and may expose the new time
+    // while native still reports seeking. Both buttons wait for settlement.
+    delaySeek = true;
+    await React.act(async () => {
+      video.currentTime = 30; video.seeking = true; events.get('seeking')?.();
+    });
+    expect(action('Back 10 seconds').props.disabled).toBe(true);
+    expect(action('Forward 30 seconds').props.disabled).toBe(true);
+    await React.act(async () => {
+      video.seeking = false; events.get('seeked')?.();
+      action('Forward 30 seconds').props.onPress();
+    });
+    expect(nativeSeeks).toEqual([30, 20, 30]);
+    expect(action('Forward 30 seconds').props.disabled).toBe(true);
+    await React.act(async () => {
+      nativeClock = 30; video.seeking = true; await jest.advanceTimersByTimeAsync(250);
+    });
+    expect(action('Forward 30 seconds').props.disabled).toBe(true);
+    await React.act(async () => {
+      video.seeking = false; await jest.advanceTimersByTimeAsync(250);
+    });
+    expect(action('Forward 30 seconds').props.disabled).toBe(false);
+    expect(action('Back 10 seconds').props.disabled).toBe(false);
+    delaySeek = false;
+    await React.act(async () => { action('Forward 30 seconds').props.onPress(); });
+    expect(nativeSeeks).toEqual([30, 20, 30, 60]);
+    expect(video.currentTime).toBe(60);
+
     await React.act(async () => { action('Pause').props.onPress(); });
     expect(video.pause).toHaveBeenCalledTimes(pauses + 1);
     expect(action('Spanish')).toBeUndefined();

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {mkdir, readFile, stat, writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {activateKeyboardClear} from './keyboard-clear.mjs';
-import {nativeSeeks} from './native-seek-evidence.mjs';
+import {confirmedMp4Seek, nativeSeeks} from './native-seek-evidence.mjs';
 import {keyboardApp, keyboardDone, keyboardVisibilityReader, simulatorVisibilityRpc, waitForKeyboardDismissal}
   from './keyboard-observation.mjs';
 
@@ -559,25 +559,52 @@ try {
     const activeCaptions = byID('player-subtitles') + "[@description='Subtitles · English']";
     await element(activeCaptions);
     const paused = await position(); await sleep(1500); assert(Math.abs(await position() - paused) <= 1, 'Pause must stop the clock.');
-    async function seekAcknowledged(before, delta, message) {
-      const expected = Math.max(0, before + delta);
-      let observed;
-      // Integer UI seconds and native sampling can differ slightly. A duplicate
-      // 10-second action or the old extra 30-second handler must still fail.
-      await waitFor(async () => { observed = await position(); return Math.abs(observed - expected) <= 2; }, message);
-      await element(byID('action-play'));
-      return observed;
+    const seekActions = [];
+    const allSeekMark = (await stat(nativeLog)).size;
+    async function seekControlsReady() {
+      for (const id of ['action-back-10-seconds', 'action-forward-30-seconds']) {
+        const matches = await call('POST', '/elements', {using: 'xpath', value: byID(id)});
+        if (matches.length !== 1 || await call('GET', `/element/${matches[0][elementKey]}/enabled`) !== true) { return false; }
+      }
+      return true;
     }
-    await focusVisible(byID('action-play'));
-    await key(208); const advanced = await seekAcknowledged(paused, 10, 'Remote fast-forward must seek once by 10 seconds.');
-    await click('action-forward-30-seconds');
-    const buttonAdvanced = await seekAcknowledged(advanced, 30, 'The Forward 30 seconds button must advance 30 seconds.');
+    async function performSeek(before, delta, focusId, code, message) {
+      const trace = {focusId, code, before, expected: Math.max(0, before + delta), preparedAt: new Date().toISOString()};
+      seekActions.push(trace);
+      try {
+        await waitFor(seekControlsReady, 'The prior seek must settle before dispatching another MP4 action.');
+        const target = await focusVisible(byID(focusId));
+        trace.ready = await seekControlsReady() && await call('GET', `/element/${target}/enabled`) === true;
+        trace.nativeFocused = await nativeFocused(byID(focusId));
+        assert(trace.ready && trace.nativeFocused, 'The MP4 seek action must be enabled and natively focused before dispatch.');
+        const mark = (await stat(nativeLog)).size;
+        trace.dispatchedAt = new Date().toISOString();
+        console.log('[Vega MP4 seek] Dispatch', JSON.stringify(trace));
+        await key(code);
+        trace.rpcReturnedAt = new Date().toISOString();
+        await waitFor(async () => {
+          const requests = await seekEvidenceSince(mark);
+          const sample = {position: await position(), paused: await exists(byID('action-play')), controlsReady: await seekControlsReady()};
+          trace.observed = {...sample, requests};
+          return confirmedMp4Seek(requests, trace.expected, sample);
+        }, message);
+        trace.confirmedAt = new Date().toISOString();
+        return trace.observed.position;
+      } finally {
+        console.log('[Vega MP4 seek] Evidence', JSON.stringify(trace));
+        await writeFile(resolve(output, 'mp4-seek-actions.json'), JSON.stringify(seekActions, null, 2) + '\n');
+      }
+    }
+    const advanced = await performSeek(paused, 10, 'action-play', 208, 'Remote fast-forward must seek once by 10 seconds.');
+    const buttonAdvanced = await performSeek(advanced, 30, 'action-forward-30-seconds', 96,
+      'The Forward 30 seconds button must advance 30 seconds.');
     // Rewind away from zero so a duplicated action cannot hide behind clamping.
-    await focusVisible(byID('action-play'));
-    await key(168); const rewound = await seekAcknowledged(buttonAdvanced, -10, 'Remote rewind must seek once by 10 seconds.');
-    await click('action-back-10-seconds');
-    const buttonRewound = await seekAcknowledged(rewound, -10, 'The Back 10 seconds button must rewind 10 seconds.');
+    const rewound = await performSeek(buttonAdvanced, -10, 'action-play', 168, 'Remote rewind must seek once by 10 seconds.');
+    const buttonRewound = await performSeek(rewound, -10, 'action-back-10-seconds', 96,
+      'The Back 10 seconds button must rewind 10 seconds.');
     await sleep(1500); assert(Math.abs(await position() - buttonRewound) <= 1, 'Seeking while paused must leave the clock stopped.');
+    assert.deepEqual(await seekEvidenceSince(allSeekMark), seekActions.flatMap(action => action.observed.requests),
+      'The MP4 actions must produce only their four matched native requests, without delayed duplicates.');
     await focusVisible(byID('action-play'));
     await key(164); await element(byID('action-pause'));
     await waitFor(async () => await position() >= buttonRewound + 1, 'Resume after seeking must advance the actual decoder clock.');

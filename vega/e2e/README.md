@@ -48,8 +48,11 @@ a fast-start stream copy of the original H.264 video and both AAC tracks from
 `Controls.mkv`. The same English sidecar must stay selected through the seeks.
 One remote press must move the native clock 10 seconds in each direction. The
 Forward 30 and Back 10 controls must move it 30 and 10 seconds respectively.
-The harness allows two seconds for the displayed integer time and native
-sampling. The clock must stay stopped while paused and advance after resuming.
+Each action requires one matching accepted native request, a paused clock within
+two seconds of the requested time, and both seek controls enabled again. The
+harness rechecks native focus before each press and retains dispatch times and
+numeric outcomes in `mp4-seek-actions.json`. The clock must stay stopped while
+paused and advance after resuming.
 Journey 07 still uses the separate MP4 episodes for captions and autoplay.
 
 Journey `06-mkv-seek-constraint` opens the original MKV and requires the
