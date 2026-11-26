@@ -92,7 +92,7 @@ enum LibrarySearch {
         guard HouseholdStore.shared.allows(movie) else { return false }
         guard !movie.isDeleted, !movie.isMissing, !movie.isHidden else { return false }
         guard let source = movie.source else { return true }
-        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath, caseSensitive: source.isWebDAV) &&
+        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath, caseSensitive: source.caseSensitivePaths) &&
             !source.isIgnored(filePath: movie.filePath)
     }
 

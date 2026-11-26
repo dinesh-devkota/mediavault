@@ -66,6 +66,52 @@ final class MediaVaultPhoneTests: XCTestCase {
     }
 
     @MainActor
+    func testConnectOneDriveDeviceCodeAndImportSelectedFolder() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test-empty-library", "--ui-test-onedrive"]
+        app.launch()
+
+        let manage = app.tabBars.buttons["Manage"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 15))
+        manage.tap()
+        app.buttons["manage-media-sources"].tap()
+        app.buttons["Add NAS"].tap()
+        let connect = app.buttons["add-onedrive-source"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10), app.debugDescription)
+        connect.tap()
+        let registration = app.textFields["onedrive-client"]
+        XCTAssertTrue(registration.waitForExistence(timeout: 10))
+        registration.tap()
+        registration.typeText("15cf518d-e2a1-46b0-b260-34bb4dd6c758")
+        let signIn = app.buttons["onedrive-sign-in"]
+        XCTAssertTrue(signIn.isEnabled)
+        if !signIn.isHittable { app.swipeUp() }
+        XCTAssertTrue(signIn.isHittable)
+        signIn.tap()
+
+        let code = app.staticTexts["onedrive-user-code"]
+        XCTAssertTrue(code.waitForExistence(timeout: 12), app.debugDescription)
+        XCTAssertEqual(code.label, "OD-PHONE")
+        let movies = app.buttons["Open Movies"]
+        XCTAssertTrue(movies.waitForExistence(timeout: 25), app.debugDescription)
+        movies.tap()
+        XCTAssertTrue(app.staticTexts["Movies"].waitForExistence(timeout: 10))
+        let save = app.buttons["onedrive-use-folder"]
+        XCTAssertTrue(save.isHittable, app.debugDescription)
+        save.tap()
+
+        let scan = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "1 item · Scanned ")).firstMatch
+        XCTAssertTrue(scan.waitForExistence(timeout: 25), app.debugDescription)
+        let library = app.tabBars.buttons["Library"]
+        library.tap()
+        let film = app.buttons["OneDrive Journey"]
+        for _ in 0..<3 where !film.isHittable { app.swipeUp() }
+        XCTAssertTrue(film.isHittable, app.debugDescription)
+        film.tap()
+        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
     private func dismissPasswordPrompt(in app: XCUIApplication) {
         let prompt = app.sheets["Save Password?"]
         if prompt.waitForExistence(timeout: 4) {

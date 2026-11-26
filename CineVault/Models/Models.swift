@@ -32,6 +32,8 @@ final class MediaSource {
 
     var isWebDAV: Bool { sourceProtocol == "webdav" }
     var isJellyfin: Bool { sourceProtocol == "jellyfin" }
+    var cloudFileProvider: CloudFileProvider? { sourceProtocol.flatMap(CloudFileProvider.init(rawValue:)) }
+    var caseSensitivePaths: Bool { isWebDAV || isJellyfin || cloudFileProvider != nil }
 
     private var passwordAccount: String { "source-\(id.uuidString)" }
 
@@ -45,15 +47,15 @@ final class MediaSource {
 
     func config() throws -> SourceConfig {
         var secret = ""
-        if !username.isEmpty { secret = try password() }
+        if cloudFileProvider == nil, !username.isEmpty { secret = try password() }
         return SourceConfig(id: id, host: host, port: port, share: share, rootPath: rootPath,
                             username: username, password: secret, ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [],
-                            isWebDAV: isWebDAV, isJellyfin: isJellyfin)
+                            isWebDAV: isWebDAV, isJellyfin: isJellyfin, cloudFileProvider: cloudFileProvider)
     }
 
     func isIgnored(filePath: String) -> Bool {
         ScanExclusions.isFileExcluded(path: filePath, rootPath: rootPath,
-                                      ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [], caseSensitive: isWebDAV)
+                                      ignoredFolders: ignoredFolders ?? [], ignoredFiles: ignoredFiles ?? [], caseSensitive: caseSensitivePaths)
     }
 
     /// Keep records and playback history; a later scan restores files that are no longer ignored.
@@ -62,11 +64,11 @@ final class MediaSource {
             var normalized: [String] = []
             var seen: Set<Data> = []
             for path in paths {
-                let candidate = isWebDAV
+                let candidate = caseSensitivePaths
                     ? (WebDAVAddress.contains(path, within: "") ? path : nil)
                     : (folder ? ScanExclusions.normalizeFolder(path: path) : ScanExclusions.normalizeFile(path: path))
                 guard let value = candidate else { throw IgnoredFolderError.invalidPath }
-                if seen.insert(Data((isWebDAV ? value : value.lowercased()).utf8)).inserted { normalized.append(value) }
+                if seen.insert(Data((caseSensitivePaths ? value : value.lowercased()).utf8)).inserted { normalized.append(value) }
             }
             return normalized
         }
@@ -98,25 +100,28 @@ struct SourceConfig: Sendable, Hashable {
     let ignoredFiles: [String]
     let isWebDAV: Bool
     let isJellyfin: Bool
+    let cloudFileProvider: CloudFileProvider?
+    var caseSensitivePaths: Bool { isWebDAV || isJellyfin || cloudFileProvider != nil }
 
     init(id: UUID, host: String, port: Int? = nil, share: String, rootPath: String,
          username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = [],
-         isWebDAV: Bool = false, isJellyfin: Bool = false) {
+         isWebDAV: Bool = false, isJellyfin: Bool = false, cloudFileProvider: CloudFileProvider? = nil) {
         self.id = id; self.host = host; self.port = port; self.share = share; self.rootPath = rootPath
         self.username = username; self.password = password; self.ignoredFolders = ignoredFolders
         self.ignoredFiles = ignoredFiles; self.isWebDAV = isWebDAV; self.isJellyfin = isJellyfin
+        self.cloudFileProvider = cloudFileProvider
     }
 
     func excludesDirectory(_ path: String) -> Bool {
-        ScanExclusions.isDirectoryExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, caseSensitive: isWebDAV)
+        ScanExclusions.isDirectoryExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, caseSensitive: caseSensitivePaths)
     }
 
     func excludesFile(_ path: String) -> Bool {
-        ScanExclusions.isFileExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles, caseSensitive: isWebDAV)
+        ScanExclusions.isFileExcluded(path: path, rootPath: rootPath, ignoredFolders: ignoredFolders, ignoredFiles: ignoredFiles, caseSensitive: caseSensitivePaths)
     }
 
     var serverURL: URL? {
-        isJellyfin ? nil : (try? NASAddress.parse(host, port: port))?.serverURL
+        isJellyfin || cloudFileProvider != nil ? nil : (try? NASAddress.parse(host, port: port))?.serverURL
     }
 }
 

@@ -354,7 +354,7 @@ private struct HouseholdFolderChooser: View {
     }
     private func add(_ path: String) {
         guard HouseholdStore.shared.isAdmin else { return }
-        let folder = HouseholdFolder(sourceID: source.id, path: path, caseSensitive: (source.isWebDAV || source.isJellyfin) ? true : nil)
+        let folder = HouseholdFolder(sourceID: source.id, path: path, caseSensitive: source.caseSensitivePaths ? true : nil)
         if !allowed.contains(where: { $0.id == folder.id }) { allowed.append(folder) }
         dismiss()
     }
