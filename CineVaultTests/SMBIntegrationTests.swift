@@ -176,6 +176,86 @@ final class SMBIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek() async throws {
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.protocolClasses = [DropboxTLSFixtureProtocol.self]
+        let http = URLSession(configuration: sessionConfig)
+        defer { http.invalidateAndCancel() }
+        let client = try DropboxClient(appKey: "fixture-app", session: http)
+        let approval = try client.beginAuthorization()
+        do {
+            _ = try await client.completeManualAuthorization(approval, code: "bad-code")
+            XCTFail("The disposable server accepted an invalid code.")
+        } catch DropboxClientError.http(400) {}
+        let credentials = try await client.completeManualAuthorization(approval, code: "fixture-code")
+        let available = try await DropboxFileSource.items(client: client, folderID: nil, access: credentials.access_token)
+        let folder = try XCTUnwrap(available.first { $0.name == "Media" })
+        let binding = try DropboxSourceBinding(appKey: "fixture-app", accountID: try XCTUnwrap(credentials.account_id),
+                                               folderID: folder.id)
+        let config = SourceConfig(id: UUID(), host: binding.appKey, share: folder.id, rootPath: "",
+                                  username: binding.accountID, password: "", cloudFileProvider: .dropbox)
+        let account = DropboxAccountStore()
+        _ = try await account.install(credentials, binding: binding, id: config.id)
+        do {
+            try await verifyDropboxMedia(config, client: client, account: account)
+        } catch {
+            _ = try? await account.remove(id: config.id)
+            throw error
+        }
+        _ = try await account.remove(id: config.id)
+        try await client.revoke(accessToken: credentials.access_token)
+    }
+
+    @MainActor
+    private func verifyDropboxMedia(_ config: SourceConfig, client: DropboxClient, account: DropboxAccountStore) async throws {
+        let service = SMBService(cloudTransport: { _, source in
+            try DropboxFileSource.transport(source, account: account, client: client)
+        })
+        let files = try await service.scanMedia(config) { _ in }
+        XCTAssertEqual(Set(files.map(\.path)), Set(["Films/Film.mp4", "Photos/Family.jpg"]))
+        let movie = try XCTUnwrap(files.first { $0.path.hasSuffix(".mp4") })
+        let photo = try XCTUnwrap(files.first { $0.path.hasSuffix(".jpg") })
+        let photoLoader = PhotoImageLoader(
+            fileSize: { try await service.fileSize($0, path: $1) },
+            read: { try await service.read($0, path: $1, offset: $2, length: $3) })
+        let image = try await photoLoader.image(config: config, path: photo.path, knownSize: photo.size, maxPixelSize: 48)
+        XCTAssertGreaterThan(image.size.width, 0)
+
+        let captions = try await LocalSubtitleService.discover(config: config, videoPath: movie.path) {
+            try await service.listEntries($0, directory: $1)
+        }
+        XCTAssertEqual(captions.map(\.path), ["Films/film.en.srt"])
+        let document = try await LocalSubtitleService.read(try XCTUnwrap(captions.first), config: config,
+            size: { try await service.fileSize($0, path: $1) },
+            read: { try await service.read($0, path: $1, offset: 0, length: $2) })
+        XCTAssertEqual(document.cues.first?.text, "Dropbox fixture caption.")
+
+        let transport = try DropboxFileSource.transport(config, account: account, client: client)
+        let viewer = HouseholdProfile(name: "Fixture viewer")
+        do {
+            _ = try await transport.read(movie.path, offset: 4, length: 4, check: {
+                guard HouseholdPolicy.allowsPath(profile: viewer, sourceID: config.id, path: movie.path,
+                                                 caseSensitive: true) else { throw HouseholdError.denied }
+            })
+            XCTFail("The ungranted viewer read bytes.")
+        } catch HouseholdError.denied {}
+        let marker = try await service.read(config, path: movie.path, offset: 4, length: 4)
+        XCTAssertEqual(marker, Data("ftyp".utf8))
+
+        let loader = SMBResourceLoader(config: config, path: movie.path, reader: .init(
+            size: { try await service.fileSize(config, path: movie.path) },
+            read: { try await service.read(config, path: movie.path, offset: $0, length: $1) }))
+        let player = AVPlayer(playerItem: AVPlayerItem(asset: loader.makeAsset()))
+        defer {
+            player.pause()
+            player.replaceCurrentItem(with: nil)
+            withExtendedLifetime(loader) {}
+        }
+        try await verifyPlayerSeek(player)
+        await service.reset(config)
+    }
+
+    @MainActor
     private func verifyPlayback(config: SourceConfig, movie: RemoteFile) async throws {
         let source = MediaSource(name: "Fixture", host: config.host, port: config.port, share: config.share,
                                  rootPath: config.rootPath, username: config.username)

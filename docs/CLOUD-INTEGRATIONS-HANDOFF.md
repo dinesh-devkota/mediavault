@@ -224,3 +224,24 @@ checks.
 `codex/mediavault-android-phone` branches from Android TV WebDAV/household checkpoint `1cbd47977ed07222cf6a44400c10a5757b3d5221`. The same Android app exposes a phone launcher and a TV launcher. Phone layouts use touch Material buttons, persistent navigation, compact library and form layouts, and safe areas for the system bars and keyboard. Existing TV navigation and transport are covered by their existing checks.
 
 The separate Android phone workflow runs a clean API 36 phone emulator against the synthetic SMB fixture. It verifies launcher discovery, touch source-form validation, credential entry, folder selection and scan, opening the imported movie and seeking through native playback controls. Phone WebDAV reuses the shared implementation and source editor. This phone smoke covers SMB; WebDAV transport has its existing Android TV fixture. Physical phone testing and app distribution remain separate.
+## Dropbox Apple TV draft
+
+The Apple TV Dropbox branch builds on the Apple-only cloud-file transport
+from PR #22. The owner approves Dropbox on a phone using a QR code and enters
+the one-time code on the Apple TV. The app stores the refresh credential in
+Keychain and binds it to the selected Dropbox account and folder ID. Editing
+and reconnecting preserve that binding. Removing a source clears its local
+credential and attempts to revoke access in Dropbox.
+
+The native player and photo loader request authenticated ranges from files in a
+selected folder. Shared access checks run before folder resolution, before and
+during byte reads, and after a read completes. Existing remote files remain
+separate from MediaVault's per-profile watched status, resume position, and
+Watchlist. Matching Dropbox sidecars are case-insensitive, and reads use the
+exact returned path spelling for local household checks.
+
+The hosted Apple TV simulator suite requires the named Dropbox sign-in, scan,
+captions, photo decode, and AVPlayer seek journey against disposable HTTPS.
+The real-service test needs the owner's public Dropbox API app key and an
+eligible Dropbox test account. Apple App Review and Dropbox production access
+are external to simulator validation. [Dropbox OAuth](https://developers.dropbox.com/oauth-guide)
