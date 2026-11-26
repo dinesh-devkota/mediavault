@@ -75,11 +75,11 @@ enum HouseholdError: LocalizedError {
 enum HouseholdPolicy {
     static let movieRatings = ["G", "PG", "PG-13", "R", "NC-17"]
     static let tvRatings = ["TV-Y", "TV-G", "TV-Y7", "TV-PG", "TV-14", "TV-MA"]
-    static func allowsPath(profile: HouseholdProfile, sourceID: UUID?, path: String, caseSensitive: Bool = false) -> Bool {
+    static func allowsPath(profile: HouseholdProfile, sourceID: UUID?, path: String, caseSensitive: Bool = false, allowFolderRoot: Bool = false) -> Bool {
         if profile.isAdmin { return true }
         if caseSensitive {
             return profile.allowedFolders.contains {
-                $0.sourceID == sourceID && $0.caseSensitive == true && WebDAVAddress.contains(path, within: $0.path)
+                $0.sourceID == sourceID && $0.caseSensitive == true && WebDAVAddress.contains(path, within: $0.path, allowRoot: allowFolderRoot)
             }
         }
         guard let sourceID, let file = ScanExclusions.normalizeFile(path: path)?.lowercased() else { return false }
@@ -377,12 +377,13 @@ final class HouseholdStore: ObservableObject {
             try persist(next); lock()
         }
     }
-    func allowsPath(sourceID: UUID?, path: String, caseSensitive: Bool = false) -> Bool {
+    func allowsPath(sourceID: UUID?, path: String, caseSensitive: Bool = false, allowFolderRoot: Bool = false) -> Bool {
         synced {
             guard !storageFailure else { return false }
             guard configured else { return true }
             guard let current else { return false }
-            return HouseholdPolicy.allowsPath(profile: current, sourceID: sourceID, path: path, caseSensitive: caseSensitive)
+            return HouseholdPolicy.allowsPath(profile: current, sourceID: sourceID, path: path,
+                                              caseSensitive: caseSensitive, allowFolderRoot: allowFolderRoot)
         }
     }
     func allows(_ movie: Movie) -> Bool {
