@@ -240,6 +240,7 @@ WebDAV touch validated in #31. The exact tree passed all 255 iPhone tests,
 unsigned Apple release builds. Android phone passed after a failed-job-only
 retry, including the original collection navigation test. On November 26,
 #16 merged into development at `2dc56fd`, with the same verified tree.
+The post-merge iPhone run passed all 255 tests and the unsigned release again.
 [Development iPhone port #16](https://github.com/dinesh-devkota/mediavault/pull/16)
 
 Private Drive on Apple TV needs a registered Google OAuth/Picker flow and a
@@ -293,7 +294,8 @@ contrast and waits on the hosted screenshot and simulator checks.
 - Emby #17 `fbc3091` preserves the iPhone provider port and the Apple privacy gate.
   The current branch gates require Emby's native playback and the shared Apple
   and Android journeys. Local fixture smoke covered trusted TLS, protected MP4
-  ranges, HLS, subtitles, and session cleanup. Exact hosted validation is pending.
+  ranges, HLS, subtitles, and session cleanup. Both exact Android suites and
+  all 269 Apple TV simulator cases passed. The iPhone and CI gates are pending.
 - Fire TV and Vega #20 `db5334f` checks the original native keyboard window is
   hidden and the Done control is absent from a valid native hierarchy containing
   the same form field. The iPhone fixture checks real MKV pause and teardown
@@ -303,14 +305,21 @@ contrast and waits on the hosted screenshot and simulator checks.
   built all three package architectures and passed production startup and nine
   simulator stages, including real MP4 seeks to 11, 41, 31 and 21 seconds.
   The SDK reported error 50004 on the separate MKV native seek attempt and
-  the player retained the confirmed checkpoint. Android retry and Apple gates
-  remain under the PR's checks.
+  the player retained the confirmed checkpoint. The exact Android reruns
+  passed 122 TV and 17 phone tests. Apple gates remain under the PR's checks.
 - Apple simulator reliability #31 now includes the merged iPhone sources at
   `b7920f5`. Its photo controls use the existing TV bordered style, making
   Previous, Next, and Back readable. The earlier exact `0ae7fdf` signed preview
   passed all eight screens and 46 OCR assertions, including the photo and Search.
   The new exact combined preview is
   [run 45881798358](https://github.com/dinesh-devkota/mediavault/actions/runs/45881798358).
+- Android NFS #8 `45db8ce` adds opt-in owner setup, scoped catalog and byte reads,
+  the normal Android media playback path, and guarded removal/reconnect.
+  Nine Kotlin cases and five C loopback cases passed. Four ABIs packaged both
+  native libraries only in Debug with 16 KiB alignment. The standard unsigned
+  Release APK packaged neither. The exact hosted C gate passed, and the Android
+  TV fixture exercises the full owner route and native seeking.
+  [NFS run 45884934802](https://github.com/dinesh-devkota/mediavault/actions/runs/45884934802)
 
 Use test-only local providers, synthetic media, and hosted disposable simulators.
 The external provider registrations, physical device checks, and App Review

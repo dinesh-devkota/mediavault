@@ -23,8 +23,8 @@ player preserved the confirmed position and checkpoint. An additional Node 22
 host benchmark used 10,000 synthetic items and asserted identical catalog
 results. Collection grouping median was 250 ms before and 30 ms after. Unchanged
 filtered Home derivation fell from 76 ms to below 0.01 ms. These measurements
-cover host-side data derivation. The exact PR still needs the Android retry and
-Apple simulator gates before merging.
+cover host-side data derivation. The exact Android retry passed 122 TV cases and
+17 phone cases. The Apple simulator gates are pending.
 [Virtual-device evidence](https://github.com/dinesh-devkota/mediavault/actions/runs/45881504304/artifacts/15147464348)
 
 ## Active library/playback work — November 25, 2026
