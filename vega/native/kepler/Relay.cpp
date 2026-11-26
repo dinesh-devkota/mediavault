@@ -8,7 +8,76 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#if defined(MEDIAVAULT_VVD_FIXTURE)
+#if !defined(MEDIAVAULT_RELAY_TRACE_TEST)
+#include <apmf/iface/com/amazon/apmf/ILogger.h>
+#include <apmf/iface/com/amazon/apmf/LogLevel.h>
+#include <apmf/process.h>
+#endif
+#define MV_FIXTURE_TRACE(...) __VA_ARGS__
+#else
+#define MV_FIXTURE_TRACE(...)
+#endif
+
 namespace mediavault {
+#if defined(MEDIAVAULT_VVD_FIXTURE)
+#if defined(MEDIAVAULT_RELAY_TRACE_TEST)
+// Host tests capture exactly the fixture records without the device-only SDK.
+void writeFixtureRelayTrace(const std::string &message) noexcept;
+#else
+void writeFixtureRelayTrace(const std::string &message) noexcept {
+  try {
+    using namespace apmf::iface::com::amazon::apmf;
+    // https://developer.amazon.com/docs/vega-native-api/2.0/interfaces.ILogger.com_amazon_apmf
+    // Never attach an SDK error: it can contain source/credential details.
+    apmf::GetProcessObject().QueryInterface<ILogger>()
+        ->getChild("mediavault.fixture.relay")->log(LogLevel::INFO, message, nullptr);
+  } catch (...) { /* Diagnostics must not change transport behavior. */ }
+}
+#endif
+namespace {
+std::atomic<uint64_t> fixtureRequests{0}, fixtureResources{0};
+enum class TraceMethod { Unknown, Get, Head };
+enum class TraceStage { Parse, Access, Size, Read, Send, Complete };
+struct FixtureRelayTrace {
+  // At most two records for each of the first 64 video/audio requests.
+  // Artwork/photo requests cannot exhaust the budget before playback starts.
+  // Everything retained is an ordinal, a number, or a fixed allowlisted label.
+  uint64_t request = 0;
+  const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
+  uint64_t resource = 0, start = 0, endExclusive = 0, total = 0, length = 0, sent = 0;
+  unsigned status = 0;
+  bool range = false;
+  TraceMethod method = TraceMethod::Unknown;
+  TraceStage stage = TraceStage::Parse;
+  void emit(bool finished) const noexcept {
+    if (!request || request > 64) return;
+    try {
+      const auto now = std::chrono::steady_clock::now();
+      const char *stageName = "parse";
+      switch (stage) {
+      case TraceStage::Parse: break;
+      case TraceStage::Access: stageName = "access"; break;
+      case TraceStage::Size: stageName = "size"; break;
+      case TraceStage::Read: stageName = "read"; break;
+      case TraceStage::Send: stageName = "send"; break;
+      case TraceStage::Complete: stageName = "complete"; break;
+      }
+      std::ostringstream record;
+      record << "MV_FIXTURE_RELAY_V1 event=" << (finished ? "finish" : "response")
+             << " request=" << request << " resource=" << resource
+             << " monotonicMs=" << std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count()
+             << " elapsedMs=" << std::chrono::duration_cast<std::chrono::milliseconds>(now - began).count()
+             << " method=" << (method == TraceMethod::Get ? "GET" : method == TraceMethod::Head ? "HEAD" : "unknown")
+             << " range=" << range << " start=" << start << " endExclusive=" << endExclusive
+             << " total=" << total << " status=" << status << " length=" << length
+             << " sent=" << sent << " stage=" << stageName;
+      writeFixtureRelayTrace(record.str());
+    } catch (...) { /* No exception text is ever logged. */ }
+  }
+};
+} // namespace
+#endif
 struct Relay::State : std::enable_shared_from_this<State> {
   int socket = -1;
   uint16_t port = 0;
@@ -16,6 +85,7 @@ struct Relay::State : std::enable_shared_from_this<State> {
   bool stopped = false;
   std::map<std::string, std::shared_ptr<Resource>> resources;
   std::map<int, std::string> clients;
+  MV_FIXTURE_TRACE(std::map<std::string, uint64_t> resourceOrdinals;)
   void check(const std::string &token,
              const std::shared_ptr<Resource> &resource) {
     {
@@ -28,18 +98,26 @@ struct Relay::State : std::enable_shared_from_this<State> {
   }
   void sendBytes(int fd, const std::string &token,
                  const std::shared_ptr<Resource> &resource,
-                 const uint8_t *bytes, size_t count) {
+                 const uint8_t *bytes, size_t count
+#if defined(MEDIAVAULT_VVD_FIXTURE)
+                 , FixtureRelayTrace &trace, bool body
+#endif
+                 ) {
     while (count) {
+      MV_FIXTURE_TRACE(trace.stage = TraceStage::Access;)
       check(token, resource);
+      MV_FIXTURE_TRACE(trace.stage = TraceStage::Send;)
       auto result =
           ::send(fd, bytes, std::min<size_t>(count, 16384), MSG_NOSIGNAL);
       if (result <= 0)
         throw UserError("Playback connection closed.");
+      MV_FIXTURE_TRACE(if (body) trace.sent += uint64_t(result);)
       bytes += result;
       count -= size_t(result);
     }
   }
   void serve(int fd) {
+    MV_FIXTURE_TRACE(FixtureRelayTrace trace;)
     try {
       std::string input;
       input.reserve(8192);
@@ -74,6 +152,7 @@ struct Relay::State : std::enable_shared_from_this<State> {
           (version != "HTTP/1.1" && version != "HTTP/1.0") ||
           path.size() != 65 || path.front() != '/')
         throw UserError("Invalid playback request.");
+      MV_FIXTURE_TRACE(trace.method = method == "GET" ? TraceMethod::Get : TraceMethod::Head;)
       std::string token = path.substr(1), range;
       bool hasRange = false;
       while (std::getline(lines, line) && line != "\r") {
@@ -91,12 +170,14 @@ struct Relay::State : std::enable_shared_from_this<State> {
           if (hasRange)
             throw UserError("Duplicate range.");
           hasRange = true;
+          MV_FIXTURE_TRACE(trace.range = true;)
           range = value;
         }
         if (name == "transfer-encoding" ||
             (name == "content-length" && value != "0"))
           throw UserError("Playback request bodies are unsupported.");
       }
+      MV_FIXTURE_TRACE(trace.stage = TraceStage::Access;)
       std::shared_ptr<Resource> resource;
       {
         std::lock_guard<std::mutex> lock(mutex);
@@ -104,10 +185,19 @@ struct Relay::State : std::enable_shared_from_this<State> {
         if (entry == resources.end() || stopped)
           throw UserError("Unknown playback resource.");
         resource = entry->second;
+        MV_FIXTURE_TRACE(
+          auto ordinal = resourceOrdinals.find(token);
+          if (ordinal != resourceOrdinals.end()) {
+            trace.resource = ordinal->second;
+            trace.request = ++fixtureRequests;
+          }
+        )
         clients[fd] = token;
       }
       check(token, resource);
+      MV_FIXTURE_TRACE(trace.stage = TraceStage::Size;)
       auto total = resource->size();
+      MV_FIXTURE_TRACE(trace.total = total; trace.stage = TraceStage::Access;)
       check(token, resource);
       uint64_t start = 0, finish = total;
       bool valid = total > 0;
@@ -149,6 +239,13 @@ struct Relay::State : std::enable_shared_from_this<State> {
         } catch (...) {
           valid = false;
         }
+      MV_FIXTURE_TRACE(
+        trace.start = valid ? start : 0; trace.endExclusive = valid ? finish : 0;
+        trace.length = valid ? finish - start : 0;
+        trace.status = valid ? (hasRange ? 206 : 200) : 416;
+        trace.stage = TraceStage::Send;
+        trace.emit(false);
+      )
       std::string headers;
       if (!valid)
         headers =
@@ -168,21 +265,35 @@ struct Relay::State : std::enable_shared_from_this<State> {
       headers += "Connection: close\r\nCache-Control: no-store\r\n\r\n";
       sendBytes(fd, token, resource,
                 reinterpret_cast<const uint8_t *>(headers.data()),
-                headers.size());
+                headers.size()
+#if defined(MEDIAVAULT_VVD_FIXTURE)
+                , trace, false
+#endif
+                );
       if (valid && method == "GET")
         while (start < finish) {
+          MV_FIXTURE_TRACE(trace.stage = TraceStage::Access;)
           check(token, resource);
           size_t count = size_t(std::min<uint64_t>(512 * 1024, finish - start));
+          MV_FIXTURE_TRACE(trace.stage = TraceStage::Read;)
           auto bytes = resource->read(start, count);
+          MV_FIXTURE_TRACE(trace.stage = TraceStage::Access;)
           check(token, resource);
+          MV_FIXTURE_TRACE(trace.stage = TraceStage::Read;)
           if (bytes.empty() || bytes.size() > count)
             throw UserError("Unexpected end of media.");
-          sendBytes(fd, token, resource, bytes.data(), bytes.size());
+          sendBytes(fd, token, resource, bytes.data(), bytes.size()
+#if defined(MEDIAVAULT_VVD_FIXTURE)
+                    , trace, true
+#endif
+                    );
           start += bytes.size();
         }
+      MV_FIXTURE_TRACE(trace.stage = TraceStage::Complete;)
     } catch (
         ...) { /* Never put source URLs or credentials into client errors. */
     }
+    MV_FIXTURE_TRACE(trace.emit(true);)
     {
       std::lock_guard<std::mutex> lock(mutex);
       clients.erase(fd);
@@ -259,12 +370,18 @@ std::string Relay::add(const std::string &token, Resource resource) {
   if (state->resources.count(token))
     throw UserError("Playback capability already exists.");
   state->resources[token] = std::make_shared<Resource>(std::move(resource));
+  MV_FIXTURE_TRACE(
+    const auto &mime = state->resources[token]->mime;
+    if (mime.compare(0, 6, "video/") == 0 || mime.compare(0, 6, "audio/") == 0)
+      state->resourceOrdinals[token] = ++fixtureResources;
+  )
   return "http://127.0.0.1:" + std::to_string(state->port) + "/" + token;
 }
 void Relay::revoke(const std::string &uri) {
   auto token = uri.substr(uri.find_last_of('/') + 1);
   std::lock_guard<std::mutex> lock(state->mutex);
   state->resources.erase(token);
+  MV_FIXTURE_TRACE(state->resourceOrdinals.erase(token);)
   for (const auto &pair : state->clients)
     if (pair.second == token)
       ::shutdown(pair.first, SHUT_RDWR);
@@ -272,6 +389,7 @@ void Relay::revoke(const std::string &uri) {
 void Relay::revokeAll() {
   std::lock_guard<std::mutex> lock(state->mutex);
   state->resources.clear();
+  MV_FIXTURE_TRACE(state->resourceOrdinals.clear();)
   for (const auto &pair : state->clients)
     ::shutdown(pair.first, SHUT_RDWR);
 }

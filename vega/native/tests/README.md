@@ -25,3 +25,16 @@ Evidence is written to `integration-results.xml`, `fixture/nas.log`, and `fixtur
 Coverage includes real SMB authentication, folder listing, stat, ranges, Unicode names; real HTTPS trust and hostname validation, authentication, redirects without credential forwarding, request/response limits, range headers and bytes, and profile cancellation. The transport tests do not emulate the device keystore, decoder, application permissions, or Fire TV hardware. Those require platform/device checks.
 
 Separate fixture executables verify the disposable simulator target's exact synthetic NAS allowlist, memory-only records, cancellation rollback, capacity limits, and OS randomness bounds. Production CMake is invoked to verify rejection of Release, RelWithDebInfo, device architectures, and the shipping package identity. The optional transport fixture target compiles the real SMB and HTTP entry points with the simulator restriction enabled; it reads the loopback NAS and confirms that even trusted fixture HTTPS requests are blocked before transmission. These checks do not establish device-keystore persistence or security.
+
+The fixture-only relay diagnostics trace the first 64 video/audio requests, with
+at most a response record and a terminal record each. Earlier artwork/photo
+traffic cannot consume that budget. Records contain only numeric request/resource
+ordinals, monotonic/elapsed milliseconds, fixed GET/HEAD labels, range presence,
+resolved byte bounds, total/advertised/sent body byte counts, HTTP status and an
+allowlisted terminal stage. They contain no paths, capabilities, header text,
+MIME text, bodies or exception text. The actual SDK logger receives no associated
+error. Separate host cases verify full/open/suffix ranges, HEAD, legal short reads,
+truncated providers, peer closure, private error exclusion and the media-only cap;
+a compiled-binary check requires the diagnostic marker absent from production.
+A completed relay response establishes bytes accepted by the local socket, not
+native decoder support or successful seeking.

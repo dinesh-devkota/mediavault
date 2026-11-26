@@ -10,6 +10,9 @@
 #include <cstring>
 #include <iomanip>
 #include <thread>
+#if defined(MEDIAVAULT_RELAY_TRACE_TEST)
+#include <regex>
+#endif
 using namespace mediavault;
 using namespace std::chrono_literals;
 
@@ -301,3 +304,113 @@ CASE(relay_header_deadline) {
     CHECK(closed); CHECK(elapsed >= 4s); CHECK(elapsed < 7s);
     CHECK(media.sizes == 0); CHECK(media.reads == 0); CHECK(media.checks == 0);
 }
+
+#if defined(MEDIAVAULT_RELAY_TRACE_TEST)
+namespace {
+std::mutex traceMutex;
+std::condition_variable traceChanged;
+std::vector<std::string> traceRecords;
+using TraceRecord = std::map<std::string, std::string>;
+std::vector<TraceRecord> records(size_t count) {
+    std::unique_lock<std::mutex> lock(traceMutex);
+    CHECK(traceChanged.wait_for(lock, 3s, [&] { return traceRecords.size() >= count; }));
+    std::vector<TraceRecord> result;
+    // A complete allowlist, not a blacklist: paths, headers, MIME values, body
+    // contents and exception messages cannot appear anywhere in a record.
+    const std::regex schema(R"(^MV_FIXTURE_RELAY_V1 event=(response|finish) request=[0-9]+ resource=[0-9]+ monotonicMs=[0-9]+ elapsedMs=[0-9]+ method=(GET|HEAD|unknown) range=[01] start=[0-9]+ endExclusive=[0-9]+ total=[0-9]+ status=(0|200|206|416) length=[0-9]+ sent=[0-9]+ stage=(parse|access|size|read|send|complete)$)");
+    for (const auto &line : traceRecords) {
+        CHECK(std::regex_match(line, schema));
+        std::istringstream words(line); std::string item; words >> item;
+        TraceRecord record;
+        while (words >> item) { auto equals = item.find('='); record[item.substr(0, equals)] = item.substr(equals + 1); }
+        result.push_back(std::move(record));
+    }
+    return result;
+}
+void completed(const TraceRecord &record, unsigned status, uint64_t start, uint64_t end,
+               uint64_t total, uint64_t sent, const std::string &method = "GET") {
+    CHECK(record.at("event") == "finish"); CHECK(record.at("stage") == "complete");
+    CHECK(record.at("status") == std::to_string(status)); CHECK(record.at("method") == method);
+    CHECK(record.at("start") == std::to_string(start)); CHECK(record.at("endExclusive") == std::to_string(end));
+    CHECK(record.at("total") == std::to_string(total)); CHECK(record.at("length") == std::to_string(end - start));
+    CHECK(record.at("sent") == std::to_string(sent)); CHECK(record.at("resource") != "0");
+}
+}
+namespace mediavault {
+void writeFixtureRelayTrace(const std::string &message) noexcept {
+    std::lock_guard<std::mutex> lock(traceMutex);
+    traceRecords.push_back(message); traceChanged.notify_all();
+}
+}
+CASE(fixture_relay_trace_ranges) {
+    Media media; Relay relay; const auto uri = relay.add(token(), media.resource());
+    CHECK(transact(uri).body == media.bytes);
+    CHECK(transact(uri, "HEAD").body.empty());
+    CHECK(transact(uri, "GET", "Range: bytes=2-5\r\n").body == "2345");
+    CHECK(transact(uri, "GET", "Range: bytes=12-\r\n").body == "cdef");
+    CHECK(transact(uri, "GET", "Range: bytes=-4\r\n").body == "cdef");
+    CHECK(transact(uri, "GET", "Range: bytes=16-\r\n").status == 416);
+    const auto log = records(12); CHECK(log.size() == 12);
+    completed(log[1], 200, 0, 16, 16, 16);
+    completed(log[3], 200, 0, 16, 16, 0, "HEAD");
+    completed(log[5], 206, 2, 6, 16, 4);
+    completed(log[7], 206, 12, 16, 16, 4);
+    completed(log[9], 206, 12, 16, 16, 4);
+    completed(log[11], 416, 0, 0, 16, 0);
+    for (size_t i = 0; i < log.size(); i += 2) {
+        CHECK(log[i].at("event") == "response"); CHECK(log[i].at("sent") == "0");
+        CHECK(log[i].at("request") == log[i + 1].at("request"));
+        CHECK(log[i].at("resource") == log[0].at("resource"));
+        CHECK(log[i].at("range") == (i < 4 ? "0" : "1"));
+    }
+}
+CASE(fixture_relay_trace_short_read) {
+    Media media; Relay relay; auto resource = media.resource();
+    resource.read = [&media](uint64_t at, size_t n) {
+        n = std::min<size_t>(3, n); return Bytes(media.bytes.begin() + at, media.bytes.begin() + at + n);
+    };
+    CHECK(transact(relay.add(token(), resource)).body == media.bytes);
+    resource.read = [](uint64_t at, size_t) { return at == 0 ? Bytes(3, 'x') : Bytes(); };
+    CHECK(transact(relay.add(token(2), resource)).body == "xxx");
+    const auto log = records(4); completed(log[1], 200, 0, 16, 16, 16);
+    CHECK(log[3].at("stage") == "read"); CHECK(log[3].at("sent") == "3");
+    CHECK(log[3].at("length") == "16"); CHECK(log[1].at("resource") != log[3].at("resource"));
+}
+CASE(fixture_relay_trace_private_errors) {
+    Media media; media.bytes = "BODY_PRIVATE_SENTINEL"; Relay relay;
+    auto resource = media.resource(); resource.mime = "video/MIME_PRIVATE_SENTINEL";
+    const auto uri = relay.add(std::string(64, 'a'), resource);
+    CHECK(transact(uri, "POST", "X-Secret: HEADER_PRIVATE_SENTINEL\r\n").status == 0);
+    CHECK(transact(uri, "GET", "Range: RANGE_PRIVATE_SENTINEL\r\n").status == 416);
+    resource.read = [](uint64_t, size_t) -> Bytes { throw UserError("EXCEPTION_PRIVATE_SENTINEL"); };
+    CHECK(transact(relay.add(token(2), resource)).body.empty());
+    resource.check = [] { throw UserError("ACCESS_PRIVATE_SENTINEL"); };
+    CHECK(transact(relay.add(token(3), resource)).status == 0);
+    const auto log = records(5); CHECK(log.size() == 5);
+    CHECK(log[1].at("status") == "416"); CHECK(log[3].at("stage") == "read");
+    CHECK(log[4].at("stage") == "access"); CHECK(log[4].at("sent") == "0");
+}
+CASE(fixture_relay_trace_peer_close) {
+    auto media = std::make_shared<Media>(); auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
+    Relay relay; const auto uri = relay.add(token(), delayedResource(media, gate));
+    Socket client(uri); client.send(request(uri)); CHECK(response(client.receive(true)).status == 200); gate->await();
+    linger reset{1, 0}; CHECK(::setsockopt(client.fd, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)) == 0);
+    CHECK(::close(client.fd) == 0); client.fd = -1; gate->release();
+    const auto log = records(2);
+    CHECK(log[1].at("event") == "finish"); CHECK(log[1].at("stage") == "send");
+    CHECK(log[1].at("length") == "16"); CHECK(log[1].at("sent") == "0");
+}
+CASE(fixture_relay_trace_cap) {
+    Media media; Relay relay; const auto uri = relay.add(token(), media.resource());
+    auto artwork = media.resource(); artwork.mime = "image/png";
+    const auto artworkURI = relay.add(token(2), artwork);
+    // Earlier screen artwork must not consume the media diagnostic budget.
+    for (unsigned i = 0; i < 70; ++i) CHECK(transact(artworkURI).body == media.bytes);
+    for (unsigned i = 0; i < 70; ++i) CHECK(transact(uri, "HEAD").status == 200);
+    const auto log = records(128); CHECK(log.size() == 128);
+    for (size_t i = 0; i < log.size(); i += 2) {
+        CHECK(log[i].at("request") == std::to_string(i / 2 + 1));
+        completed(log[i + 1], 200, 0, 16, 16, 0, "HEAD");
+    }
+}
+#endif

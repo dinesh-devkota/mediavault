@@ -586,11 +586,33 @@ try {
     await addSource('Formats NAS', endpoint.replace(/MEDIALIBRARY$/, 'FORMATPLAYBACK'));
     await clickXPath('//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Controls.mkv")]'); await click('action-play');
     await waitFor(async () => await position() >= 1, 'The real MKV decoder must advance.', 40_000);
-    await key(164); await element(byID('action-play')); // Linux KEY_PLAYPAUSE, while an ordinary control has focus.
+    await waitFor(() => nativeFocused(byID('action-pause')),
+      'The ready player must give Pause native focus before any helper assigns it.');
+    await key(164); await element(byID('action-play'));
     const paused = await position(); await sleep(1500); assert(Math.abs(await position() - paused) <= 1, 'Pause must stop the clock.');
-    await key(208); await waitFor(async () => await position() >= paused + 25, 'Remote fast-forward must seek.');
-    const advanced = await position(); await key(168); await waitFor(async () => await position() <= advanced - 7, 'Remote rewind must seek.');
-    await key(164); await element(byID('action-pause')); await capture('06-mkv-playing');
+    async function seekAcknowledged(before, delta, message) {
+      const expected = Math.max(0, before + delta);
+      let observed;
+      // Integer UI seconds and native sampling can differ slightly. A duplicate
+      // 10-second action or the old extra 30-second handler must still fail.
+      await waitFor(async () => { observed = await position(); return Math.abs(observed - expected) <= 2; }, message);
+      await element(byID('action-play'));
+      return observed;
+    }
+    await focusVisible(byID('action-play'));
+    await key(208); const advanced = await seekAcknowledged(paused, 10, 'Remote fast-forward must seek once by 10 seconds.');
+    await click('action-forward-30-seconds');
+    const buttonAdvanced = await seekAcknowledged(advanced, 30, 'The Forward 30 seconds button must advance 30 seconds.');
+    // Rewind away from zero so a duplicated action cannot hide behind clamping.
+    await focusVisible(byID('action-play'));
+    await key(168); const rewound = await seekAcknowledged(buttonAdvanced, -10, 'Remote rewind must seek once by 10 seconds.');
+    await click('action-back-10-seconds');
+    const buttonRewound = await seekAcknowledged(rewound, -10, 'The Back 10 seconds button must rewind 10 seconds.');
+    await sleep(1500); assert(Math.abs(await position() - buttonRewound) <= 1, 'Seeking while paused must leave the clock stopped.');
+    await focusVisible(byID('action-play'));
+    await key(164); await element(byID('action-pause'));
+    await waitFor(async () => await position() >= buttonRewound + 1, 'Resume after seeking must advance the actual decoder clock.');
+    await capture('06-mkv-playing');
     await key(158); await element(byID('detail-title')); await element(byID('action-resume'));
     await click('action-back');
   });

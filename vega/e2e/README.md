@@ -42,7 +42,14 @@ Profile collection isolation waits for the destination collections heading and
 form before checking that another profile's collection is absent. These waits
 acknowledge rendered route state; they do not insert fixed delays.
 
-
+Journey 06 requires native focus on the ready player's Pause control before
+any helper can assign it. Later isolated media-key checks retain strict native
+control focus. The SDK owns remote forward/back with a configured 10-second interval;
+the harness requires one actual 10-second move in each direction (two seconds
+of tolerance for displayed integer time and native sampling). It separately
+activates the labeled on-screen Forward 30/Back 10 buttons and requires their
+30/10-second moves. The clock must remain stopped during paused seeks, then
+advance again after resume. Native seek rejection still fails this journey.
 
 On a production installation, journey 10 additionally restarts the app, unlocks with the saved PIN, and rescans using saved NAS credentials. Physical Vega hardware is required when the virtual device lacks the native secure-storage service.
 

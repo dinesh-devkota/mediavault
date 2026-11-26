@@ -49,6 +49,23 @@ endforeach()
 # Deliberately isolated from the production host executable: the only target
 # that compiles the disposable in-memory Vault and its conspicuous marker.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+  add_executable(mediavault_fixture_relay_tests TestMain.cpp RelayTests.cpp ../kepler/Relay.cpp)
+  target_include_directories(mediavault_fixture_relay_tests PRIVATE ../kepler)
+  target_compile_definitions(mediavault_fixture_relay_tests PRIVATE
+    MEDIAVAULT_VVD_FIXTURE=1 MEDIAVAULT_RELAY_TRACE_TEST=1)
+  target_compile_options(mediavault_fixture_relay_tests PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic)
+  target_link_libraries(mediavault_fixture_relay_tests PRIVATE nlohmann_json::nlohmann_json Threads::Threads)
+  foreach(test IN ITEMS fixture_relay_trace_ranges fixture_relay_trace_short_read
+      fixture_relay_trace_private_errors fixture_relay_trace_peer_close fixture_relay_trace_cap)
+    add_test(NAME ${test} COMMAND mediavault_fixture_relay_tests ${test})
+    set_tests_properties(${test} PROPERTIES TIMEOUT 15 LABELS fixture)
+  endforeach()
+  add_test(NAME fixture_relay_binary_separation COMMAND "${CMAKE_COMMAND}"
+    "-DPRODUCTION=$<TARGET_FILE:mediavault_native_tests>"
+    "-DFIXTURE=$<TARGET_FILE:mediavault_fixture_relay_tests>"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/FixtureRelayBinary.cmake")
+  set_tests_properties(fixture_relay_binary_separation PROPERTIES TIMEOUT 15 LABELS fixture)
+
   add_executable(mediavault_fixture_vault_tests TestMain.cpp FixtureVaultTests.cpp
     ../kepler/FixtureVault.cpp ../kepler/Path.cpp)
   target_include_directories(mediavault_fixture_vault_tests PRIVATE ../kepler)
