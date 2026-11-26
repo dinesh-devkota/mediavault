@@ -197,6 +197,7 @@ struct AlternativePlayerView: View {
     @FocusState private var videoFocused: Bool
     @State private var controlsVisible = true
     @State private var controlsTask: Task<Void, Never>?
+    @State private var transportHeight: CGFloat = 0
 
     init(controller: PlaybackController, playback: AlternativePlayback, close: @escaping () -> Void) {
         self.controller = controller; self.playback = playback; self.close = close; self.subtitles = controller.subtitles
@@ -248,6 +249,9 @@ struct AlternativePlayerView: View {
                             .focused($focusedControl, equals: .forward).accessibilityIdentifier("alternative-forward")
                     }.frame(maxWidth: .infinity)
                 }.padding().background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 16))
+                    .background(GeometryReader { geometry in
+                        Color.clear.preference(key: AlternativeTransportHeightKey.self, value: geometry.size.height)
+                    })
             }
             #if os(tvOS)
             .padding(48)
@@ -257,6 +261,7 @@ struct AlternativePlayerView: View {
             .buttonStyle(.bordered)
             .opacity(controlsVisible ? 1 : 0).allowsHitTesting(controlsVisible).disabled(!controlsVisible)
             .accessibilityHidden(!controlsVisible)
+            LocalCaptionOverlay(subtitles: subtitles, bottomInset: captionBottomInset)
             #if CINEVAULT_COMMERCIAL
             if let session = controller.externalCommercialSession {
                 ExternalPlaybackAccessView(session: session, close: close)
@@ -277,6 +282,7 @@ struct AlternativePlayerView: View {
         .onChange(of: controller.audioSelectionPresented) { _, _ in revealControls() }
         .onChange(of: voiceOverEnabled) { _, _ in revealControls() }
         .onDisappear { controlsTask?.cancel() }
+        .onPreferenceChange(AlternativeTransportHeightKey.self) { transportHeight = $0 }
         .sheet(isPresented: $controller.audioSelectionPresented) {
             NavigationStack {
                 List {
@@ -309,6 +315,17 @@ struct AlternativePlayerView: View {
         if playback.playing { controller.pause() } else { controller.play() }
         revealControls()
     }
+    private var captionBottomInset: CGFloat? {
+        guard controlsVisible else { return nil }
+        #if os(tvOS)
+        let controlsBottomMargin: CGFloat = 48
+        #else
+        let controlsBottomMargin: CGFloat = 16
+        #endif
+        // Measure the actual panel so long titles, Dynamic Type and rotation
+        // cannot put captions over its title, scrubber or transport buttons.
+        return max(LocalCaptionOverlay.defaultBottomInset, transportHeight + controlsBottomMargin + 16)
+    }
     private func revealControls() {
         controlsTask?.cancel()
         let wasHidden = !controlsVisible
@@ -325,6 +342,13 @@ struct AlternativePlayerView: View {
         let value = max(0, seconds.isFinite ? Int(seconds) : 0)
         return value >= 3600 ? String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60)
             : String(format: "%d:%02d", value / 60, value % 60)
+    }
+}
+
+private struct AlternativeTransportHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

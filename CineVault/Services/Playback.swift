@@ -757,7 +757,7 @@ private struct ActivePlaybackView: View {
                 #endif
         #endif
             }
-            LocalCaptionOverlay(subtitles: subtitles)
+            if controller.alternative == nil { LocalCaptionOverlay(subtitles: subtitles) }
             #if CINEVAULT_COMMERCIAL || os(iOS)
             if controller.alternative == nil { VStack {
                 HStack {

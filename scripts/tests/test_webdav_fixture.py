@@ -8,6 +8,7 @@ import socket
 import ssl
 import tempfile
 import threading
+import time
 import unittest
 
 
@@ -54,11 +55,12 @@ class WebDAVFixtureTests(unittest.TestCase):
         cls.directory.cleanup()
 
     @contextmanager
-    def server(self, *, timeout=5):
+    def server(self, *, timeout=5, handshake_timeout=None):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(self.certificate, self.key)
         with ObservedServer(("127.0.0.1", 0), QuietHandler,
-                            ssl_context=context, connection_timeout=timeout) as server:
+                            ssl_context=context, connection_timeout=timeout,
+                            handshake_timeout=timeout if handshake_timeout is None else handshake_timeout) as server:
             thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
             thread.start()
             try:
@@ -109,6 +111,23 @@ class WebDAVFixtureTests(unittest.TestCase):
                     self.assertIsNotNone(server.handshakes[0][1])
                     self.assertIsNone(server.handshakes[0][2])
                     self.assertEqual(client.recv(1), b"", "Idle HTTP read remains bounded after TLS completes")
+            self.assertEqual(self.request(server)[0], 207)
+
+    def test_delayed_tls_handshake_uses_its_own_budget_then_restores_http_idle_limit(self):
+        with self.server(timeout=0.1, handshake_timeout=1) as server:
+            with socket.create_connection(server.server_address, timeout=2) as raw:
+                self.assertTrue(server.accepted.wait(2))
+                # Deliberately exceed the HTTP idle budget before ClientHello.
+                # The former shared timeout closed this otherwise valid client.
+                time.sleep(0.25)
+                with self.trusted.wrap_socket(raw, server_hostname="127.0.0.1") as client:
+                    self.assertTrue(server.handshake_observed.wait(2))
+                    self.assertGreaterEqual(server.handshakes[0][0], 0.2)
+                    self.assertIsNone(server.handshakes[0][2])
+                    started = time.monotonic()
+                    self.assertEqual(client.recv(1), b"")
+                    self.assertLess(time.monotonic() - started, 0.8,
+                                    "TLS completion must restore the shorter HTTP idle timeout")
             self.assertEqual(self.request(server)[0], 207)
 
     def test_authentication_range_reads_and_certificate_validation_remain_enforced(self):

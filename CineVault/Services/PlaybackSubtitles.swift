@@ -562,6 +562,14 @@ struct SubtitleSelectionView: View {
 
 struct LocalCaptionOverlay: View {
     @ObservedObject var subtitles: PlaybackSubtitles
+    var bottomInset: CGFloat? = nil
+    static var defaultBottomInset: CGFloat {
+        #if os(tvOS)
+        return 140
+        #else
+        return 92
+        #endif
+    }
     var body: some View {
         VStack {
             Spacer()
@@ -577,10 +585,11 @@ struct LocalCaptionOverlay: View {
                     .background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
                     .frame(maxWidth: 1400)
                     #if os(tvOS)
-                    .padding(.horizontal, 100).padding(.bottom, 140)
+                    .padding(.horizontal, 100)
                     #else
-                    .padding(.horizontal, 16).padding(.bottom, 92)
+                    .padding(.horizontal, 16)
                     #endif
+                    .padding(.bottom, bottomInset ?? Self.defaultBottomInset)
                     .accessibilityIdentifier("local-subtitle-caption")
             }
         }.allowsHitTesting(false)

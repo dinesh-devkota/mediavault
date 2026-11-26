@@ -133,15 +133,19 @@ class Handler(BaseHTTPRequestHandler):
 class TLSFixtureServer(ThreadingHTTPServer):
     """Keep speculative/idle connections out of the listener's accept loop."""
 
-    def __init__(self, address, handler, *, ssl_context, connection_timeout=5):
+    def __init__(self, address, handler, *, ssl_context, connection_timeout=5, handshake_timeout=20):
         self.ssl_context = ssl_context
         self.connection_timeout = connection_timeout
+        self.handshake_timeout = handshake_timeout
         super().__init__(address, handler)
 
     def get_request(self):
         connection, address = super().get_request()
         try:
-            connection.settimeout(self.connection_timeout)
+            # A busy simulator can spend several seconds completing platform
+            # trust evaluation. Match its bounded request allowance for TLS,
+            # then restore the shorter HTTP idle timeout after the handshake.
+            connection.settimeout(self.handshake_timeout)
             # Handshake explicitly on the worker below, not synchronously in
             # SSLSocket.accept(). Browsers/URLSession may preconnect without yet
             # sending a ClientHello; that must not stall every other client.
@@ -169,8 +173,9 @@ class TLSFixtureServer(ThreadingHTTPServer):
             self.shutdown_request(request)
             return
         self.log_handshake(client_address, elapsed=time.monotonic() - started, protocol=request.version())
+        request.settimeout(self.connection_timeout)
         # A later "Request timed out" now unambiguously means HTTP I/O, while
-        # a handshake timeout is identified above. Keep the same bounded timeout.
+        # a handshake timeout is identified above. Both phases remain bounded.
         super().process_request_thread(request, client_address)
 
 
