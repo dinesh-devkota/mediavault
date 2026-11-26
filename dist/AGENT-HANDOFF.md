@@ -66,6 +66,29 @@ content and bounds the handoff. Its full Android TV workflow passed
 
 ## Amazon Fire TV work — November 25, 2026
 
+Run `45726677998` at `c538b89` passed every release architecture, the isolated
+fixture package, and all 74 native checks. The actual VVD production startup
+probe passed: unsupported keystore, hidden library, enabled Retry. Fixture startup
+and its banner passed, and Source name accepted the full typed value. Journey 01
+failed because `getText` queried RN's focus wrapper, not its editable child.
+Evidence is under `.artifacts/vega-ui-45726677998`. The new harness targets the
+editor, dismisses the observed IME with Done, and uses bounded D-pad/focus steps
+for off-screen fields. It also suppresses raw driver console RPC bodies.
+
+The following checkpoint fixes actual SDK playback initialization: wait for the
+native surface callback before setting src, poll real native state if events are
+absent, resume once, and preserve terminal completion during cleanup. Ten new
+lifecycle regressions pass; the full app/domain suite is 37/37, typecheck passes,
+and lint has no errors. A loopback-only HTTP playback policy passes SDK manifest
+validation, and 20 packaged/staging guards plus seven probe tests pass. Actual
+playback remains under VVD validation. The mixed invalid/unavailable NFO rating
+case is fixed in Vega and Android (`369c890` in PR19); Apple already fails closed.
+
+Fresh private build-only run `45727288957` pins companion `5cd626e` and waits for
+the owner's protected `commercial` approval. It can verify standalone private
+engine tests and the existing main tvOS integration; full new VLC/iPhone wiring
+still requires reviewed public code/workflow promotion and a later approved run.
+
 Latest Vega checkpoint: all 74 native host regressions pass (57 production,
 17 isolated fixture). The SDK-built Debug/x86_64 simulator-only VPKG passes
 manifest/ABI and actual packaged marker checks. Its package ID is

@@ -12,6 +12,12 @@ id = "com.dineshdevkota.cinevault"
 min = "2.0"
 target = "2.0"
 
+# Media is handed to the native player through a revocable loopback relay.
+# Vega OS 2 URL-mode playback applies this policy before opening that HTTP URI.
+# Remote WebDAV/Jellyfin connections remain HTTPS-only in the native bridge.
+[network-traffic-policy.cleartext]
+allowed-domains = ["127.0.0.1"]
+
 [needs]
 [wants]
 [[wants.module]]

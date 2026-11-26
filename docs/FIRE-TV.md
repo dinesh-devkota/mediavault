@@ -41,7 +41,7 @@ isolated Ubuntu host with pinned base images and a verified official installer.
 Source development includes SMB, WebDAV and Jellyfin, local metadata/artwork,
 profile-scoped collections, versions, photos, continuous viewing and protected
 source access. The native SMB/HTTP/credential bridge compiles against Amazon's
-real SDK. TypeScript checking, 25 app/contract tests and 74 native host regression
+real SDK. TypeScript checking, 37 app/contract tests and 74 native host regression
 tests pass. The host suite exercises real SMB/HTTPS fixtures, including rejected
 credentials, cancellation, certificate verification and Jellyfin access boundaries.
 The first complete aarch64 debug VPKG also passes Amazon's manifest
@@ -67,9 +67,22 @@ HTTP access. CMake refuses this storage for release builds, device architectures
 or the production package identity. The packaged binary is checked for a fixture
 marker, which must be absent from every release. This isolated package passes the
 actual SDK manifest/ABI checks; its UI journeys remain under hosted validation.
-The 74 host checks include 17 fixture-policy/build-guard tests. Another 19 tests
+The 74 host checks include 17 fixture-policy/build-guard tests. Another 20 tests
 verify staging and packaged identities, and seven validate the startup probe.
 None of these replace physical-device secure-storage and restart testing.
+
+Run `45726677998` passed all three production packages, the isolated fixture
+package and native checks. Its real-device production probe confirmed the exact
+unsupported-storage state, hidden library and enabled Retry. The fixture app
+opened NAS setup and accepted text; the harness incorrectly queried the input's
+focus wrapper. The follow-up targets the editable child and navigates with the
+remote. No complete library journey has passed yet.
+
+The next checkpoint also waits for the native video surface before opening a
+stream, reads real player state when optional events are absent, and explicitly
+permits the internal `127.0.0.1` HTTP media relay. Other HTTP destinations remain
+disallowed. Confirmed malformed local metadata now clears uncertain age ratings
+even when another sidecar is temporarily unavailable, matching the Apple policy.
 
 The initial Vega app still lacks the existing Android/Apple apps' TMDB settings,
 SubDL downloads, automatic NAS discovery and editing an existing household profile.

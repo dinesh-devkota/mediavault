@@ -22,6 +22,9 @@ def verify(manifest: bytes, native: bytes, mode: str, target: str) -> dict:
         raise ValueError("Unexpected package identity.")
     if data["components"]["interactive"][0]["id"] != expected_id + ".main":
         raise ValueError("Unexpected application component identity.")
+    cleartext = data.get("network-traffic-policy", {}).get("cleartext", {})
+    if cleartext.get("allowed-domains") != ["127.0.0.1"] or cleartext.get("blocked-domains"):
+        raise ValueError("Native playback must allow only its loopback media relay over HTTP.")
     if native[:4] != b"\x7fELF" or len(native) < 20 or native[5] != 1:
         raise ValueError("Expected a little-endian native ELF library.")
     if struct.unpack_from("<H", native, 18)[0] != {"armv7": 40, "aarch64": 183, "x86_64": 62}[target]:
@@ -33,7 +36,8 @@ def verify(manifest: bytes, native: bytes, mode: str, target: str) -> dict:
     elif any(markers):
         raise ValueError("Simulator-only storage was found in a production package.")
     return {"packageId": expected_id, "target": target, "fixtureOnly": mode == "fixture",
-            "nativeStorageMarker": all(markers), "hardwareKeystoreVerified": False}
+            "nativeStorageMarker": all(markers), "cleartextDomains": ["127.0.0.1"],
+            "hardwareKeystoreVerified": False}
 
 
 if __name__ == "__main__":

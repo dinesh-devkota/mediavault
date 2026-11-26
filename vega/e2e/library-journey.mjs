@@ -45,21 +45,65 @@ async function element(xpath) {
   return (await call('POST', '/element', {using: 'xpath', value: xpath}))[elementKey];
 }
 async function click(id) { await clickXPath(byID(id)); }
+async function focusVisible(xpath) {
+  const window = await call('GET', '/window/rect');
+  let direction = 108, previousFocus, unchanged = 0;
+  const deadline = Date.now() + 25_000;
+  for (let attempt = 0; attempt < 50 && Date.now() < deadline; attempt++) {
+    const matches = await call('POST', '/elements', {using: 'xpath', value: xpath});
+    if (matches.length) {
+      const id = matches[0][elementKey];
+      const rect = await call('GET', `/element/${id}/rect`);
+      const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+      if (rect.width > 0 && rect.height > 0 && x >= window.x && x < window.x + window.width && y >= window.y && y < window.y + window.height) {
+        await call('POST', '/execute/sync', {script: 'jsonrpc: setFocus', args: [[{id: Number(id)}]]});
+        await waitFor(async () => await call('GET', `/element/${id}/attribute/UiObject:focused`) === 'true', 'The remote could not focus the target control.', 3000);
+        return id;
+      }
+      direction = y < window.y ? 103 : y >= window.y + window.height ? 108 : x < window.x ? 105 : 106;
+    }
+    // Vega omits off-screen fields from the tree. D-pad focus moves the actual
+    // ScrollView; coordinate clicks cannot reveal those fields. Reverse only
+    // after observing focus stop changing at an edge.
+    const focused = await call('POST', '/elements', {using: 'xpath', value: '//*[@focused="true"]'});
+    const focus = focused.map(value => value[elementKey]).join(',');
+    unchanged = focus === previousFocus ? unchanged + 1 : 0; previousFocus = focus;
+    if (unchanged >= 2) { direction = direction === 108 ? 103 : 108; unchanged = 0; }
+    await key(direction); await sleep(100);
+  }
+  throw new Error(`The remote could not reveal the target control: ${xpath}`);
+}
 async function clickXPath(xpath) {
-  const id = await element(xpath);
+  const id = await focusVisible(xpath);
   assert(await call('GET', `/element/${id}/enabled`), 'Target action must be enabled.');
-  await call('POST', `/element/${id}/click`, {});
+  await key(96);
 }
 async function key(code) {
   await call('POST', '/execute/sync', {script: 'jsonrpc: injectInputKeyEvent', args: [[{inputKeyEvent: String(code), holdDuration: 30}]]});
 }
 async function enter(id, value, previous = '') {
-  const target = await element(byID(id));
-  await call('POST', `/element/${target}/click`, {});
+  const editorPath = byID(id) + "//*[@editable='true']";
+  await focusVisible(editorPath);
+  await key(96);
+  await element(byID('key_Done'));
+  const target = await element(editorPath);
   // Use documented Linux key events for editing; the Vega command reference does not promise element.clear().
   if (previous) { await key(107); for (let i = 0; i < previous.length; i++) { await key(14); } }
   await call('POST', `/element/${target}/value`, {text: value, value: [...value]});
-  if (!/password|pin/.test(id)) { await waitFor(async () => (await text(id)) === value, `The text field did not acknowledge the complete input: ${id}`); }
+  if (!/password|pin/.test(id)) {
+    await waitFor(async () => {
+      // RN Vega puts testID on a focus wrapper. The actual editor is a child;
+      // getText(wrapper) returns null even when the full value is visible.
+      const editor = await element(editorPath);
+      return await call('GET', `/element/${editor}/text`) === value;
+    }, `The text field did not acknowledge the complete input: ${id}`);
+  }
+  // send_keys opens Vega's system keyboard. Complete the observed editing
+  // session before navigating to another field or pressing a form action.
+  if (await exists(byID('key_Done'))) {
+    await click('key_Done');
+    await waitFor(async () => !await exists(byID('key_Done')), 'The system keyboard did not finish editing.');
+  }
 }
 async function text(id) { return call('GET', `/element/${await element(byID(id))}/text`); }
 async function addSource(name, address) {
@@ -79,8 +123,22 @@ async function position() {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 async function capture(name) {
-  if (await exists('//*[starts-with(@test_id,"field-") and contains(@test_id,"pin")]') || await exists(byID('source-password'))) {
+  if (await exists('//*[starts-with(@test_id,"field-") and contains(@test_id,"pin")]') || await exists(byID('source-password'))
+    || await exists("//app[@appName='com.amazon.silverstone']//window")) {
     await writeFile(resolve(output, `${name}.capture-skipped.txt`), 'Visual and hierarchy evidence omitted while protected entry fields were on screen.');
+    // Keep layout/focus evidence without text, values, descriptions or pixels.
+    // This makes an off-screen field diagnosable without retaining credentials.
+    const source = await call('GET', '/source');
+    const attributes = new Set(['test_id', 'role', 'focused', 'focusable', 'enabled',
+      'visible', 'clickable', 'editable', 'bounds', 'x', 'y', 'width', 'height']);
+    const structure = [...source.matchAll(/<([A-Za-z_][\w:.-]*)([^<>]*)>/g)].map(match => {
+      const safe = {element: match[1]};
+      for (const attribute of match[2].matchAll(/([\w:.-]+)="([^"]*)"/g)) {
+        if (attributes.has(attribute[1])) { safe[attribute[1]] = attribute[2]; }
+      }
+      return safe;
+    });
+    await writeFile(resolve(output, `${name}.layout.json`), JSON.stringify(structure, null, 2));
     return;
   }
   const source = await call('GET', '/source');
@@ -90,12 +148,14 @@ async function capture(name) {
 }
 async function step(name, run) {
   const started = Date.now();
+  console.log(`[Vega journey] Starting ${name}`);
   try { await run(); await capture(name); results.push({name, passed: true, status: 'passed', durationMs: Date.now() - started}); }
   catch (error) {
     const sanitized = String(error).replace(/482619|000000|fixture-only/g, '[fixture credential]');
     results.push({name, passed: false, status: 'failed', error: sanitized, durationMs: Date.now() - started});
     await capture(name + '-failure').catch(() => {}); throw new Error(sanitized);
   }
+  console.log(`[Vega journey] Passed ${name}`);
 }
 async function probeProductionStartup() {
   await waitFor(async () => {

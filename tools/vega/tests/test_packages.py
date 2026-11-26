@@ -24,6 +24,7 @@ FIXTURE = "com.dineshdevkota.mediavault.vvdfixture"
 
 def manifest(package=PRODUCTION, component=None):
     return (f'[package]\nid = "{package}"\ntitle = "MediaVault"\n'
+            '[network-traffic-policy.cleartext]\nallowed-domains = ["127.0.0.1"]\n'
             f'[components]\n[[components.interactive]]\nid = "{component or package + ".main"}"\n').encode()
 
 
@@ -153,6 +154,16 @@ class FixtureStagingTests(unittest.TestCase):
 
 
 class PackagedVerificationTests(unittest.TestCase):
+    def test_http_policy_requires_the_exact_loopback_relay(self):
+        for replacement in (b'[]', b'["*"]', b'["127.0.0.1", "example.com"]'):
+            with self.subTest(policy=replacement):
+                changed = manifest().replace(b'["127.0.0.1"]', replacement)
+                with self.assertRaisesRegex(ValueError, "loopback"):
+                    packages.verify(changed, native(), "production", "x86_64")
+        missing = manifest().replace(b'[network-traffic-policy.cleartext]\nallowed-domains = ["127.0.0.1"]\n', b'')
+        with self.assertRaisesRegex(ValueError, "loopback"):
+            packages.verify(missing, native(), "production", "x86_64")
+
     def test_clean_production_architectures_are_accepted_without_hardware_claim(self):
         for target in ("armv7", "aarch64", "x86_64"):
             with self.subTest(target=target):

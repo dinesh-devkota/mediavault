@@ -126,4 +126,39 @@ describe('Vega library contracts', () => {
     const outage = {...client, readText: async () => { throw new Error('Offline'); }};
     expect((await scanSource(source, outage, [original], () => {}, () => {}))[0]!.certification).toBe('PG');
   });
+  it.each(['episode', 'show'] as const)('hides an invalid %s rating when the other sidecar is unavailable, preserving display fields', async invalid => {
+    const episodePath = 'Shows/Example.S01E01.mp4';
+    const episodeNFO = 'Shows/Example.S01E01.nfo';
+    const showNFO = 'Shows/tvshow.nfo';
+    const original = applyLocalMetadata(movie(episodePath),
+      parseNFO('<episodedetails><title>Known episode</title><plot>Saved episode details</plot><year>2021</year><mpaa>TV-G</mpaa></episodedetails>'),
+      parseNFO('<tvshow><title>Known show</title><genre>Family</genre><uniqueid type="tmdb">123</uniqueid><mpaa>TV-G</mpaa></tvshow>'));
+    const child: HouseholdProfile = {...viewer, folders: [{sourceId: source.id, path: 'Shows'}], maximumTVRating: 'TV-G'};
+    expect(visible(original, source, child, true)).toBe(true);
+    const client: SourceClient = {
+      list: async path => path === '' ? [{path: 'Shows', name: 'Shows', directory: true, size: 0}]
+        : [episodePath, episodeNFO, showNFO].map(value => ({path: value, name: value.slice('Shows/'.length), directory: false, size: 100})),
+      readText: async path => {
+        if (path === (invalid === 'episode' ? episodeNFO : showNFO)) { return '<movie><title>Corrupt</movie>'; }
+        throw new Error('The other sidecar is temporarily unavailable');
+      },
+      playback: async item => ({uri: item.path}),
+    };
+    const result = (await scanSource(source, client, [original], () => {}, () => {})).find(item => item.path === episodePath)!;
+    expect(result).toMatchObject({title: original.title, plot: original.plot, year: original.year,
+      genres: original.genres, seriesTitle: original.seriesTitle, seriesId: original.seriesId,
+      season: original.season, episode: original.episode});
+    expect(result.certification).toBeUndefined();
+    expect(result.local?.certificationPresent).toBe(true);
+    expect(visible(result, source, child, true)).toBe(false);
+
+    // A network failure without confirmed invalid data must not discard the last complete import.
+    const unavailable = {...client, readText: async () => { throw new Error('Offline'); }};
+    const retained = (await scanSource(source, unavailable, [original], () => {}, () => {})).find(item => item.path === episodePath)!;
+    expect(retained).toMatchObject({...original, missing: false});
+    expect(visible(retained, source, child, true)).toBe(true);
+    const corrected = {...original, manuallyMatched: true};
+    const manual = (await scanSource(source, client, [corrected], () => {}, () => {})).find(item => item.path === episodePath)!;
+    expect(manual).toMatchObject({...corrected, missing: false});
+  });
 });

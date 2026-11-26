@@ -82,9 +82,9 @@ export async function scanSource(source: Source, client: SourceClient, previous:
         if (path) { show = await read(path); showDirectory = candidate; break; }
       }
     }
-    // Unreadable optional metadata retains the last complete import. A confirmed malformed
-    // specific file makes its rating unknown; a permissive parent cannot reveal that title.
-    if (!specific.unavailable && !show.unavailable) {
+    // Confirmed corruption makes the rating unknown even when another sidecar
+    // is temporarily unavailable. A transport failure alone retains the last import.
+    if (specific.invalid || show.invalid || (!specific.unavailable && !show.unavailable)) {
       item = applyLocalMetadata(item, specific.info, show.info, specific.invalid || show.invalid);
     }
     const posters = present(directory, artworkCandidates(item.path, false, singleVideo));

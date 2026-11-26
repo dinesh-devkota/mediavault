@@ -1,10 +1,11 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {AppState, StyleSheet, Text, View} from 'react-native';
 import {useTVEventHandler} from '@amazon-devices/react-native-kepler';
-import {AudioTrack, AudioTrackList, KeplerVideoView, TextTrack, TextTrackList, VideoPlayer, VTTCue} from '@amazon-devices/react-native-w3cmedia';
+import {AudioTrack, AudioTrackList, KeplerCaptionsView, KeplerVideoSurfaceView, TextTrack, TextTrackList, VideoPlayer, VTTCue} from '@amazon-devices/react-native-w3cmedia';
 import {MediaItem, PlaybackResource, ViewingState} from '../domain/model';
 import {SubtitleCue} from '../domain/subtitles';
 import {Action, colors, shared} from './Controls';
+import {PlayerSession} from './PlayerSession';
 
 export interface LoadedSubtitle { label: string; language: string; cues: SubtitleCue[] }
 // SDK 2.3 implements numeric access with a Proxy, but omits its index signature from typings.
@@ -17,7 +18,9 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   subtitles: () => Promise<LoadedSubtitle[]>; onProgress: (position: number, duration: number, ended: boolean) => void;
   onClose: () => void; next?: MediaItem; onNext: () => void; autoNext: boolean; onAutoNext: (enabled: boolean) => void;
 }) {
-  const [player, setPlayer] = useState<VideoPlayer>();
+  const [binding, setBinding] = useState<{video: VideoPlayer; session: PlayerSession}>();
+  const player = binding?.video;
+  const [ready, setReady] = useState(false);
   const [status, setStatus] = useState('Opening media…');
   const [error, setError] = useState<string>();
   const [paused, setPaused] = useState(false);
@@ -33,16 +36,8 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   // so a five-second progress write cannot restart the active native player.
   const startConfiguration = useRef({load, releaseResource, resume, subtitles});
   startConfiguration.current = {load, releaseResource, resume, subtitles};
-  const togglePlayback = (): void => {
-    if (!player || error) { return; }
-    try { if (player.paused) { void player.play().catch(() => setError('Playback could not resume.')); } else { player.pause(); } }
-    catch { setError('Playback could not continue.'); }
-  };
-  const seek = (delta: number): void => {
-    if (!player || error) { return; }
-    try { player.currentTime = Math.max(0, Math.min(Number.isFinite(player.duration) ? player.duration : Infinity, player.currentTime + delta)); }
-    catch { setError('This file could not seek to that position.'); }
-  };
+  const togglePlayback = (): void => { if (ready && !error) { binding?.session.toggle(); } };
+  const seek = (delta: number): void => { if (ready && !error) { binding?.session.seek(delta); } };
   useTVEventHandler(event => {
     if (event.eventKeyAction === 1) { return; }
     setControlsVisible(true); setInteraction(value => value + 1);
@@ -58,89 +53,44 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   }, [paused, status, error, countdown, interaction]);
   useEffect(() => {
     const configuration = startConfiguration.current;
-    let active = true, initialized = false, hasPlayed = false, lastWrite = 0, expired = false;
     const video = new VideoPlayer();
-    const predecessor = previousPlayerRelease;
-    let initialization: Promise<void> | undefined;
-    let resourceURI: string | undefined, releaseTask: Promise<void> | undefined;
-    const release = (): Promise<void> => {
-      releaseTask ??= predecessor.then(() => initialization).catch(() => {}).then(async () => {
-        if (initialized) { try { await video.deinitialize(); } catch { /* Continue revoking the capability. */ } }
-        if (resourceURI) { await configuration.releaseResource(resourceURI).catch(() => {}); }
-      });
-      return releaseTask;
-    };
     const tracks = (): void => {
-      if (!active) { return; }
-      setTrackLabels(Array.from({length: video.textTracks.length}, (_, i) => textAt(video.textTracks, i)?.label || textAt(video.textTracks, i)?.language || `Subtitles ${i + 1}`));
-      setAudioLabels(Array.from({length: video.audioTracks.length}, (_, i) => audioAt(video.audioTracks, i)?.label || audioAt(video.audioTracks, i)?.language || `Audio ${i + 1}`));
+      const text = Array.from({length: video.textTracks.length}, (_, i) => textAt(video.textTracks, i)?.label || textAt(video.textTracks, i)?.language || `Subtitles ${i + 1}`);
+      const audio = Array.from({length: video.audioTracks.length}, (_, i) => audioAt(video.audioTracks, i)?.label || audioAt(video.audioTracks, i)?.language || `Audio ${i + 1}`);
+      setTrackLabels(current => JSON.stringify(current) === JSON.stringify(text) ? current : text);
+      setAudioLabels(current => JSON.stringify(current) === JSON.stringify(audio) ? current : audio);
     };
-    const loaded = (): void => {
-      if (!active) { return; }
-      const saved = configuration.resume;
-      if (saved && !saved.watched && saved.position > 5 && Number.isFinite(video.duration) && saved.position < video.duration - 10) { video.currentTime = saved.position; }
-      setDuration(Number.isFinite(video.duration) ? video.duration : 0); tracks();
-    };
-    const playing = (): void => { if (active) { hasPlayed = true; setStatus(''); setPaused(false); setCountdown(undefined); tracks(); } };
-    const pause = (): void => { if (active) { setPaused(true); } };
-    const update = (): void => {
-      if (!active) { return; }
-      setPosition(video.currentTime);
-      if (Date.now() - lastWrite >= 5000) { lastWrite = Date.now(); callbacks.current.onProgress(video.currentTime, video.duration, false); }
-    };
-    const ended = (): void => {
-      if (!active) { return; }
-      callbacks.current.onProgress(video.currentTime, video.duration, true);
-      setStatus('Finished');
-      if (callbacks.current.next && callbacks.current.autoNext) { setCountdown(10); }
-    };
-    const failed = (): void => { if (active) { setError('This file could not be played on this device. Try another version or a compatible server stream.'); } };
-    const events = {loadedmetadata: loaded, playing, pause, timeupdate: update, ended, error: failed};
-    for (const [event, listener] of Object.entries(events)) { video.addEventListener(event, listener); }
-    const timeout = setTimeout(() => {
-      if (active && !hasPlayed) {
-        expired = true;
-        setError('Playback did not start. Check the source connection or choose another version.');
-        if (initialized) { try { video.pause(); } catch { /* The error remains actionable. */ } }
-        void release();
-      }
-    }, 30_000);
-    const lifecycle = AppState.addEventListener('change', state => { if (state !== 'active' && active) { callbacks.current.onClose(); } });
-    (async () => {
-      try {
-        await predecessor;
-        if (!active) { return; }
-        const resource = await configuration.load();
-        resourceURI = resource.uri;
-        if (!active || expired) { await configuration.releaseResource(resource.uri); return; }
-        if (resource.headers && Object.keys(resource.headers).length) { throw new Error('This connection needs a protected playback link. Reconnect the source.'); }
-        initialization = video.initialize().then(() => { initialized = true; });
-        await initialization;
-        if (!active || expired) { return; }
-        setPlayer(video);
-        video.src = resource.uri;
-        await video.play();
+    const session = new PlayerSession(video, {
+      ...configuration,
+      initialized: () => setBinding({video, session}),
+      sourceStarted: () => {
         // Subtitle failure must never stop valid media playback.
-        try {
-          const files = await configuration.subtitles();
-          if (!active) { return; }
+        Promise.resolve().then(configuration.subtitles).then(files => {
+          if (!session.active) { return; }
           for (const [index, file] of files.entries()) {
             const track = video.addTextTrack('subtitles', file.label, file.language);
             for (const cue of file.cues) { track.addCue(new VTTCue(cue.start, cue.end, cue.text)); }
             track.mode = index === 0 ? 'showing' : 'disabled';
           }
           tracks();
-        } catch { /* The user can continue with embedded tracks. */ }
-      } catch (reason) { if (active) { setError(reason instanceof Error ? reason.message : 'Playback could not start.'); } void release(); }
-    })();
+        }).catch(() => {});
+      },
+      state: value => {
+        setPosition(value.position); setDuration(value.duration); setPaused(value.paused); setReady(value.ready);
+        if (value.ended) { setStatus('Finished'); }
+        else if (value.started) { setStatus(''); }
+        tracks();
+      },
+      progress: (current, total, ended) => callbacks.current.onProgress(current, total, ended),
+      ended: () => { if (callbacks.current.next && callbacks.current.autoNext) { setCountdown(10); } },
+      failed: message => { setError(message); setReady(false); setTrackLabels([]); setAudioLabels([]); },
+    });
+    session.start(previousPlayerRelease);
+    const lifecycle = AppState.addEventListener('change', state => { if (state !== 'active' && session.active) { callbacks.current.onClose(); } });
     return () => {
-      active = false; clearTimeout(timeout); lifecycle.remove();
-      for (const [event, listener] of Object.entries(events)) { video.removeEventListener(event, listener); }
-      if (initialized) {
-        try { callbacks.current.onProgress(video.currentTime, video.duration, false); video.pause(); } catch { /* Continue releasing native resources. */ }
-      }
-      // The next episode must wait until this player's pending initialization and teardown finish.
-      previousPlayerRelease = release();
+      lifecycle.remove();
+      // The next episode must await pending native initialization and teardown.
+      previousPlayerRelease = session.stop();
     };
   }, [item.id]);
   useEffect(() => {
@@ -151,7 +101,12 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
   }, [countdown]);
   const time = (seconds: number): string => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}` : '0:00';
   return <View style={styles.page}>
-    {player && <KeplerVideoView videoPlayer={player} showControls={false} showCaptions={true} scalingmode="fit" style={StyleSheet.absoluteFill}/>}
+    {binding && <>
+      <KeplerVideoSurfaceView key={item.id} scalingmode="fit" style={StyleSheet.absoluteFill}
+        onSurfaceViewCreated={handle => binding.session.attachSurface(handle)} onSurfaceViewDestroyed={handle => binding.session.detachSurface(handle)}/>
+      <KeplerCaptionsView show style={StyleSheet.absoluteFill}
+        onCaptionViewCreated={handle => binding.session.attachCaption(handle)} onCaptionViewDestroyed={handle => binding.session.detachCaption(handle)}/>
+    </>}
     {controlsVisible && <View style={styles.heading}><Text style={shared.heading} testID="player-title">{item.title}</Text><Text style={styles.fileName} testID="player-file-name">{item.fileName}</Text></View>}
     {controlsVisible && <View style={styles.controls}>
       {!!status && <Text style={shared.subtitle}>{status}</Text>}
@@ -159,9 +114,9 @@ export function Player({item, resume, load, releaseResource, subtitles, onProgre
       <Text style={shared.text} testID="player-position">{time(position)} / {time(duration)}</Text>
       <View style={shared.row}>
         <Action label="Back" onPress={onClose}/>
-        <Action label={paused ? 'Play' : 'Pause'} preferred disabled={!player || !!error} onPress={togglePlayback}/>
-        <Action label="Back 10 seconds" disabled={!player || !!error} onPress={() => seek(-10)}/>
-        <Action label="Forward 30 seconds" disabled={!player || !!error} onPress={() => seek(30)}/>
+        <Action label={paused ? 'Play' : 'Pause'} preferred disabled={!ready || !!error} onPress={togglePlayback}/>
+        <Action label="Back 10 seconds" disabled={!ready || !!error} onPress={() => seek(-10)}/>
+        <Action label="Forward 30 seconds" disabled={!ready || !!error} onPress={() => seek(30)}/>
       </View>
       {!!trackLabels.length && <View style={shared.row}>
         <Action label="Subtitles off" onPress={() => { if (player) { for (let i = 0; i < player.textTracks.length; i++) { const track = textAt(player.textTracks, i); if (track) { track.mode = 'disabled'; } } } }}/>

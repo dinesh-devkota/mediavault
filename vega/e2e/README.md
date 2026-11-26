@@ -32,6 +32,19 @@ On a production installation, journey 10 additionally restarts the app, unlocks 
 
 Screenshots and UI trees are omitted while protected input fields are present. The runner uses only synthetic credentials and redacts those values from its own error results. Appium server logging must also redact request bodies or use a safe log level.
 
+The system keyboard is also treated as protected entry. Only an allowlisted
+layout/focus snapshot is retained in that state; text, descriptions and pixel
+captures are omitted. Amazon's pinned driver prints raw RPC parameters outside
+Appium's logger, so the workflow discards its console output and retains only the
+filtered warning log. App-specific native logs start before launch and are capped
+at 2 MiB and 15 minutes per app.
+
+Form entry targets the actual editable child of React Native's focus wrapper.
+The harness completes the observed system keyboard session with Done and uses
+bounded D-pad navigation to reveal off-screen controls, then verifies focus
+before selecting them. Text acknowledgement uses the actual editor, not the
+wrapper's empty `getText` result.
+
 ## Harness contract tests
 
 Run `node --test vega/e2e/startup-probe.test.mjs`. These tests provide a local simulated Appium transport to check accepted/rejected startup states and report fields. They do not execute the app, emulate native storage, or count as device evidence.
