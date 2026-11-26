@@ -78,6 +78,28 @@ final class AppleFilesSourceTests: XCTestCase {
         } catch AppleFilesError.tryFilesAgain {}
     }
 
+    func testFilesReconnectsOriginalSelectionAfterAFailedDisconnect() throws {
+        enum SaveError: Error, Equatable { case failed }
+        let id = UUID()
+        defer { try? AppleFilesSource.remove(id) }
+        let original = "file:///fixture-drive/Example.mp4"
+        func selection(bookmark: UInt8, identity: String) -> AppleFilesSelection {
+            AppleFilesSelection(directory: false, entries: [
+                .init(name: "Example.mp4", bookmark: Data([bookmark]), identity: identity)
+            ])
+        }
+        try AppleFilesSource.install(selection(bookmark: 1, identity: original), id: id, replacing: false)
+        XCTAssertThrowsError(try AppleFilesSource.remove(id) { throw SaveError.failed }) {
+            XCTAssertEqual($0 as? SaveError, .failed)
+        }
+        XCTAssertFalse(try AppleFilesSource.isDirectory(id))
+        XCTAssertThrowsError(try AppleFilesSource.install(selection(bookmark: 2, identity: "file:///different/Example.mp4"),
+                                                          id: id, replacing: true))
+        try AppleFilesSource.install(selection(bookmark: 3, identity: original), id: id, replacing: true)
+        try AppleFilesSource.remove(id)
+        XCTAssertThrowsError(try AppleFilesSource.isDirectory(id))
+    }
+
     private func makeDirectory() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

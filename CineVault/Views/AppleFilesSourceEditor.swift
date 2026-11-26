@@ -141,11 +141,12 @@ struct AppleFilesSourceEditor: View {
     private func disconnect() {
         guard let source, household.isAdmin, !scanner.isScanning else { return }
         do {
-            try AppleFilesSource.remove(source.id)
-            context.delete(source)
-            do { try context.save() }
-            catch { context.rollback(); throw error }
             let id = source.id
+            try AppleFilesSource.remove(id) {
+                context.delete(source)
+                do { try context.save() }
+                catch { context.rollback(); throw error }
+            }
             Task { await SMBService.shared.reset(sourceID: id) }
             dismiss()
         } catch {

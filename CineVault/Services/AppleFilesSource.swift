@@ -18,6 +18,13 @@ struct AppleFilesSelection: Codable, Sendable {
     struct Entry: Codable, Sendable {
         let name: String
         let bookmark: Data
+        let identity: String?
+
+        init(name: String, bookmark: Data, identity: String? = nil) {
+            self.name = name
+            self.bookmark = bookmark
+            self.identity = identity
+        }
     }
 
     let directory: Bool
@@ -32,7 +39,8 @@ struct AppleFilesSelection: Codable, Sendable {
             guard value.isDirectory == directory else { throw AppleFilesError.unsupportedSelection }
             return Entry(name: url.lastPathComponent,
                          bookmark: try url.bookmarkData(options: .minimalBookmark,
-                                                       includingResourceValuesForKeys: nil, relativeTo: nil))
+                                                       includingResourceValuesForKeys: nil, relativeTo: nil),
+                         identity: AppleFilesSource.identity(url))
         }
         guard Set(entries.map { Data($0.name.utf8) }).count == entries.count else {
             throw AppleFilesError.unsupportedSelection
@@ -71,8 +79,10 @@ enum AppleFilesSource {
             if replacing {
                 let previous = try load(id)
                 let identity = identities(proposed)
-                guard previous.directory == proposed.directory,
-                      !identity.isEmpty, identities(previous) == identity else { throw AppleFilesError.differentSelection }
+                guard previous.directory == proposed.directory, !identity.isEmpty,
+                      identities(previous) == identity || identities(previous, resolveOriginal: true) == identity else {
+                    throw AppleFilesError.differentSelection
+                }
             }
             let encoded = try JSONEncoder().encode(proposed)
             guard encoded.count < 512 * 1024 else { throw AppleFilesError.unsupportedSelection }
@@ -80,8 +90,16 @@ enum AppleFilesSource {
         }
     }
 
-    static func remove(_ id: UUID) throws {
-        try changes.update(id) { try Keychain.delete(key(id)) }
+    static func remove(_ id: UUID, removeLibrary: () throws -> Void = {}) throws {
+        try changes.update(id) {
+            let original = try Keychain.get(key(id))
+            try Keychain.delete(key(id))
+            do { try removeLibrary() }
+            catch {
+                if let original { try Keychain.set(original, for: key(id)) }
+                throw error
+            }
+        }
     }
     static func isDirectory(_ id: UUID) throws -> Bool { try load(id).directory }
 
@@ -161,9 +179,15 @@ enum AppleFilesSource {
         return (values.isDirectory == true, Int64(values.fileSize ?? 0))
     }
 
-    private static func identities(_ selection: AppleFilesSelection) -> Set<Data> {
-        let values = selection.entries.compactMap { try? resolveBookmark($0.bookmark).standardizedFileURL.absoluteString }
-        return values.count == selection.entries.count ? Set(values.map { Data($0.utf8) }) : []
+    static func identity(_ url: URL) -> String { url.standardizedFileURL.absoluteString }
+
+    private static func identities(_ selection: AppleFilesSelection, resolveOriginal: Bool = false) -> Set<Data> {
+        let values = selection.entries.compactMap { entry -> String? in
+            if !resolveOriginal, let identity = entry.identity { return identity }
+            return try? identity(resolveBookmark(entry.bookmark, allowStale: true))
+        }
+        let unique = Set(values.map { Data($0.utf8) })
+        return unique.count == selection.entries.count ? unique : []
     }
 
     private static func path(_ relative: String, in folder: URL) throws -> URL {
@@ -180,9 +204,11 @@ enum AppleFilesSource {
         return location
     }
 
-    private static func resolveBookmark(_ data: Data) throws -> URL {
+    private static func resolveBookmark(_ data: Data, allowStale: Bool = false) throws -> URL {
         var stale = false
-        return try URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
+        let url = try URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
+        guard !stale || allowStale else { throw AppleFilesError.tryFilesAgain }
+        return url
     }
 
     private static func withResource<T>(_ entry: AppleFilesSelection.Entry,
