@@ -121,39 +121,100 @@ final class MediaVaultPhoneTests: XCTestCase {
         XCTAssertTrue(sources.waitForExistence(timeout: 10))
         let editorClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: save)
         XCTAssertEqual(XCTWaiter.wait(for: [editorClosed], timeout: 10), .completed)
-        selectLibraryAfterFixtureImport(app)
-        capture("Library after authenticated WebDAV import", app)
+        openImportedWebDAVMovie(in: app)
+    }
+
+    @MainActor
+    private func openImportedWebDAVMovie(in app: XCUIApplication) {
+        let library = app.tabBars.buttons["Library"]
         let poster = app.buttons["Film"]
-        guard poster.waitForExistence(timeout: 10), poster.isEnabled else {
-            capture("Imported WebDAV poster was missing or disabled", app)
-            XCTFail("The imported Film poster must exist and be enabled.")
-            return
-        }
-        let usesElementTap = poster.isHittable
-        if usesElementTap {
-            poster.tap()
-        } else {
-            // XCTest can omit a hit point for the visible SwiftUI navigation tile.
-            let frame = poster.frame
-            let center = CGPoint(x: frame.midX, y: frame.midY)
-            let window = app.windows.firstMatch
-            guard window.exists, frame.width >= 44, frame.height >= 44, window.frame.contains(center) else {
-                capture("Imported WebDAV poster had no visible touch target", app)
-                XCTFail("The Film poster has no hit point and its frame has no usable center in the app window.")
-                return
-            }
-            poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let title = app.staticTexts["Film"]
+        let play = app.buttons["Play"]
+        let promptTitle = "Save Password?"
+        let prompt = app.sheets[promptTitle]
+        let deadline = Date().addingTimeInterval(25)
+        var declinedPasswordOffer = false
+
+        func waitFor(_ condition: @escaping () -> Bool) -> Bool {
+            // A preceding XCTest action may reach the target while using the last of the budget.
+            if condition() { return true }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            let predicate = NSPredicate { _, _ in condition() }
+            let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+            let result = XCTWaiter.wait(for: [expectation], timeout: remaining)
+            return result == .completed || (result == .timedOut && condition())
         }
 
-        let filmTitle = app.staticTexts["Film"]
-        let play = app.buttons["Play"]
-        let detailReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            filmTitle.exists && play.exists && play.isEnabled && play.isHittable
-        }, object: nil)
-        guard XCTWaiter.wait(for: [detailReady], timeout: 10) == .completed else {
+        func decline(_ sheet: XCUIElement) -> Bool {
+            guard !declinedPasswordOffer, deadline.timeIntervalSinceNow > 0, sheet.exists,
+                  sheet.label == promptTitle || sheet.staticTexts[promptTitle].exists else { return false }
+            let notNow = sheet.buttons["Not Now"]
+            let savePassword = sheet.buttons["Save"]
+            guard waitFor({ notNow.exists && notNow.isHittable && savePassword.exists }),
+                  deadline.timeIntervalSinceNow > 0 else { return false }
+            notNow.tap()
+            guard waitFor({ !sheet.exists }) else { return false }
+            declinedPasswordOffer = true
+            return true
+        }
+
+        // Keep the monitor through the poster touch and the resulting playback controls.
+        // A late system password sheet can appear after Library is already selected.
+        let monitor = addUIInterruptionMonitor(withDescription: "Decline fixture password saving") { element in
+            let sheet = element.elementType == .sheet ? element : element.sheets[promptTitle]
+            return decline(sheet)
+        }
+        defer { removeUIInterruptionMonitor(monitor) }
+
+        func advance(target: @escaping () -> Bool, actionable: @escaping () -> Bool, tap: () -> Bool) -> Bool {
+            var mayTap = true
+            while waitFor({ prompt.exists || target() || (mayTap && actionable()) }) {
+                if prompt.exists {
+                    guard decline(prompt) else { return false }
+                    mayTap = true
+                } else if target() {
+                    return true
+                } else {
+                    guard mayTap, deadline.timeIntervalSinceNow > 0 else { return false }
+                    let previouslyDeclined = declinedPasswordOffer
+                    guard tap() else { return false }
+                    // Another touch is permitted only when the known password offer consumed this one.
+                    mayTap = !previouslyDeclined && declinedPasswordOffer
+                }
+            }
+            return false
+        }
+
+        guard advance(target: { library.isSelected }, actionable: { library.isHittable }, tap: {
+            library.tap()
+            return true
+        }) else {
+            capture("Library navigation did not become actionable", app)
+            XCTFail("Library did not become selected after handling any fixture password offer.")
+            return
+        }
+        capture("Library after authenticated WebDAV import", app)
+
+        var touchedPoster = false
+        guard advance(target: { touchedPoster && title.exists && play.exists && play.isEnabled && play.isHittable },
+                      actionable: { poster.exists && poster.isEnabled }, tap: {
+            if poster.isHittable {
+                touchedPoster = true
+                poster.tap()
+                return true
+            }
+            // A visible SwiftUI tile may lack an XCTest hit point. Touch only within its verified frame.
+            let frame = poster.frame
+            let window = app.windows.firstMatch
+            guard window.exists, frame.width >= 44, frame.height >= 44,
+                  window.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) else { return false }
+            touchedPoster = true
+            poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            return true
+        }) else {
             capture("WebDAV poster touch did not open actionable Film details", app)
-            let action = usesElementTap ? "element tap" : "poster center touch"
-            XCTFail("The Film detail did not show an actionable Play button after the \(action).")
+            XCTFail("The imported Film must open from a visible poster touch and show an actionable Play button.")
             return
         }
         capture("Imported WebDAV movie opens its playback details", app)
