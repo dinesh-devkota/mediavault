@@ -57,11 +57,12 @@ final class MediaVaultPhoneTests: XCTestCase {
         dismissPasswordPrompt(in: app)
         if !library.isSelected { library.tap() }
         XCTAssertTrue(library.isSelected, app.debugDescription)
-        let poster = app.buttons["Film"]
+        // The generic Film filename inherits the title of its Movies folder.
+        let poster = app.buttons["Movies"]
         for _ in 0..<3 where !poster.isHittable { app.swipeUp() }
         XCTAssertTrue(poster.isHittable, app.debugDescription)
         poster.tap()
-        XCTAssertTrue(app.staticTexts["Film"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Movies"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.buttons["Play"].exists, app.debugDescription)
     }
 
