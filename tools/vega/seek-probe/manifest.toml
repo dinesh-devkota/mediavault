@@ -1,0 +1,54 @@
+schema-version = 1
+
+[package]
+title = "Vega Seek Probe - Virtual Device Only"
+version = "0.1.0"
+build-number = 1
+id = "com.dineshdevkota.mediavault.seekprobe"
+
+[os.version]
+min = "2.0"
+target = "2.0"
+
+# Synthetic files are served by stock nginx through the isolated VVD reverse port.
+# This package contains no MediaVault relay, source credentials, or account storage.
+[network-traffic-policy.cleartext]
+allowed-domains = ["127.0.0.1"]
+
+[needs]
+[wants]
+# W3C playback and captions require these backing services as well as the SDK
+# module: https://developer.amazon.com/docs/vega/2.0/media-player-setup
+[[wants.service]]
+id = "com.amazon.mediametrics.service"
+[[wants.service]]
+id = "com.amazon.mediabuffer.service"
+[[wants.service]]
+id = "com.amazon.mediatransform.service"
+[[wants.service]]
+id = "com.amazon.media.server"
+[[wants.service]]
+id = "com.amazon.media.playersession.service"
+[[wants.service]]
+id = "com.amazon.audio.stream"
+[[wants.service]]
+id = "com.amazon.audio.control"
+[[wants.service]]
+id = "com.amazon.audio.system"
+[[wants.service]]
+id = "com.amazon.inputd.service"
+[[wants.service]]
+id = "com.amazon.gipc.uuid.*"
+[[wants.privilege]]
+id = "com.amazon.devconf.privilege.accessibility"
+
+[offers]
+[[offers.service]]
+id = "com.amazon.gipc.uuid.*"
+
+[components]
+[[components.interactive]]
+id = "com.dineshdevkota.mediavault.seekprobe.main"
+runtime-module = "/com.amazon.kepler.runtime.react_native_kepler_4@IReactNativeKepler_0"
+launch-type = "singleton"
+categories = ["com.amazon.category.main"]

@@ -1,0 +1,10 @@
+index.js text eol=lf
+babel.config.js text eol=lf
+metro.config.js text eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf
+*.py text eol=lf
+*.png -text
+
+# Preserve the exact upstream Metro template, including its blank-line space.
+metro.config.js whitespace=-blank-at-eol
