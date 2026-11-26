@@ -211,6 +211,24 @@ final class MediaVaultPhoneTests: XCTestCase {
     }
 
     @MainActor
+    func testGoogleDriveFilesSetupOffersScopedPicker() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test-empty-library"]
+        app.launch()
+        let manage = app.tabBars.buttons["Manage"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 15))
+        manage.tap()
+        app.buttons["manage-media-sources"].tap()
+        app.buttons["Add NAS"].tap()
+        let connect = app.buttons["Connect Google Drive via Files"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10))
+        connect.tap()
+        XCTAssertTrue(app.buttons["files-source-folder"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["files-source-files"].exists)
+        XCTAssertFalse(app.buttons["files-source-save"].exists, "An empty selection cannot create a source.")
+    }
+
+    @MainActor
     func testViewerOnlySeesAllowedTitlesOnPhone() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-household"]

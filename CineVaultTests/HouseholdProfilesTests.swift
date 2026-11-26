@@ -109,32 +109,34 @@ final class HouseholdProfilesTests: XCTestCase {
             return Data(repeating: 0, count: length)
         })
         let service = SMBService(cloudHousehold: store, cloudTransport: { _, _ in transport })
-        func config(_ id: UUID) -> SourceConfig {
-            SourceConfig(id: id, host: "", share: "", rootPath: "", username: "",
-                         password: "", cloudFileProvider: .oneDrive)
-        }
-        for (source, path, expected) in [(wholeSource, "Film.mp4", "Film.en.srt"),
-                                         (folderSource, "Family/Film.mp4", "Family/Film.en.srt")] {
-            let route = config(source)
-            let matches = try await LocalSubtitleService.discover(config: route, videoPath: path) {
-                try await service.listEntries($0, directory: $1)
+        for provider in [CloudFileProvider.appleFiles, .oneDrive] {
+            func config(_ id: UUID) -> SourceConfig {
+                SourceConfig(id: id, host: "", share: "", rootPath: "", username: "",
+                             password: "", cloudFileProvider: provider)
             }
-            XCTAssertEqual(matches.map(\.path), [expected])
-            let data = try await service.read(route, path: expected, offset: 0, length: 4)
-            XCTAssertEqual(data.count, 4)
+            for (source, path, expected) in [(wholeSource, "Film.mp4", "Film.en.srt"),
+                                             (folderSource, "Family/Film.mp4", "Family/Film.en.srt")] {
+                let route = config(source)
+                let matches = try await LocalSubtitleService.discover(config: route, videoPath: path) {
+                    try await service.listEntries($0, directory: $1)
+                }
+                XCTAssertEqual(matches.map(\.path), [expected])
+                let data = try await service.read(route, path: expected, offset: 0, length: 4)
+                XCTAssertEqual(data.count, 4)
+            }
+            do {
+                _ = try await service.listEntries(config(folderSource), directory: "")
+                XCTFail("The scoped viewer listed the source root")
+            } catch HouseholdError.denied {}
+            do {
+                _ = try await service.listEntries(config(folderSource), directory: "family")
+                XCTFail("The scoped viewer listed a differently cased folder")
+            } catch HouseholdError.denied {}
+            do {
+                _ = try await service.read(config(folderSource), path: "Family", offset: 0, length: 4)
+                XCTFail("The folder discovery permission authorized a file read")
+            } catch HouseholdError.denied {}
         }
-        do {
-            _ = try await service.listEntries(config(folderSource), directory: "")
-            XCTFail("The scoped viewer listed the source root")
-        } catch HouseholdError.denied {}
-        do {
-            _ = try await service.listEntries(config(folderSource), directory: "family")
-            XCTFail("The scoped viewer listed a differently cased folder")
-        } catch HouseholdError.denied {}
-        do {
-            _ = try await service.read(config(folderSource), path: "Family", offset: 0, length: 4)
-            XCTFail("The folder discovery permission authorized a file read")
-        } catch HouseholdError.denied {}
     }
     func testRatingLimitsUseUSCertificationAndNeverVotesOrFilenameGuesses() async throws {
         let (store, _, _) = fixture(); _ = try await enable(store)

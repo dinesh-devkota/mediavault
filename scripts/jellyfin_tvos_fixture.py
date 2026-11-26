@@ -37,8 +37,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
-            # AVPlayer may cancel a request during a seek.
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
+            # AVPlayer may close a canceled segment request before sending TLS close_notify.
             pass
 
     def send_json(self, value):
