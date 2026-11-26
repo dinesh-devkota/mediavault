@@ -1,4 +1,5 @@
-import {URL} from 'react-native-url-polyfill';
+// Vega 0.83 provides the complete global URL API without a legacy NativeModules bridge.
+// https://developer.amazon.com/docs/react-native-vega/0.83/global-URL
 
 const unsafe = /\\|%(?:2e|2f|5c|00)/i;
 export function safePath(path: string): string {

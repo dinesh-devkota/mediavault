@@ -3,13 +3,13 @@ import {Image, Pressable, StyleSheet, Text, TextInput, View} from 'react-native'
 import {MediaItem, PlaybackResource} from '../domain/model';
 
 export const colors = {background: '#10131a', panel: '#1d2430', raised: '#273344', text: '#f5f5f7', secondary: '#b6c2d2', accent: '#ffb45b', focus: '#ffffff', danger: '#ffb7ad'};
-export function Action({label, onPress, preferred = false, disabled = false, selected = false, testID, destructive = false, hint}: {
-  label: string; onPress: () => void; preferred?: boolean; disabled?: boolean; selected?: boolean; testID?: string; destructive?: boolean; hint?: string;
+export function Action({label, onPress, preferred = false, disabled = false, selected = false, testID, destructive = false, hint, compact = false}: {
+  label: string; onPress: () => void; preferred?: boolean; disabled?: boolean; selected?: boolean; testID?: string; destructive?: boolean; hint?: string; compact?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
   return <Pressable role="button" aria-label={label} accessibilityHint={hint ?? (label === 'Back' ? 'Returns to the previous screen.' : undefined)} testID={testID ?? 'action-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')} hasTVPreferredFocus={preferred}
     disabled={disabled} onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-    style={[styles.action, selected && styles.selected, focused && styles.focused, disabled && styles.disabled]}>
+    style={[styles.action, compact && styles.compactAction, selected && styles.selected, focused && styles.focused, disabled && styles.disabled]}>
     <Text style={[styles.actionText, destructive && {color: colors.danger}, focused && {color: colors.background}]}>{label}</Text>
   </Pressable>;
 }
@@ -56,6 +56,7 @@ export const shared = StyleSheet.create({
 });
 const styles = StyleSheet.create({
   action: {backgroundColor: colors.raised, paddingHorizontal: 24, paddingVertical: 16, borderRadius: 13, borderWidth: 3, borderColor: 'transparent', marginVertical: 4},
+  compactAction: {paddingHorizontal: 8},
   actionText: {color: colors.text, fontSize: 23, fontWeight: '600'},
   focused: {backgroundColor: colors.focus, borderColor: colors.focus, transform: [{scale: 1.025}]},
   selected: {borderColor: colors.accent}, disabled: {opacity: .4},

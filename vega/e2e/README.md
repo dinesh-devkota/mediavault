@@ -64,12 +64,17 @@ duration is recorded; progress after instrumentation alone is not a product fix.
 The harness still uses bounded D-pad navigation to reveal off-screen controls
 and requires actual native focus before selecting application buttons. Text
 acknowledgement uses the actual editor, not the wrapper's empty `getText` result.
+Category changes open the Home section chooser, select the desired section,
+and return to the library through the same remote actions available to users.
 
 The Debug fixture can show the SDK's focus-stealing development LogBox. The
 harness dismisses only its exact observed "Open debugger to view warnings."
 overlay, within the fixture app, using the visible Dismiss control. The number
 is recorded in `fixtureWarningsDismissed`. Production startup and application
-errors are never dismissed by this helper.
+errors are never dismissed by this helper. An observed same-app LogBox
+`Uncaught Error` heading fails immediately before navigation and before a
+journey can be marked passed, even if app controls remain queryable behind it.
+The guard records a static error rather than reading the error body.
 
 ## Harness contract tests
 

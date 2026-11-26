@@ -16,7 +16,7 @@ import {PhotoViewer} from './ui/PhotoViewer';
 import {Player} from './ui/Player';
 import {SourceEditor} from './ui/SourceEditor';
 
-type Page = 'home' | 'sources' | 'source' | 'add-source' | 'ignored' | 'collections' | 'collection' | 'membership' | 'group' | 'season' | 'detail' | 'photo' | 'player' | 'profiles' | 'unlock' | 'add-profile' | 'filters' | 'add-to-collection';
+type Page = 'home' | 'sections' | 'search' | 'sources' | 'source' | 'add-source' | 'ignored' | 'collections' | 'collection' | 'membership' | 'group' | 'season' | 'detail' | 'photo' | 'player' | 'profiles' | 'unlock' | 'add-profile' | 'filters' | 'add-to-collection';
 interface Route { page: Page; id?: string; folder?: string; season?: number }
 const newID = (): string => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
 const sectionLabels: Record<MediaKind, string> = {movie: 'Movies', documentary: 'Documentaries', episode: 'TV shows', music: 'Music', photo: 'Photos'};
@@ -220,8 +220,13 @@ const MediaVaultApp = () => {
     return <PhotoViewer key={session} item={item} load={() => loadImage(item, item.path)} onClose={back}
       previous={index > 0 ? () => showPhoto(photos[index - 1]!.id) : undefined} next={index + 1 < photos.length ? () => showPhoto(photos[index + 1]!.id) : undefined}/>;
   }
-  const header = <View style={shared.header}><Text style={shared.title}>MediaVault</Text><View style={shared.row}>
+  const selectingHome = route.page === 'home' && unlocked && selecting;
+  const sectionTitle = watchlistOnly ? 'Watchlist' : sections.length === 1 ? sectionLabels[sections[0]!] : 'All media';
+  const header = <View style={[shared.header, route.page === 'home' && {marginBottom: 8}]}>
+    <Text style={shared.title}>{selectingHome ? `${selected.size} selected` : 'MediaVault'}</Text><View style={shared.row}>
     {routes.length > 1 && <Action label="Back" onPress={back}/>}
+    {selectingHome && <><Action label="Collections" compact onPress={() => navigate({page: 'collections'})}/>
+      <Action label="Done selecting" compact onPress={() => { setSelecting(false); setSelected(new Set()); }}/></>}
     {unlocked && <Action label={profile?.name ?? 'Profiles'} onPress={lock}/>}</View></View>;
   const filtered = available.filter(value => (!watchlistOnly || personal.watchlist.includes(value.id)) && (!sections.length || sections.includes(value.kind)) && (!genres.length || genres.some(genre => value.genres.includes(genre)))
     && (!query.trim() || `${value.title} ${value.seriesTitle ?? ''}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())));
@@ -230,19 +235,30 @@ const MediaVaultApp = () => {
     {busy && <Text style={shared.subtitle} aria-live="polite">{busy}</Text>}
     {error && <Text style={shared.error} aria-live="polite">{error}</Text>}
     {route.page === 'home' && unlocked && <>
-      <View style={shared.row}><Action label="All media" selected={!sections.length && !watchlistOnly} onPress={() => { setSections([]); setWatchlistOnly(false); }}/>
-        {(Object.keys(sectionLabels) as MediaKind[]).map(kind => <Action key={kind} label={sectionLabels[kind]} selected={!watchlistOnly && sections.length === 1 && sections[0] === kind} onPress={() => { setSections([kind]); setWatchlistOnly(false); }}/ >)}
-        <Action label="Watchlist" selected={watchlistOnly} onPress={() => { setWatchlistOnly(true); setSections([]); }}/>
-        <Action label="Collections" onPress={() => navigate({page: 'collections'})}/>{canManage && <Action label="Sources" onPress={() => navigate({page: 'sources'})}/>}</View>
-      <View style={[shared.row, {marginVertical: 12}]}><View style={{flex: 1}}><Field label="Search your library" value={query} onChange={setQuery} placeholder="Movie, show, or photo"/></View>
-        <Action label={`Filters${genres.length ? ` (${genres.length})` : ''}`} onPress={() => navigate({page: 'filters'})}/>
-        <Action label={selecting ? 'Done selecting' : 'Select titles'} onPress={() => { setSelecting(!selecting); setSelected(new Set()); }}/></View>
-      {selecting && <View style={shared.row}><Action label="Select shown" onPress={() => setSelected(new Set(filtered.map(value => value.id)))}/><Text style={shared.text}>{selected.size} selected</Text>
+      {selecting ? <View style={shared.row}>
+        <Action label="Select shown" onPress={() => setSelected(new Set(filtered.map(value => value.id)))}/>
         <Action label="Mark watched" disabled={!selected.size} onPress={() => mark(available.filter(value => selected.has(value.id)), true)}/><Action label="Mark unwatched" disabled={!selected.size} onPress={() => mark(available.filter(value => selected.has(value.id)), false)}/>
-        <Action label="Add to collection" disabled={!selected.size} onPress={() => navigate({page: 'add-to-collection'})}/></View>}
+        <Action label="Add to collection" disabled={!selected.size} onPress={() => navigate({page: 'add-to-collection'})}/>
+      </View> : <View style={shared.row}>
+        <Action label={sectionTitle} compact testID="library-section" hint="Choose movies, shows, music, photos, or your Watchlist." onPress={() => navigate({page: 'sections'})}/>
+        <Action label="Search" compact selected={!!query.trim()} testID="library-search" hint={query.trim() ? 'A search is applied. Open to change or clear it.' : 'Search by movie or show title.'} onPress={() => navigate({page: 'search'})}/>
+        <Action label="Filters" compact selected={genres.length > 0} hint={genres.length ? `${genres.length} genre filters applied.` : 'Choose any genres.'} onPress={() => navigate({page: 'filters'})}/>
+        <Action label="Collections" compact onPress={() => navigate({page: 'collections'})}/>{canManage && <Action label="Sources" compact onPress={() => navigate({page: 'sources'})}/>}
+        <Action label="Select titles" compact onPress={() => { setSelecting(true); setSelected(new Set()); }}/>
+      </View>}
       {!library.sources.length && canManage && <View style={shared.panel}><Text style={shared.heading}>Your media, together</Text><Text style={shared.subtitle}>Add a NAS, WebDAV folder, or Jellyfin server to get started.</Text><Action label="Add source" onPress={() => navigate({page: 'add-source', id: newID()})}/></View>}
       <LibraryGrid groups={groupLibrary(filtered)} open={openGroup} loadImage={loadImage} session={session} selecting={selecting} selected={selected} viewing={personal.viewing}/>
     </>}
+    {route.page === 'sections' && unlocked && <ScrollView><Text style={shared.heading}>Choose a section</Text>
+      <Action label="All media" selected={!sections.length && !watchlistOnly} onPress={() => { setSections([]); setWatchlistOnly(false); back(); }}/>
+      {(Object.keys(sectionLabels) as MediaKind[]).map(kind => <Action key={kind} label={sectionLabels[kind]} selected={!watchlistOnly && sections.length === 1 && sections[0] === kind} onPress={() => { setSections([kind]); setWatchlistOnly(false); back(); }}/ >)}
+      <Action label="Watchlist" selected={watchlistOnly} onPress={() => { setWatchlistOnly(true); setSections([]); back(); }}/>
+      <Text style={shared.subtitle}>Your search and genre filters stay applied.</Text>
+    </ScrollView>}
+    {route.page === 'search' && unlocked && <ScrollView><Text style={shared.heading}>Find something to watch</Text>
+      <Field label="Search your library" value={query} onChange={setQuery} placeholder="Movie, show, or photo"/>
+      <View style={shared.row}><Action label="Show results" onPress={back}/><Action label="Clear search" disabled={!query} onPress={() => setQuery('')}/></View>
+    </ScrollView>}
     {route.page === 'filters' && unlocked && <ScrollView><Text style={shared.heading}>Choose any genres</Text><View style={shared.row}><Action label="All genres" selected={!genres.length} onPress={() => setGenres([])}/>
       {[...new Set(available.flatMap(value => value.genres))].sort().map(genre => <Action key={genre} label={`${genres.includes(genre) ? '✓ ' : ''}${genre}`} selected={genres.includes(genre)} onPress={() => setGenres(current => current.includes(genre) ? current.filter(value => value !== genre) : [...current, genre])}/>)}</View><Action label="Show results" onPress={back}/></ScrollView>}
     {route.page === 'sources' && canManage && <ScrollView><Text style={shared.heading}>Your sources</Text><Action label="Add source" onPress={() => navigate({page: 'add-source', id: newID()})}/>

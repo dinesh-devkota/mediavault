@@ -10,13 +10,13 @@ const harness = fileURLToPath(new URL('./library-journey.mjs', import.meta.url))
 const outputs = resolve('.artifacts/vega-startup-probe-contract-' + Date.now());
 const unsupported = 'Protected settings are unavailable. Try again. (MV06:not-supported)';
 // This transport stub tests the harness only. Its output is not device evidence.
-async function runProbe(name, {error, home = false, banner = false, retryEnabled = true, fixturePackage = false} = {}) {
+async function runProbe(name, {error, home = false, banner = false, retryEnabled = true, fixturePackage = false, fatalOverlay = false} = {}) {
   const output = resolve(outputs, name);
   await mkdir(output, {recursive: true});
   const requests = [];
   const elements = new Map();
   if (error) { elements.set('startup-error', {text: error}); elements.set('startup-retry', {enabled: retryEnabled}); }
-  if (home) { for (const id of ['action-sources', 'library-grid', 'action-all-media']) { elements.set(id, {}); } }
+  if (home) { for (const id of ['action-sources', 'library-grid', 'library-section', 'library-search']) { elements.set(id, {}); } }
   if (banner) { elements.set('fixture-build-banner', {text: 'VIRTUAL DEVICE TEST BUILD'}); }
   const server = createServer(async (request, response) => {
     const chunks = []; for await (const chunk of request) { chunks.push(chunk); }
@@ -28,7 +28,9 @@ async function runProbe(name, {error, home = false, banner = false, retryEnabled
       value = {sessionId: 'contract-test'};
     } else if (request.url.endsWith('/elements') || request.url.endsWith('/element')) {
       const id = body.value.match(/@test_id='([^']+)'/)?.[1];
-      const found = elements.has(id) ? {'element-6066-11e4-a52e-4f735466cecf': id} : undefined;
+      const found = fatalOverlay && body.value === "//app[@appName='com.dineshdevkota.cinevault']//*[@role='text' and text='Uncaught Error']"
+        ? {'element-6066-11e4-a52e-4f735466cecf': 'fatal-heading'}
+        : elements.has(id) ? {'element-6066-11e4-a52e-4f735466cecf': id} : undefined;
       value = request.url.endsWith('/elements') ? found ? [found] : [] : found;
     } else if (/\/element\/[^/]+\/text$/.test(request.url)) {
       value = elements.get(request.url.split('/').at(-2))?.text ?? '';
@@ -92,6 +94,14 @@ for (const [name, state] of [
     assert.equal(result.startupProbe.outcome, 'not-completed');
   });
 }
+test('an uncaught error overlay fails even when valid home controls remain behind it', async () => {
+  const {code, result, requests} = await runProbe('fatal-overlay', {home: true, fatalOverlay: true});
+  assert.notEqual(code, 0); assertProbeReport(result);
+  assert.equal(result.results[0].passed, false);
+  assert.match(result.results[0].error, /uncaught runtime error overlay/);
+  assert.equal(result.startupProbe.outcome, 'not-completed');
+  assert.equal(requests.some(request => request.path.includes('/fatal-heading/text')), false, 'Never read the error body.');
+});
 test('startup-only mode rejects the fixture package before creating an Appium session', async () => {
   const {code, requests, result, stderr} = await runProbe('fixture-package', {fixturePackage: true});
   assert.notEqual(code, 0); assert.equal(requests.length, 0); assert.equal(result, undefined);

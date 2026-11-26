@@ -118,7 +118,17 @@ async function traceInputFocus(phase, target, detail = {}) {
   await writeFile(resolve(output, 'input-focus-diagnostic.json'), JSON.stringify(inputFocusTrace, null, 2))
     .catch(() => console.log('[Vega journey] Input focus diagnostics unavailable; assertions unchanged.'));
 }
+async function assertNoFatalOverlay() {
+  const app = `//app[@appName=${literal(packageId)}]`;
+  // The actual SDK LogBox renders this heading above an uncaught error. The
+  // underlying app can still answer focus/text queries while this window covers
+  // it, so those assertions alone cannot mark a journey passed. Never read or
+  // dismiss the error body, which may include protected application values.
+  assert.equal(await exists(app + "//*[@role='text' and text='Uncaught Error']"), false,
+    'The app displayed an uncaught runtime error overlay.');
+}
 async function dismissFixtureWarning() {
+  await assertNoFatalOverlay();
   if (!fixtureBuild || await exists(byID('key_Done'))) { return false; }
   const app = `//app[@appName=${literal(packageId)}]`;
   // findObjects returns UI object IDs. The nested <text> XML node has no ID;
@@ -357,7 +367,11 @@ async function diagnoseSourcesFocus() {
 async function step(name, run) {
   const started = Date.now();
   console.log(`[Vega journey] Starting ${name}`);
-  try { await run(); await capture(name); results.push({name, passed: true, status: 'passed', durationMs: Date.now() - started}); }
+  try {
+    await assertNoFatalOverlay(); await run(); await assertNoFatalOverlay();
+    await capture(name); await assertNoFatalOverlay();
+    results.push({name, passed: true, status: 'passed', durationMs: Date.now() - started});
+  }
   catch (error) {
     const sanitized = String(error).replace(/482619|000000|fixture-only/g, '[fixture credential]');
     results.push({name, passed: false, status: 'failed', error: sanitized, durationMs: Date.now() - started});
@@ -378,7 +392,7 @@ async function probeProductionStartup() {
   if (await exists(byID('startup-error'))) {
     const message = await text('startup-error');
     assert.equal(message, 'Protected settings are unavailable. Try again. (MV06:not-supported)', 'Only the confirmed virtual-device keystore limitation is an accepted startup failure.');
-    for (const id of ['library-grid', 'action-sources', 'action-all-media']) {
+    for (const id of ['library-grid', 'action-sources', 'library-section', 'library-search']) {
       assert.equal(await exists(byID(id)), false, 'Unavailable secure storage must not expose the home library.');
     }
     const retry = await element(byID('startup-retry'));
@@ -446,7 +460,7 @@ try {
     await click('action-back'); await click('action-back'); await click('action-done-selecting');
   });
   await step('04-show-season-episode', async () => {
-    await click('action-tv-shows');
+    await click('library-section'); await click('action-tv-shows');
     await clickXPath('//*[starts-with(@test_id,"media-group-show:") and contains(@test_id,":tmdb:920001")]');
     await click('action-season-1');
     await clickXPath('//*[starts-with(@test_id,"item-open-") and contains(@test_id,"Library Show.S01E01.mp4")]');
@@ -454,11 +468,11 @@ try {
     await click('action-back'); await click('action-back'); await click('action-back');
   });
   await step('05-standalone-photo', async () => {
-    await click('action-photos');
+    await click('library-section'); await click('action-photos');
     await clickXPath('//*[starts-with(@test_id,"media-group-") and contains(@test_id,":Photos/poster.png")]');
     await element(byID('action-start-slideshow')); await element(byID('photo-loaded'));
     assert(!(await call('GET', '/source')).includes('could not be'), 'The actual photo must load without an error.');
-    await click('action-back'); await click('action-all-media');
+    await click('action-back'); await click('library-section'); await click('action-all-media');
   });
   await step('06-mkv-remote-playback', async () => {
     await addSource('Formats NAS', endpoint.replace(/MEDIALIBRARY$/, 'FORMATPLAYBACK'));
@@ -474,7 +488,7 @@ try {
   });
   await step('07-continuous-television', async () => {
     await addSource('Playback NAS', endpoint.replace(/MEDIALIBRARY$/, 'MEDIAPLAYBACK'));
-    await click('action-tv-shows'); await click('media-group-show:fixture show|'); await click('action-season-1');
+    await click('library-section'); await click('action-tv-shows'); await click('media-group-show:fixture show|'); await click('action-season-1');
     await clickXPath('//*[starts-with(@test_id,"item-open-") and contains(@test_id,"Fixture Show.S01E01.mp4")]');
     await click('action-play'); await click('action-auto-play-next-episode-off');
     await waitFor(() => exists(byID('action-stop-after-this-episode')), 'Episode completion must offer a cancellable countdown.', 40_000);
@@ -487,7 +501,7 @@ try {
     await waitFor(async () => (await call('GET', '/source')).includes('Fixture Show.S01E04.mp4'), 'Automatic next episode must advance across the missing episode three.', 55_000);
     await waitFor(async () => await position() >= 1, 'The automatically selected episode must actually decode and advance.', 40_000);
     await capture('07-next-episode-playing'); await key(158);
-    await click('action-back'); await click('action-back'); await click('action-back'); await click('action-all-media');
+    await click('action-back'); await click('action-back'); await click('action-back'); await click('library-section'); await click('action-all-media');
   });
   await step('08-household-filtering', async () => {
     await click('action-sources'); await click('action-set-up-household-profiles');

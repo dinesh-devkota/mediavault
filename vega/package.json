@@ -26,8 +26,7 @@
     "react-native": "0.83.0",
     "fast-xml-parser": "5.12.1",
     "@amazon-devices/react-native-w3cmedia": "~2.3.0",
-    "@amazon-devices/react-native-async-storage__async-storage": "~2.1.0",
-    "react-native-url-polyfill": "4.0.0"
+    "@amazon-devices/react-native-async-storage__async-storage": "~2.1.0"
   },
   "engines": {
     "node": ">=22.14 <23"

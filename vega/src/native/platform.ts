@@ -2,7 +2,6 @@ import Native from './MediaVaultNative';
 import {CancellationSignal, DirectoryEntry, MediaItem, PlaybackResource, Source, SourceClient} from '../domain/model';
 import {contains, safePath} from '../domain/paths';
 import {InvalidTextFileError, utf8Length} from '../domain/metadata';
-import {URL} from 'react-native-url-polyfill';
 import {PlatformServices} from '../services/contracts';
 import {HTTPRequest, HTTPResponse, httpMessage, listWebDAV} from '../sources/http';
 
