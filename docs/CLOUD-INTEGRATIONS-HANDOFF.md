@@ -215,6 +215,7 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/24)
   · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45734675726)
   · [Android phone](https://github.com/dinesh-devkota/mediavault/actions/runs/45734675767)
+  · [Combined OneDrive candidate on Plex-enabled development](https://github.com/dinesh-devkota/mediavault/pull/29)
 - Dropbox uses a public app key, a PKCE browser approval and a code entered
   in MediaVault. The Android draft links a folder, protects the refresh
   credential, and imports and reads media over read-only ranges. A real
@@ -222,13 +223,16 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   account_info.read, files.metadata.read and files.content.read is needed
   for a live account test, subject to the Dropbox app's access and
   production approval limits. The Android TV run passed all 100 cases and
-  the phone run passed all three, with Dropbox cases on both. The Apple branches inherit a regression
-  check for subtitle discovery at an exact household grant boundary.
+  the phone run passed all three, with Dropbox cases on both. The Apple TV
+  fixture passed on the iPhone branch's shared Apple TV run, with 218 cases
+  and zero failures or skips. It covered Dropbox and OneDrive seeking, and
+  subtitle discovery at an exact viewer folder grant boundary.
   [Android TV and phone](https://github.com/dinesh-devkota/mediavault/pull/6)
   · [Apple TV](https://github.com/dinesh-devkota/mediavault/pull/26)
   · [iPhone](https://github.com/dinesh-devkota/mediavault/pull/27)
   · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45735171288)
   · [Android phone](https://github.com/dinesh-devkota/mediavault/actions/runs/45735178417)
+  · [Shared Apple TV fixture run](https://github.com/dinesh-devkota/mediavault/actions/runs/45737000473)
 - Google Drive uses the platform picker on Android TV and phone when the
   signed-in Google Drive document provider and picker are available, and the
   Files picker on iPhone. Owners can grant a folder when the provider
@@ -247,8 +251,10 @@ Both ran the respective HTTPS WebDAV playback and seek test.
   · [Google's limited-input device scopes](https://developers.google.com/identity/protocols/oauth2/limited-input-device)
 
 The user authorized provider merges to development after the exact source
-branch passes both hosted emulator/simulator suites, including its named
-provider tests. Retain draft status while implementation or coverage remains
+branch passes its hosted emulator and simulator suites, including its named
+provider tests. The OneDrive, Dropbox and Google Drive Android drafts now
+include Plex-enabled development as a merge parent and have fresh gates for
+their combined trees. Earlier provider results remain linked above. Retain draft status while implementation or coverage remains
 incomplete. The Windows checkout was unavailable from cloud. The verified
 Git bundle contains development and the separate provider and platform refs.
 
