@@ -243,3 +243,12 @@ signing, export-compliance confirmation, App Store Connect setup, and App Review
 are separate release steps.
 
 [Original iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)
+## Dropbox iPhone draft
+
+The iPhone Dropbox port uses the same Keychain, folder binding, library,
+photo, subtitle, and AVPlayer transport as the Apple TV draft. On a phone the
+owner can open Dropbox in a Safari sheet, copy the one-time code, and select a
+media folder. A QR code is also available for approval on a second device.
+The disposable iPhone workflow requires the real touch setup and a separate
+HTTPS scan, caption, photo, and AVPlayer seek test. The release build uses the
+live Dropbox hosts. The simulator-only fixture is removed at compile time.

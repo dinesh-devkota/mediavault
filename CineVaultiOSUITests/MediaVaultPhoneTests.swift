@@ -112,6 +112,54 @@ final class MediaVaultPhoneTests: XCTestCase {
     }
 
     @MainActor
+    func testConnectDropboxAndImportSelectedFolder() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test-empty-library", "--ui-test-dropbox"]
+        app.launch()
+
+        let manage = app.tabBars.buttons["Manage"]
+        XCTAssertTrue(manage.waitForExistence(timeout: 15))
+        manage.tap()
+        app.buttons["manage-media-sources"].tap()
+        app.buttons["Add NAS"].tap()
+        let connect = app.buttons["add-dropbox-source"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10), app.debugDescription)
+        connect.tap()
+        let key = app.textFields["dropbox-app-key"]
+        XCTAssertTrue(key.waitForExistence(timeout: 10), app.debugDescription)
+        key.tap()
+        key.typeText("fixture-app")
+        app.buttons["dropbox-begin"].tap()
+
+        let browser = app.buttons["dropbox-open-browser"]
+        XCTAssertTrue(browser.waitForExistence(timeout: 10), app.debugDescription)
+        let code = app.secureTextFields["dropbox-approval-code"]
+        code.tap()
+        code.typeText("fixture-code")
+        let verify = app.buttons["dropbox-verify"]
+        if !verify.isHittable { app.swipeUp() }
+        XCTAssertTrue(verify.isHittable, app.debugDescription)
+        verify.tap()
+
+        let folder = app.buttons["Open Media"]
+        XCTAssertTrue(folder.waitForExistence(timeout: 15), app.debugDescription)
+        folder.tap()
+        let useFolder = app.buttons["dropbox-use-folder"]
+        XCTAssertTrue(useFolder.waitForExistence(timeout: 15), app.debugDescription)
+        useFolder.tap()
+
+        let scan = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "2 items · Scanned ")).firstMatch
+        XCTAssertTrue(scan.waitForExistence(timeout: 25), app.debugDescription)
+        let library = app.tabBars.buttons["Library"]
+        library.tap()
+        let film = app.buttons["Film"]
+        for _ in 0..<3 where !film.isHittable { app.swipeUp() }
+        XCTAssertTrue(film.isHittable, app.debugDescription)
+        film.tap()
+        XCTAssertTrue(app.buttons["Play"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
     private func dismissPasswordPrompt(in app: XCUIApplication) {
         let prompt = app.sheets["Save Password?"]
         if prompt.waitForExistence(timeout: 4) {

@@ -59,6 +59,7 @@ struct SourcesView: View {
         .sheet(item: $editing) { source in
             NavigationStack {
                 if source.cloudFileProvider == .oneDrive { OneDriveSourceEditor(source: source) }
+                else if source.cloudFileProvider == .dropbox { DropboxSourceEditor(source: source) }
                 else if source.isJellyfin { JellyfinSourceEditor(source: source) }
                 else { SourceEditorView(source: source) }
             }
