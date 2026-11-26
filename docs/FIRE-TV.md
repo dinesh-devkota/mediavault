@@ -41,7 +41,7 @@ isolated Ubuntu host with pinned base images and a verified official installer.
 Source development includes SMB, WebDAV and Jellyfin, local metadata/artwork,
 profile-scoped collections, versions, photos, continuous viewing and protected
 source access. The native SMB/HTTP/credential bridge compiles against Amazon's
-real SDK. TypeScript checking, 37 app/contract tests and 74 native host regression
+real SDK. TypeScript checking, 42 app/contract tests and 74 native host regression
 tests pass. The host suite exercises real SMB/HTTPS fixtures, including rejected
 credentials, cancellation, certificate verification and Jellyfin access boundaries.
 The first complete aarch64 debug VPKG also passes Amazon's manifest

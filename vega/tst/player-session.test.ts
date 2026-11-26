@@ -142,3 +142,16 @@ test('surface cleanup failure still deinitializes the decoder and revokes the ti
   await session.stop();
   expect(value.video.deinitialize).toHaveBeenCalledTimes(1); expect(value.options.releaseResource).toHaveBeenCalledTimes(1);
 });
+
+
+test('reentrant stop from a progress callback shares one teardown and revocation', async () => {
+  const value = make(), session = value.create(); session.start(Promise.resolve()); await flush(); session.attachSurface('surface'); await flush();
+  value.raw.position = 1; await jest.advanceTimersByTimeAsync(250);
+  let nested: Promise<void> | undefined;
+  value.options.progress.mockImplementationOnce(() => { nested = session.stop(); });
+  const stopped = session.stop(); await stopped; await nested;
+  expect(nested).toBe(stopped);
+  expect(value.video.pause).toHaveBeenCalledTimes(1);
+  expect(value.video.deinitialize).toHaveBeenCalledTimes(1);
+  expect(value.options.releaseResource).toHaveBeenCalledTimes(1);
+});

@@ -20,6 +20,7 @@ const output = resolve(process.env.MEDIA_VAULT_E2E_OUTPUT ?? '.artifacts/vega-ui
 await mkdir(output, {recursive: true});
 let session;
 let fixtureBannerVerified = false;
+let fixtureWarningsDismissed = 0;
 let startupProbe = startupCheckOnly ? {outcome: 'not-completed'} : null;
 const results = [];
 const sleep = ms => new Promise(done => setTimeout(done, ms));
@@ -45,11 +46,28 @@ async function element(xpath) {
   return (await call('POST', '/element', {using: 'xpath', value: xpath}))[elementKey];
 }
 async function click(id) { await clickXPath(byID(id)); }
+async function dismissFixtureWarning() {
+  if (!fixtureBuild || await exists(byID('key_Done'))) { return false; }
+  const app = `//app[@appName=${literal(packageId)}]`;
+  const message = app + "//text[.='Open debugger to view warnings.']";
+  const dismiss = app + "//*[@clickable='true' and .//text='Dismiss']";
+  if (!await exists(message) || !await exists(dismiss)) { return false; }
+  // The Debug-only SDK LogBox steals focus asynchronously. Dismiss only its
+  // exact observed warning, just as a tester would; never bypass an app error.
+  const id = await element(dismiss);
+  await call('POST', '/execute/sync', {script: 'jsonrpc: setFocus', args: [[{id: Number(id)}]]});
+  await key(96);
+  await waitFor(async () => !await exists(dismiss), 'The SDK development warning did not dismiss.', 5000);
+  fixtureWarningsDismissed++;
+  console.log('[Vega journey] Dismissed SDK development warning overlay');
+  return true;
+}
 async function focusVisible(xpath) {
   const window = await call('GET', '/window/rect');
   let direction = 108, previousFocus, unchanged = 0;
   const deadline = Date.now() + 25_000;
   for (let attempt = 0; attempt < 50 && Date.now() < deadline; attempt++) {
+    await dismissFixtureWarning();
     const matches = await call('POST', '/elements', {using: 'xpath', value: xpath});
     if (matches.length) {
       const id = matches[0][elementKey];
@@ -57,8 +75,13 @@ async function focusVisible(xpath) {
       const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
       if (rect.width > 0 && rect.height > 0 && x >= window.x && x < window.x + window.width && y >= window.y && y < window.y + window.height) {
         await call('POST', '/execute/sync', {script: 'jsonrpc: setFocus', args: [[{id: Number(id)}]]});
-        await waitFor(async () => await call('GET', `/element/${id}/attribute/UiObject:focused`) === 'true', 'The remote could not focus the target control.', 3000);
-        return id;
+        try {
+          await waitFor(() => exists(xpath + '[@focused="true"]'), `The remote could not focus the target control: ${xpath}`, 3000);
+        } catch (error) {
+          if (await dismissFixtureWarning()) { continue; }
+          throw error;
+        }
+        return element(xpath);
       }
       direction = y < window.y ? 103 : y >= window.y + window.height ? 108 : x < window.x ? 105 : 106;
     }
@@ -259,10 +282,13 @@ try {
     await click('action-play'); await click('action-auto-play-next-episode-off');
     await waitFor(() => exists(byID('action-stop-after-this-episode')), 'Episode completion must offer a cancellable countdown.', 40_000);
     await click('action-stop-after-this-episode'); await element(byID('action-play-next-fixture-show'));
+    await element(byID('action-en')); await element(byID('action-es'));
+    assert.equal(await exists(byID('action-de')), false, 'An oversized subtitle must be skipped while valid language choices remain available.');
     await sleep(11000); assert.match(await text('player-file-name'), /S01E01/, 'Stopping the countdown must leave the current episode.');
     await click('action-play-next-fixture-show');
     await waitFor(async () => (await call('GET', '/source')).includes('Fixture Show.S01E02.mp4'), 'Manual Play Next must open episode two.');
     await waitFor(async () => (await call('GET', '/source')).includes('Fixture Show.S01E04.mp4'), 'Automatic next episode must advance across the missing episode three.', 55_000);
+    await waitFor(async () => await position() >= 1, 'The automatically selected episode must actually decode and advance.', 40_000);
     await capture('07-next-episode-playing'); await key(158);
     await click('action-back'); await click('action-back'); await click('action-back'); await click('action-all-media');
   });
@@ -270,6 +296,8 @@ try {
     await click('action-sources'); await click('action-set-up-household-profiles');
     await enter('field-administrator-pin', '482619'); await enter('field-confirm-administrator-pin', '482619');
     await enter('field-profile-name', 'Kids'); await click('action-fixture-nas'); await click('action-save-profile');
+    await waitFor(async () => await exists(byID('action-set-up-household-profiles')) && !await exists(byID('field-profile-name')),
+      'The household profile must finish saving before switching profiles.');
     await click('action-everyone'); await click('action-kids'); await click('action-continue');
     await element(byID(feature));
     assert.equal(await exists('//*[starts-with(@test_id,"media-group-") and contains(@test_id,"Invalid Metadata.mp4")]'), false,
@@ -319,6 +347,6 @@ try {
   await writeFile(resolve(output, 'results.json'), JSON.stringify({executedOnDevice: Boolean(session), packageId,
     mode: startupCheckOnly ? 'production-startup-probe' : 'library-journeys', startupProbe,
     libraryJourneyCount: results.filter(value => /^0[1-9]-/.test(value.name)).length,
-    buildKind: fixtureBuild ? 'virtual-device-fixture' : 'production', fixtureBannerVerified, secureStorageVerification, results}, null, 2));
+    buildKind: fixtureBuild ? 'virtual-device-fixture' : 'production', fixtureBannerVerified, fixtureWarningsDismissed, secureStorageVerification, results}, null, 2));
   if (session) { await call('DELETE', '').catch(() => {}); }
 }

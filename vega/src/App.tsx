@@ -6,7 +6,7 @@ import {BUILD_CONFIG} from './generated/buildConfig';
 import {collectionGroups, createCollection, groupLibrary, MediaGroup, nextEpisode, progressState, versionLabel, visible} from './domain/library';
 import {emptyProfileLibrary, HouseholdProfile, LibrarySnapshot, MediaItem, MediaKind, PlaybackResource, ProfileLibrary, Source} from './domain/model';
 import {contains, parentPath} from './domain/paths';
-import {matchingSubtitles, parseSubtitles} from './domain/subtitles';
+import {loadMatchingSubtitles} from './domain/subtitles';
 import {loadLibrary, saveLibrary} from './services/storage';
 import {scanJellyfin} from './sources/http';
 import {scanSource} from './sources/scanner';
@@ -207,10 +207,7 @@ const MediaVaultApp = () => {
       subtitles={async () => {
         if (currentSource.kind === 'jellyfin') { return []; }
         const client = platformServices.client(currentSource), entries = await client.list(parentPath(item.path)); assertSession(token);
-        const matches = matchingSubtitles(item, entries.filter(entry => !entry.directory).map(entry => entry.path)).slice(0, 8);
-        const result = [];
-        for (const match of matches) { const value = await client.readText(match.path, 2 * 1024 * 1024); assertSession(token); result.push({label: match.language ?? 'External subtitles', language: match.language ?? '', cues: parseSubtitles(value)}); }
-        return result;
+        return loadMatchingSubtitles(item, entries.filter(entry => !entry.directory).map(entry => entry.path), client.readText, () => assertSession(token));
       }}
       onProgress={(position, duration, ended) => { if (token === sessionRef.current && unlockedRef.current) { updatePersonal(value => ({...value, viewing: {...value.viewing, [item.id]: progressState(position, duration, value.viewing[item.id], ended)}}), token); } }}
       releaseResource={uri => platformServices.revokeResource(uri)}

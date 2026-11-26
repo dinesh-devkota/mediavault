@@ -36,14 +36,21 @@ The system keyboard is also treated as protected entry. Only an allowlisted
 layout/focus snapshot is retained in that state; text, descriptions and pixel
 captures are omitted. Amazon's pinned driver prints raw RPC parameters outside
 Appium's logger, so the workflow discards its console output and retains only the
-filtered warning log. App-specific native logs start before launch and are capped
-at 2 MiB and 15 minutes per app.
+filtered warning log. App-specific stored native logs are collected after the
+journeys, with a 2 MiB result cap and 15-second query deadline per app. LoggingCtl
+must start after installation to obtain access to the newly installed packages.
 
 Form entry targets the actual editable child of React Native's focus wrapper.
 The harness completes the observed system keyboard session with Done and uses
 bounded D-pad navigation to reveal off-screen controls, then verifies focus
 before selecting them. Text acknowledgement uses the actual editor, not the
 wrapper's empty `getText` result.
+
+The Debug fixture can show the SDK's focus-stealing development LogBox. The
+harness dismisses only its exact observed "Open debugger to view warnings."
+overlay, within the fixture app, using the visible Dismiss control. The number
+is recorded in `fixtureWarningsDismissed`. Production startup and application
+errors are never dismissed by this helper.
 
 ## Harness contract tests
 

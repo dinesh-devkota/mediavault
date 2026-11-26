@@ -1,6 +1,6 @@
-import {MediaItem} from './model';
+import {MediaItem, SourceClient} from './model';
 import {baseName, parentPath, stem} from './paths';
-import {utf8Length} from './metadata';
+import {InvalidTextFileError, utf8Length} from './metadata';
 
 export interface SubtitleCue { start: number; end: number; text: string }
 export interface SubtitleFile { path: string; language?: string; forced: boolean; hearingImpaired: boolean }
@@ -21,7 +21,7 @@ function timestamp(value: string): number | undefined {
   return Number(match[1] ?? 0) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number(match[4]) / 1000;
 }
 export function parseSubtitles(value: string): SubtitleCue[] {
-  if (utf8Length(value) > 2 * 1024 * 1024) { throw new Error('The subtitle file is too large.'); }
+  if (utf8Length(value) > 2 * 1024 * 1024) { throw new InvalidTextFileError('The subtitle file is too large.'); }
   const cues: SubtitleCue[] = [];
   for (const block of value.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split(/\n\s*\n/)) {
     const lines = block.split('\n');
@@ -32,7 +32,26 @@ export function parseSubtitles(value: string): SubtitleCue[] {
     if (start === undefined || end === undefined || end <= start) { continue; }
     const text = lines.slice(index + 1).join('\n').replace(/<[^>]*>/g, '').replace(/\{\\[^}]*\}/g, '').slice(0, 4096).trim();
     if (text) { cues.push({start, end, text}); }
-    if (cues.length > 20_000) { throw new Error('The subtitle file contains too many cues.'); }
+    if (cues.length > 20_000) { throw new InvalidTextFileError('The subtitle file contains too many cues.'); }
   }
   return cues.sort((a, b) => a.start - b.start);
+}
+
+
+export async function loadMatchingSubtitles(item: MediaItem, paths: string[], readText: SourceClient['readText'], assertActive: () => void): Promise<{label: string; language: string; cues: SubtitleCue[]}[]> {
+  const result: {label: string; language: string; cues: SubtitleCue[]}[] = [];
+  for (const match of matchingSubtitles(item, paths).slice(0, 8)) {
+    assertActive();
+    try {
+      const value = await readText(match.path, 2 * 1024 * 1024); assertActive();
+      const cues = parseSubtitles(value);
+      if (cues.length) { result.push({label: match.language ?? 'External subtitles', language: match.language ?? '', cues}); }
+    } catch (reason) {
+      // A confirmed bad file can be skipped; permission, transport and profile changes cannot.
+      assertActive();
+      if (!(reason instanceof InvalidTextFileError)) { throw reason; }
+    }
+  }
+  assertActive();
+  return result;
 }

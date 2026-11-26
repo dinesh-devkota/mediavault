@@ -82,6 +82,23 @@ content and bounds the handoff. Its full Android TV workflow passed
 
 ## Amazon Fire TV work — November 25, 2026
 
+Vega `e40bd26` run `45728952472` again passed all package/native jobs and the
+actual production startup probe. Fixture journey 01 reached Sources, then the
+Debug SDK LogBox took focus before Add source. Exact screenshot/XML is under
+`.artifacts/vega-ui-45728952472`. The new harness dismisses only that observed SDK
+warning within the fixture app, records a dismissal count, and reacquires focus
+from the live selector. It does not suppress product errors or change production.
+Log collection now queries stored app logs after installation; LoggingCtl cannot
+see apps that were installed after its session began. Test07 also verifies real
+episode-four progress and valid subtitle choices beside a bad subtitle file.
+
+Two further Vega fixes pass 42 app tests: reentrant cleanup shares one teardown
+promise, and oversized/malformed subtitle files no longer discard valid siblings.
+Profile/source authorization and transport failures still propagate. Hosted
+runtime for this next checkpoint remains required. Base `d6e2600` includes the
+Apple player metadata contrast fix and immediate reveal/tap test helper; base
+`5019cc8` has passed all 223 iPhone tests and unsigned release (`45727532171`).
+
 Run `45726677998` at `c538b89` passed every release architecture, the isolated
 fixture package, and all 74 native checks. The actual VVD production startup
 probe passed: unsupported keystore, hidden library, enabled Retry. Fixture startup

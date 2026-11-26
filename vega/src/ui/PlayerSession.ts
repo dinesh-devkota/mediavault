@@ -168,16 +168,7 @@ export class PlayerSession {
   stop(): Promise<void> {
     if (this.releaseTask) { return this.releaseTask; }
     this.stopped = true; if (this.startupTimer !== undefined) { clearTimeout(this.startupTimer); } if (this.sampleTimer !== undefined) { clearInterval(this.sampleTimer); }
-    for (const [event, listener] of Object.entries(this.events)) { this.video.removeEventListener(event, listener); }
-    if (this.initialized) {
-      try {
-        // A completed episode must never be overwritten by an unfinished cleanup checkpoint.
-        if (this.started && !this.finished && this.resumeTarget === undefined && Number.isFinite(this.video.currentTime) && Number.isFinite(this.video.duration) && this.video.duration > 0) {
-          this.options.progress(this.video.currentTime, this.video.duration, false);
-        }
-        this.video.pause();
-      } catch { /* Teardown and capability revocation must still complete. */ }
-    }
+    // Publish the teardown promise before callbacks can re-enter stop().
     // Await a late initialization/load to revoke the exact capability once; never start it after cancellation.
     this.releaseTask = this.operation.catch(() => {}).then(async () => {
       if (this.initialized) {
@@ -189,6 +180,16 @@ export class PlayerSession {
       this.surface = undefined; this.caption = undefined;
       if (this.resourceURI) { const uri = this.resourceURI; this.resourceURI = undefined; await this.options.releaseResource(uri).catch(() => {}); }
     });
+    for (const [event, listener] of Object.entries(this.events)) { this.video.removeEventListener(event, listener); }
+    if (this.initialized) {
+      try {
+        // A completed episode must never be overwritten by an unfinished cleanup checkpoint.
+        if (this.started && !this.finished && this.resumeTarget === undefined && Number.isFinite(this.video.currentTime) && Number.isFinite(this.video.duration) && this.video.duration > 0) {
+          this.options.progress(this.video.currentTime, this.video.duration, false);
+        }
+        this.video.pause();
+      } catch { /* Teardown and capability revocation must still complete. */ }
+    }
     return this.releaseTask;
   }
 }

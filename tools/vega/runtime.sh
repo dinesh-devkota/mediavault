@@ -14,13 +14,20 @@ evidence="$repo/.artifacts/vega-ui"
 mkdir -p "$evidence"
 bash tools/vega/check-package.sh "$package" production x86_64 >"$evidence/production-package-validation.json"
 bash tools/vega/check-package.sh "$fixture_package" fixture x86_64 >"$evidence/fixture-package-validation.json"
-nas_pid=''; appium_pid=''; log_pids=()
+nas_pid=''; appium_pid=''; virtual_device_verified=false
 cleanup() {
+  if [[ "$virtual_device_verified" == true ]]; then
+    # LoggingCtl resolves access from already-installed apps. Query after the
+    # journeys (before stopping the disposable device), including stored logs
+    # from this fresh boot. A pre-install stream cannot see either new package.
+    for app_id in com.dineshdevkota.cinevault com.dineshdevkota.mediavault.vvdfixture; do
+      timeout --kill-after=2s 15s vega exec vda shell "loggingctl log -v $app_id --since today" 2>&1 |
+        tail -c 2097152 >"$evidence/$app_id.log" || true
+    done
+  fi
   [[ -z "$appium_pid" ]] || kill "$appium_pid" 2>/dev/null || true
   [[ -z "$nas_pid" ]] || kill "$nas_pid" 2>/dev/null || true
   vega virtual-device stop >"$evidence/stop.log" 2>&1 || true
-  # Only process groups created below, on this disposable hosted runner.
-  for pid in "${log_pids[@]}"; do kill -- "-$pid" 2>/dev/null || true; done
 }
 trap cleanup EXIT
 vega virtual-device start --no-gui --no-gl-accel --timeout 180 >"$evidence/boot.log" 2>&1
@@ -31,6 +38,7 @@ info = json.load(open(sys.argv[1]))
 assert info.get('simulated') is True, 'Refusing to test on a physical device'
 assert info.get('architecture') == 'x86_64', 'Unexpected virtual-device architecture'
 PY
+virtual_device_verified=true
 if ! python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1])).get("inDeveloperMode", False))' "$evidence/device.json"; then
   vega exec vda shell 'vsm developer-mode enable'
   # Enabling developer mode reboots only this disposable virtual device.
@@ -45,13 +53,6 @@ if ! python3 -c 'import json,sys; sys.exit(not json.load(open(sys.argv[1])).get(
   [[ "$ready" == true ]] || { echo 'The virtual device did not finish restarting.' >&2; exit 1; }
 fi
 vega exec vda shell 'touch /tmp/automation-toolkit.enable'
-# loggingctl streams new messages; starting it after a failure misses the cause.
-# The verified runner has only this virtual device (whose VDA serial is unknown).
-# Capture each app before launch, bounded in both bytes and time.
-for app_id in com.dineshdevkota.cinevault com.dineshdevkota.mediavault.vvdfixture; do
-  setsid bash -c 'timeout --kill-after=2s 15m vega exec vda shell "loggingctl log -v $1" 2>&1 | head -c 2097152 >"$2"' _ "$app_id" "$evidence/$app_id.log" &
-  log_pids+=("$!")
-done
 vega run-app "$package" com.dineshdevkota.cinevault.main -d VirtualDevice >"$evidence/production-launch.log" 2>&1
 export PATH="$(dirname "$(vega exec which vda)"):$PATH"
 # Amazon's driver prints raw JSON-RPC bodies directly to stdout even when the
