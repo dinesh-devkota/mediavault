@@ -115,6 +115,32 @@ content and bounds the handoff. Its full Android TV workflow passed
 
 ## Amazon Fire TV work — November 25, 2026
 
+Latest verified checkpoint: Fire `5c88fe8` passed Android TV 110/110 (run
+`45735053621`). Android phone 7/7 and Fire compatibility 13/13 on each API
+22/25/28 passed at `7e207f2`; their code and dependencies are unchanged at `5c88fe8`.
+Base `7983719` passed Apple TV 233/233 (`45733330571`). Its iPhone run
+`45733330589` passed 222/223 and unsigned Release: caption clearance and the
+authenticated WebDAV scan passed. The remaining Library-navigation test tap
+was consumed by a transient system Save Password prompt; the narrow test-only
+interruption handling is being corrected, with no change to production navigation.
+
+Vega run `45735053415` at `5c88fe8` passed all production architectures, isolated
+fixture packaging, native checks and the production startup probe. Library journey
+01 still failed at Add source. This time both screenshots show Sources, and the
+native `UiObject:focused` query agrees with XML that Back retains focus despite
+successful setFocus responses. No complete library journey has passed. A fixture-only
+experiment will follow the pinned SDK template's notification suppression while
+retaining console/native diagnostics, uncaught-error screens and strict focus checks.
+Do not infer a production rendering defect or hardware readiness from this evidence.
+Diagnostics are in `.artifacts/vega-ui-45735053415`.
+
+The owner explicitly approved private revision `7420284` in build-only run
+`45734118734`, and that exact approval has been submitted. Package tests and the
+unsigned tvOS build passed; simulator tests are running. TestFlight is disabled.
+This supersedes the older pending-approval note below; no further approval for
+this exact run is needed. The old trusted-main workflow still does not verify
+the new licensed iPhone/VLC integration.
+
 Run `45732509539` at `7e207f2` passed all packages/native checks and production
 startup. Fixture warning dismissal now works (count 1), but Add source focus was
 not acknowledged within 25 seconds despite successful setFocus RPC responses.

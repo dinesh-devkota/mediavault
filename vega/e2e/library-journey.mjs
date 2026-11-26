@@ -73,10 +73,14 @@ async function dismissFixtureWarning() {
   console.log('[Vega journey] Dismissed SDK development warning overlay');
   return true;
 }
-async function focusVisible(xpath) {
+async function focusVisible(xpath, openingField = false) {
+  const deadline = Date.now() + 25_000;
+  if (openingField) {
+    await waitFor(async () => !await exists(byID('key_Done')),
+      'The previous keyboard must close before opening another field.', Math.max(1, deadline - Date.now()));
+  }
   const window = await call('GET', '/window/rect');
   let direction = 108, previousFocus, unchanged = 0;
-  const deadline = Date.now() + 25_000;
   for (let attempt = 0; attempt < 50 && Date.now() < deadline; attempt++) {
     await dismissFixtureWarning();
     const matches = await call('POST', '/elements', {using: 'xpath', value: xpath});
@@ -87,7 +91,11 @@ async function focusVisible(xpath) {
       if (rect.width > 0 && rect.height > 0 && x >= window.x && x < window.x + window.width && y >= window.y && y < window.y + window.height) {
         const result = await call('POST', '/execute/sync', {script: 'jsonrpc: setFocus', args: [[{id: Number(id)}]]});
         try {
-          await waitFor(() => nativeFocused(xpath), `The remote could not focus the target control: ${xpath}`, 1000);
+          // A TextInput can open the system keyboard as soon as it receives
+          // focus. The keyboard then owns focus, so the field need not retain
+          // it. Only field opening accepts this transition; buttons stay strict.
+          await waitFor(async () => await nativeFocused(xpath) || (openingField && await exists(byID('key_Done'))),
+            `The remote could not focus the target control: ${xpath}`, Math.max(1, Math.min(1000, deadline - Date.now())));
         } catch (error) {
           if (await dismissFixtureWarning()) { continue; }
           // A screen transition may assign its initial focus after setFocus.
@@ -124,8 +132,10 @@ async function key(code) {
 }
 async function enter(id, value, previous = '') {
   const editorPath = byID(id) + "//*[@editable='true']";
-  await focusVisible(editorPath);
-  await key(96);
+  // Navigate to the outer TV field, then edit/read its actual native editor.
+  // Focusing the inner editor directly may open IME and immediately lose focus.
+  await focusVisible(byID(id), true);
+  if (!await exists(byID('key_Done'))) { await key(96); }
   await element(byID('key_Done'));
   const target = await element(editorPath);
   // Use documented Linux key events for editing; the Vega command reference does not promise element.clear().
@@ -139,8 +149,8 @@ async function enter(id, value, previous = '') {
       return await call('GET', `/element/${editor}/text`) === value;
     }, `The text field did not acknowledge the complete input: ${id}`);
   }
-  // send_keys opens Vega's system keyboard. Complete the observed editing
-  // session before navigating to another field or pressing a form action.
+  // Complete the observed editing session before navigating to another field
+  // or pressing a form action. send_keys itself normally only sets the text.
   if (await exists(byID('key_Done'))) {
     await click('key_Done');
     await waitFor(async () => !await exists(byID('key_Done')), 'The system keyboard did not finish editing.');
@@ -194,6 +204,48 @@ async function capture(name) {
   await writeFile(resolve(output, `${name}.next.png`), Buffer.from(nextScreenshot, 'base64'));
   await writeFile(resolve(output, `${name}.after.xml`), await call('GET', '/source'));
 }
+async function diagnoseSourcesFocus() {
+  const app = `//app[@appName=${literal(packageId)}]`;
+  if (!fixtureBuild || !await exists(app + "//*[@role='text' and text='Your sources']")) { return; }
+  const add = app + byID('action-add-source');
+  const targets = [
+    {name: 'header-profile', xpath: app + byID('action-everyone')},
+    {name: 'scroll-container', xpath: add + '/ancestor::child[traits/scrollable][1]'},
+    {name: 'add-source', xpath: add},
+  ];
+  const observed = [...targets, {name: 'back', xpath: app + byID('action-back')}];
+  async function states() {
+    const values = [];
+    for (const target of observed) {
+      values.push({name: target.name, native: await nativeFocused(target.xpath),
+        serialized: await exists(target.xpath + '[@focused="true"]')});
+    }
+    return values;
+  }
+  const report = {diagnosticOnly: true, originalFailurePreserved: true, before: await states(), attempts: []};
+  // Run only after the failed journey and its original evidence are saved.
+  // Focus requests alone distinguish a global trap from a ScrollView boundary;
+  // never press Select, enter text, retry the journey, or change its result.
+  for (const target of targets) {
+    const matches = await call('POST', '/elements', {using: 'xpath', value: target.xpath});
+    if (!matches.length) { report.attempts.push({name: target.name, found: false}); continue; }
+    try {
+      const result = await call('POST', '/execute/sync', {script: 'jsonrpc: setFocus', args: [[{id: Number(matches[0][elementKey])}]]});
+      const started = Date.now();
+      let observedFocused = await nativeFocused(target.xpath);
+      while (!observedFocused && Date.now() - started < 1000) {
+        await sleep(Math.min(100, 1000 - (Date.now() - started)));
+        observedFocused = await nativeFocused(target.xpath);
+      }
+      report.attempts.push({name: target.name, found: true, requestAccepted: result?.result === true,
+        observedFocused, observationMs: Date.now() - started, states: await states()});
+    } catch {
+      report.attempts.push({name: target.name, found: true, error: 'The focus diagnostic request failed.'});
+    }
+  }
+  await writeFile(resolve(output, 'sources-focus-diagnostic.json'), JSON.stringify(report, null, 2));
+  await capture('sources-focus-diagnostic-after');
+}
 async function step(name, run) {
   const started = Date.now();
   console.log(`[Vega journey] Starting ${name}`);
@@ -201,7 +253,11 @@ async function step(name, run) {
   catch (error) {
     const sanitized = String(error).replace(/482619|000000|fixture-only/g, '[fixture credential]');
     results.push({name, passed: false, status: 'failed', error: sanitized, durationMs: Date.now() - started});
-    await capture(name + '-failure').catch(() => {}); throw new Error(sanitized);
+    await capture(name + '-failure').catch(() => {});
+    if (name === '01-connect-and-scan' && sanitized.includes("@test_id='action-add-source'")) {
+      await diagnoseSourcesFocus().catch(() => console.log('[Vega journey] Focus diagnostics unavailable; original failure retained.'));
+    }
+    throw new Error(sanitized);
   }
   console.log(`[Vega journey] Passed ${name}`);
 }
