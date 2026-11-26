@@ -296,34 +296,46 @@ subsequent photo navigation fix completed the signed preview as recorded below.
   household privacy and both providers' named gates. The prior `fbc3091`
   passed both Android suites and all 269 Apple TV simulator cases. The new
   combined Android build and 272 unit tests passed locally, with three optional
-  live-server cases skipped. Exact hosted validation is under the PR checks.
+  live-server cases skipped. It also passed 121 Android TV and 20 Android phone
+  emulator checks. The preceding iPhone run passed all 266 cases and the unsigned
+  release. The current combined Apple results remain under the PR checks.
   [Emby #17](https://github.com/dinesh-devkota/mediavault/pull/17)
-- Fire TV and Vega #20 `51af57c` is refreshed against merged Drive. The prior
+- Fire TV and Vega #20 `36b8a08` includes merged Drive. The prior
   `db5334f` passed Fire OS API 22, 25 and 28, Android TV 122/122, Android phone
   17/17 and Apple TV 257/257. Exact Vega run `45881504304` built all three package
   architectures and passed production startup and nine simulator stages. Real MP4
   seeks reached 11, 41, 31 and 21 seconds. The SDK returned MKV seek error 50004,
   and playback retained the confirmed checkpoint. That iPhone run passed the real
   MKV journey and failed the WebDAV Film touch. The refreshed branch carries the
-  exact WebDAV prompt handling from merged #7 and compiles locally.
+  exact WebDAV prompt handling from merged #7 and compiles locally. At `51af57c`,
+  Fire OS passed 66 cases, Android TV 124, Android phone 20, and WebDAV passed
+  on iPhone. Its only iPhone test failure was an MKV drag intended near 21s
+  that left the VLC clock at 28.39s. The current Vega harness verifies the
+  correct PIN restores admin access and actively searches to open the exact
+  fixture title. Native seek request evidence is prepared in a local Debug-only
+  review branch.
   [Fire TV and Vega #20](https://github.com/dinesh-devkota/mediavault/pull/20)
 - Apple simulator reliability #31 `b06f13c` is refreshed against merged Drive.
   Its signed `b7920f5` preview passed all eight screens and 46 OCR checks,
-  including the photo controls and Search. The current branch retains the exact
-  preview implementation and the merged Drive iPhone test.
+  including the photo controls and Search. The exact current `b06f13c` preview
+  passed the same 46 checks, all eight screens, and Swift Core 84/84. Its current
+  full Apple simulator suites are still listed under the PR checks.
   [Apple simulator reliability #31](https://github.com/dinesh-devkota/mediavault/pull/31)
 - Android NFS #8 `0eac115` is refreshed against merged Drive. The existing
   opt-in owner setup, scoped catalog and byte reads, native playback and source
   removal passed four Android TV cases and five native loopback cases at
   `2922df5`. The current combined candidate passed local APK, instrumentation,
   release lint and 269 JVM tests, with two optional Jellyfin cases skipped.
-  Both native libraries are confined to Debug and are absent from Release.
+  It passed the hosted Android suites with 118 TV, 20 phone, and four dedicated
+  NFS cases, without skips. Both native libraries are confined to Debug and are
+  absent from Release. The remaining Apple regression gates are in the PR.
   [Android NFS #8](https://github.com/dinesh-devkota/mediavault/pull/8)
 
 The local review branches in the Windows transfer bundle include subtitle
 source/download presentation, reusable Apple CI, exact direct-Drive selection
-validation, and Emby expiration feedback. Each is isolated from the current
-merge candidates. The direct Apple TV Google Drive flow still needs a registered
+validation, Emby expiration feedback, bounded retry of Maven Central rate
+limits before an emulator starts, and native MKV seek diagnostics. Each is
+isolated from the current merge candidates. The direct Apple TV Google Drive flow still needs a registered
 companion connection. The NFS Apple work remains limited to the host fixture and
 ABI pilot.
 
