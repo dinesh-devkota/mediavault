@@ -224,13 +224,19 @@ executed. Apple TV passed 259 cases including the shared Swift range client.
 One iPhone regression run stopped at a WebDAV TLS handshake. Its unchanged
 retry imported the film and then encountered a late system Save Password
 sheet over the Library. The Android app and its required TV and phone
-journeys are green. The Google Drive iPhone draft passed 221 iPhone and 224 Apple TV
+journeys are green. At updated `3c53c9d`, the authenticated WebDAV test
+passed through opening Film. The exact shared iPhone suite still recorded
+two Plex fixture connection failures; the branch remains a draft.
+The Google Drive iPhone draft passed 221 iPhone and 224 Apple TV
 simulator tests, the two unsigned builds, and all four Files-access gates.
 It merged into the iPhone feature branch at `0d84915`. Live Drive use
 depends on a signed-in Google Drive app enabled in Files. PR #16 ports the
-verified iPhone provider flows onto current development at `4d43086`, keeps
-the existing offline policy, and adds the Files data flow to that policy.
-The exact combined development tree has its own simulator and build checks.
+verified iPhone provider flows onto current development and keeps the
+existing offline policy with the Files data flow added. The initial
+combined run passed scoped Files, OneDrive and Plex, and Dropbox media
+requests. Draft `456e11f` fixes the stale Dropbox Film locator and ports the
+WebDAV touch validated in #31. The combined iPhone path still needs hosted
+validation, including the two unchanged SMB/MKV playback checks.
 [Development iPhone port #16](https://github.com/dinesh-devkota/mediavault/pull/16) Private Drive on Apple TV needs a registered
 Google OAuth/Picker flow and a reviewable HTTPS companion.
 [Android Drive #7](https://github.com/dinesh-devkota/mediavault/pull/7)
