@@ -159,7 +159,7 @@ interface MovieDao {
     @Query("UPDATE movies SET metadataFetched = 1 WHERE id = :id")
     suspend fun markMetadataFetched(id: String)
 
-    @Query("UPDATE movies SET metadataFetched = 0")
+    @Query("UPDATE movies SET metadataFetched = 0 WHERE sourceId NOT IN (SELECT id FROM sources WHERE sourceType IN ('plex', 'jellyfin'))")
     suspend fun clearMetadataFetched()
 
     /** A manual rename; locked so rescans and automatic matching keep the user's title. */
