@@ -7,23 +7,41 @@ export const keyboardDone = keyboardApp + "//*[@test_id='key_Done']";
 const rpcTimeoutMs = 2000;
 const pollDelayMs = 250;
 
-// Appium 3.30.0 does not time out its upstream visibility request. A stuck
+// The Kepler driver does not time out its upstream keyboard requests. A stuck
 // read otherwise keeps Appium's session queue occupied after the client aborts.
-export function simulatorVisibilityRpc(port, request = fetch) {
+export function simulatorKeyboardRpc(port, request = fetch) {
   assert(/^\d+$/.test(port) && Number(port) > 1023 && Number(port) < 65536,
-    'The simulator visibility port must be a valid loopback port.');
+    'The simulator keyboard RPC port must be a valid loopback port.');
   const endpoint = `http://127.0.0.1:${port}/jsonrpc`;
-  return async (id, timeoutMs) => {
+  return async (method, params, timeoutMs) => {
+    assert(method === 'visibilityOf' || method === 'findObjects', 'Only keyboard observations can use the direct RPC.');
     const response = await request(endpoint, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       redirect: 'error',
-      body: JSON.stringify({jsonrpc: '2.0', id: '0', method: 'visibilityOf', params: {id}}),
+      body: JSON.stringify({jsonrpc: '2.0', id: '0', method, params}),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) { throw new Error('Native visibility request failed.'); }
+    if (!response.ok) { throw new Error('Native keyboard request failed.'); }
     const envelope = await response.json();
     return envelope?.jsonrpc === '2.0' && envelope.id === '0' ? envelope : null;
+  };
+}
+
+// The pinned driver translates an XPath lookup into this native request.
+// Require a successful Silverstone result because its W3C wrapper can turn
+// native lookup errors into an empty list.
+export function keyboardDonePresenceReader(rpc) {
+  return async timeoutMs => {
+    try {
+      const response = await rpc('findObjects', {selectorStrategy: 'xpath', args: {xpath: keyboardDone}}, timeoutMs);
+      const ids = response?.result;
+      if (response?.jsonrpc !== '2.0' || response.id !== '0' || response.error != null || !Array.isArray(ids)
+        || !ids.every(id => Number.isSafeInteger(id) && id > 0)) { return null; }
+      return ids.length > 0;
+    } catch {
+      return null;
+    }
   };
 }
 
@@ -71,5 +89,5 @@ export async function waitForKeyboardDismissal({windowId, readVisibility, isDone
     const delay = Math.min(pollDelayMs, deadline - now());
     if (delay > 0) { await pause(delay); }
   }
-  throw new Error(`The same system keyboard window did not become hidden after Back (visibility: ${visibility}, Done: ${done}, attempts: ${attempts}).`);
+  throw new Error(`Keyboard dismissal could not be confirmed for the same system window after Back (visibility: ${visibility}, Done: ${done}, attempts: ${attempts}).`);
 }

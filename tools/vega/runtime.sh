@@ -114,7 +114,7 @@ export MEDIA_VAULT_E2E_NAS_ENDPOINT=smb://127.0.0.1:1445/MEDIALIBRARY
 export MEDIA_VAULT_E2E_OUTPUT="$evidence/fixture"
 export MEDIA_VAULT_E2E_NATIVE_LOG="$evidence/fixture-live.log"
 # The pinned Vega driver connects to Automation Toolkit on the device's
-# TCP 8383. Keep read-only keyboard visibility independent of its queue.
+# TCP 8383. Keep read-only dismissal checks independent of its queue.
 vega exec vda forward "tcp:$keyboard_rpc_port" tcp:8383
 keyboard_rpc_forwarded=true
 export MEDIA_VAULT_E2E_KEYBOARD_RPC_PORT="$keyboard_rpc_port"

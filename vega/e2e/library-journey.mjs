@@ -3,7 +3,7 @@ import {mkdir, readFile, stat, writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {activateKeyboardClear} from './keyboard-clear.mjs';
 import {nativeSeeks, parseElapsedPosition, waitForMp4Seek} from './native-seek-evidence.mjs';
-import {keyboardApp, keyboardDone, keyboardVisibilityReader, simulatorVisibilityRpc, waitForKeyboardDismissal}
+import {keyboardApp, keyboardDone, keyboardDonePresenceReader, keyboardVisibilityReader, simulatorKeyboardRpc, waitForKeyboardDismissal}
   from './keyboard-observation.mjs';
 
 // Real Appium/Vega automation, using Amazon's documented W3C endpoints and JSON-RPC D-pad API.
@@ -77,10 +77,12 @@ async function nativeFocused(xpath) {
   return value === 'true';
 }
 const keyboardRpcPort = process.env.MEDIA_VAULT_E2E_KEYBOARD_RPC_PORT;
-assert(!keyboardRpcPort || fixtureBuild, 'Direct native visibility is reserved for the disposable simulator fixture.');
-const readKeyboardVisibility = keyboardVisibilityReader(keyboardRpcPort
-  ? simulatorVisibilityRpc(keyboardRpcPort)
-  : (id, timeoutMs) => call('POST', '/execute/sync', {script: 'jsonrpc: visibilityOf', args: [[{id}]]}, timeoutMs));
+assert(!keyboardRpcPort || fixtureBuild, 'Direct native keyboard observations are reserved for the disposable simulator fixture.');
+const keyboardRpc = keyboardRpcPort
+  ? simulatorKeyboardRpc(keyboardRpcPort)
+  : (method, params, timeoutMs) => call('POST', '/execute/sync', {script: `jsonrpc: ${method}`, args: [[params]]}, timeoutMs);
+const readKeyboardVisibility = keyboardVisibilityReader((id, timeoutMs) => keyboardRpc('visibilityOf', {id}, timeoutMs));
+const isKeyboardDonePresent = keyboardDonePresenceReader(keyboardRpc);
 const nativeDisplayed = async id => (await readKeyboardVisibility(id)).displayed;
 async function displayedKeyboardWindow() {
   if (!await exists(keyboardDone)) { return null; }
@@ -282,7 +284,7 @@ async function enter(id, value, previous = '') {
     await waitForKeyboardDismissal({
       windowId: activeKeyboardWindow,
       readVisibility: readKeyboardVisibility,
-      isDonePresent: timeoutMs => exists(keyboardDone, timeoutMs),
+      isDonePresent: isKeyboardDonePresent,
       onObservation: observation => {
         if (traceDismissal && observations.length < 8) { observations.push(observation); }
       },

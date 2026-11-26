@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import test from 'node:test';
 import {activateKeyboardClear} from './keyboard-clear.mjs';
-import {keyboardVisibilityReader, simulatorVisibilityRpc, waitForKeyboardDismissal} from './keyboard-observation.mjs';
+import {keyboardDonePresenceReader, keyboardVisibilityReader, simulatorKeyboardRpc, waitForKeyboardDismissal}
+  from './keyboard-observation.mjs';
 
 const elementKey = 'element-6066-11e4-a52e-4f735466cecf';
 // Observed Silverstone geometry, with just the keys on the expected route.
@@ -124,11 +125,52 @@ test('a timed-out direct visibility request does not block a later observation',
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   try {
-    const read = keyboardVisibilityReader(simulatorVisibilityRpc(String(server.address().port)));
+    const rpc = simulatorKeyboardRpc(String(server.address().port));
+    const read = keyboardVisibilityReader((id, timeoutMs) => rpc('visibilityOf', {id}, timeoutMs));
     assert.deepEqual(await read('87', 250), {displayed: null, outcome: 'timeout'});
     assert.deepEqual(await read('87'), {displayed: false, outcome: 'hidden'});
     assert.deepEqual(await read('87'), {displayed: null, outcome: 'unknown'});
     assert.deepEqual(ids, [87, 87, 87]);
+  } finally {
+    await new Promise(done => {
+      server.close(done);
+      server.closeAllConnections();
+    });
+  }
+});
+
+test('native Silverstone Done lookup distinguishes timeout and invalid replies from true absence', {timeout: 5000}, async () => {
+  const responses = [
+    null, // The service accepts the request but never answers this lookup.
+    {error: {code: -32603}, result: []},
+    {id: 'different', result: []},
+    {result: null},
+    {result: [0]},
+    {result: [12884903353]},
+    {result: []},
+  ];
+  const server = createServer(async (request, response) => {
+    assert.equal(request.url, '/jsonrpc');
+    assert.equal(request.method, 'POST');
+    const chunks = [];
+    for await (const chunk of request) { chunks.push(chunk); }
+    assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), {
+      jsonrpc: '2.0', id: '0', method: 'findObjects',
+      params: {selectorStrategy: 'xpath', args: {xpath: "//app[@appName='com.amazon.silverstone']//*[@test_id='key_Done']"}},
+    });
+    const answer = responses.shift();
+    if (answer === null) { return; }
+    response.writeHead(200, {'Content-Type': 'application/json'});
+    response.end(JSON.stringify({jsonrpc: '2.0', id: '0', ...answer}));
+  });
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  try {
+    const isDonePresent = keyboardDonePresenceReader(simulatorKeyboardRpc(String(server.address().port)));
+    assert.equal(await isDonePresent(250), null);
+    for (let i = 0; i < 4; i++) { assert.equal(await isDonePresent(1000), null); }
+    assert.equal(await isDonePresent(1000), true);
+    assert.equal(await isDonePresent(1000), false);
+    assert.equal(responses.length, 0);
   } finally {
     await new Promise(done => {
       server.close(done);
