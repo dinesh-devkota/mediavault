@@ -145,6 +145,7 @@ jobs:
               "testOneDriveGraphHTTPSPlaybackAndSeek",
               "testConnectDropboxAndImportSelectedFolder",
               "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek",
+              "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot",
               "testNativePlaybackAndSubtitleControls",
               "testViewerOnlySeesAllowedTitlesOnPhone",
               "testPlaybackAndSeekStreamTheScannedMovie",
