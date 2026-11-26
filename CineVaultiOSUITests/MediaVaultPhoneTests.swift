@@ -94,10 +94,16 @@ final class MediaVaultPhoneTests: XCTestCase {
         let deadline = Date().addingTimeInterval(10)
         var needsTap = true
         func waitFor(_ predicate: NSPredicate, object: Any? = nil) -> Bool {
+            // XCUI queries and taps wait for app quiescence themselves. The
+            // preceding action may have completed while consuming the remaining
+            // budget, so observe its result before deciding whether to wait more.
+            if predicate.evaluate(with: object) { return true }
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return false }
             let expectation = XCTNSPredicateExpectation(predicate: predicate, object: object)
-            return XCTWaiter.wait(for: [expectation], timeout: remaining) == .completed
+            let result = XCTWaiter.wait(for: [expectation], timeout: remaining)
+            if result == .completed { return true }
+            return result == .timedOut && predicate.evaluate(with: object)
         }
         while true {
             let ready = NSPredicate { _, _ in

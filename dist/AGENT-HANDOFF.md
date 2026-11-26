@@ -38,8 +38,15 @@ Its full Apple TV run passed 233/233 (`45718498997`) and iPhone passed 223/223
 plus unsigned release (`45718499092`). Four fixture tests pass, with explicit
 TLS-stage diagnostics. A duplicate iPhone run exposed the system Save Password
 sheet arriving before Library became tappable. The latest test waits within one
-ten-second navigation budget and repeats a tap only after an observed interruption;
-that final test follow-up remains under hosted validation.
+ten-second navigation budget and repeats a tap only after an observed interruption.
+Run `45724101732` at `8a15415` passed 222/223 and its unsigned release build:
+the only failure was this navigation helper rejecting an expired budget even
+though Library was already selected and the imported Film poster was visible.
+The log confirms the real password prompt was declined, then the selected-tab
+query consumed the final second. The follow-up evaluates current state before
+rejecting a deadline and after a waiter timeout; it adds no extra wait budget.
+That narrow test correction remains under hosted validation. Evidence is under
+`.artifacts/apple-phone-8a15415` in the original worktree.
 
 Earlier actual defects are corrected: TCP send completion, VLC parser timeout
 units, pending-pause acknowledgement, synchronous stream revocation, nested

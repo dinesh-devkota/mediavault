@@ -2,6 +2,9 @@ package com.dineshdevkota.cinevault.metadata
 
 import com.dineshdevkota.cinevault.core.LocalMetadataParser
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.family.FamilyPolicy
+import com.dineshdevkota.cinevault.family.FolderAccess
+import com.dineshdevkota.cinevault.family.HouseholdProfile
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -38,11 +41,40 @@ class LocalMetadataPrecedenceTest {
         val parent = LocalMetadataParser.parse("<tvshow><title>Show</title><mpaa>TV-G</mpaa></tvshow>".toByteArray())
         val restricted = LocalMetadataImporter.apply(episode,
             LocalMetadataParser.parse("<episodedetails><mpaa>TV-MA</mpaa></episodedetails>".toByteArray()), parent, null)
-        val invalid = LocalMetadataImporter.apply(restricted, null, parent, null, invalidDetails = true)
+        val invalid = LocalMetadataImporter.apply(restricted, null, parent, null, invalidSidecar = true)
         assertNull(invalid.ageCertification)
         assertTrue(invalid.certificationFetched)
         assertEquals("Show", invalid.seriesTitle)
         assertNull(LocalMetadataImporter.reapply(invalid.copy(ageCertification = "TV-G")).ageCertification)
         assertEquals("TV-G", LocalMetadataImporter.apply(invalid, null, parent, null).ageCertification)
+    }
+    @Test fun corruptMetadataBlocksStaleChildPermissionEvenWhenAnotherSidecarIsUnavailable() {
+        val episode = original.copy(filePath = "Show/Season 01/Show.S01E01.mp4", fileName = "Show.S01E01.mp4")
+        val safe = LocalMetadataImporter.apply(episode,
+            LocalMetadataParser.parse("<episodedetails><title>Pilot</title><plot>Saved plot</plot><year>2020</year><genre>Drama</genre><mpaa>TV-G</mpaa></episodedetails>".toByteArray()),
+            LocalMetadataParser.parse("<tvshow><title>Saved show</title><uniqueid type='tmdb'>44</uniqueid></tvshow>".toByteArray()), null)
+        val child = HouseholdProfile("child", "Child", folders = listOf(FolderAccess(safe.sourceId, "")), tvLimit = "TV-G")
+        assertTrue(FamilyPolicy.allows(child, safe))
+        for (complete in listOf(false, true)) {
+            val invalid = LocalMetadataImporter.apply(safe, null, null, null, metadataComplete = complete, invalidSidecar = true)
+            assertNull(invalid.ageCertification)
+            assertTrue(invalid.certificationFetched)
+            assertFalse(FamilyPolicy.allows(child, invalid))
+            assertEquals(safe.title, invalid.title)
+            assertEquals(safe.overview, invalid.overview)
+            assertEquals(safe.year, invalid.year)
+            assertEquals(safe.genres, invalid.genres)
+            assertEquals(safe.seriesTitle, invalid.seriesTitle)
+            assertEquals(safe.seriesTmdbId, invalid.seriesTmdbId)
+            assertNull(LocalMetadataImporter.reapply(invalid.copy(ageCertification = "TV-G")).ageCertification)
+        }
+    }
+    @Test fun unavailableSidecarsAlonePreserveSavedMetadataAndManualCorrectionsWin() {
+        val saved = original.copy(title = "Saved title", ageCertification = "PG", certificationFetched = true)
+        assertEquals(saved, LocalMetadataImporter.apply(saved, null, null, null, metadataComplete = false))
+        val manual = saved.copy(title = "Manual title", isLocked = true)
+        for (complete in listOf(false, true)) {
+            assertEquals(manual, LocalMetadataImporter.apply(manual, null, null, null, metadataComplete = complete, invalidSidecar = true))
+        }
     }
 }
