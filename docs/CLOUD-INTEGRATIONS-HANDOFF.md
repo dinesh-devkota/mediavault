@@ -280,8 +280,8 @@ Apple TV development fixture job to the supported macOS runner, and shares
 one ad hoc signed preview and OCR script between both preview workflows.
 The first draft passed all 245 iPhone and 256 Apple TV simulator cases.
 Its real signed preview passed Home and Detail, then exposed unreadable
-Apple TV filter labels. Current draft `1d050fb` fixes the affected label
-contrast and waits on the hosted screenshot and simulator checks.
+Apple TV filter labels. Revision `1d050fb` corrected those labels. The
+subsequent photo navigation fix completed the signed preview as recorded below.
 [Apple simulator reliability #31](https://github.com/dinesh-devkota/mediavault/pull/31)
 
 ## Active merge candidates after the iPhone provider port
@@ -311,15 +311,24 @@ contrast and waits on the hosted screenshot and simulator checks.
   `b7920f5`. Its photo controls use the existing TV bordered style, making
   Previous, Next, and Back readable. The earlier exact `0ae7fdf` signed preview
   passed all eight screens and 46 OCR assertions, including the photo and Search.
-  The new exact combined preview is
-  [run 45881798358](https://github.com/dinesh-devkota/mediavault/actions/runs/45881798358).
-- Android NFS #8 `45db8ce` adds opt-in owner setup, scoped catalog and byte reads,
+  The exact `b7920f5` combined preview also passed all eight screens and 46
+  OCR assertions. The full combined Apple suites are tracked on the PR.
+  [Preview 45881798358](https://github.com/dinesh-devkota/mediavault/actions/runs/45881798358)
+- Android NFS #8 `2922df5` adds opt-in owner setup, scoped catalog and byte reads,
   the normal Android media playback path, and guarded removal/reconnect.
   Nine Kotlin cases and five C loopback cases passed. Four ABIs packaged both
   native libraries only in Debug with 16 KiB alignment. The standard unsigned
-  Release APK packaged neither. The exact hosted C gate passed, and the Android
-  TV fixture exercises the full owner route and native seeking.
-  [NFS run 45884934802](https://github.com/dinesh-devkota/mediavault/actions/runs/45884934802)
+  Release APK packaged neither. The exact hosted run passed all five native
+  loopback cases and all four Android TV emulator cases without skips, including
+  the owner setup, decoded photo, tagged subtitle, native seek, and removal.
+  [NFS run 45886243808](https://github.com/dinesh-devkota/mediavault/actions/runs/45886243808)
+
+The local review branches in the Windows transfer bundle include subtitle
+source/download presentation, reusable Apple CI, exact direct-Drive selection
+validation, and Emby expiration feedback. Each is isolated from the current
+merge candidates. The direct Apple TV Google Drive flow still needs a registered
+companion connection. The NFS Apple work remains limited to the host fixture and
+ABI pilot.
 
 Use test-only local providers, synthetic media, and hosted disposable simulators.
 The external provider registrations, physical device checks, and App Review
