@@ -13,6 +13,9 @@ on:
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
       - "scripts/test_jellyfin_fixture.py"
+      - "scripts/start_plex_fixture.sh"
+      - "scripts/plex_fixture.py"
+      - "scripts/tests/test_plex_fixture.py"
       - "CineVaultTests/Fixtures/**"
   pull_request:
     paths:
@@ -25,6 +28,9 @@ on:
       - "scripts/nas-test-requirements.txt"
       - "scripts/test_android_runtime.sh"
       - "scripts/test_jellyfin_fixture.py"
+      - "scripts/start_plex_fixture.sh"
+      - "scripts/plex_fixture.py"
+      - "scripts/tests/test_plex_fixture.py"
       - "CineVaultTests/Fixtures/**"
   workflow_dispatch:
 
@@ -119,6 +125,8 @@ jobs:
               print((Path(os.environ["RUNNER_TEMP"]) / "android-nas-fixture.log").read_text())
               raise SystemExit("SMB fixture did not start")
           PY
+      - name: Verify Plex fixture contract
+        run: python3 -m unittest discover -s scripts/tests -p test_plex_fixture.py -v
       - name: Test on Android TV
         uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
         with:
@@ -163,10 +171,14 @@ jobs:
                       "NasPhotoIntegrationTest", "PhotoNavigationTest", "SearchNavigationTest",
                       "SubtitleTracksTest", "SubtitleContinuousPlaybackTest", "HomeCollectionNavigationTest",
                       "FamilyStoreInstrumentedTest", "FamilyNavigationTest",
-                      "LocalLibraryIntegrationTest", "LibraryFeaturesNavigationTest"}
+                      "LocalLibraryIntegrationTest", "LibraryFeaturesNavigationTest", "PlexProviderInstrumentedTest",
+                      "PlexSetupNavigationTest"}
           executed = {case.get("classname", "").rsplit(".", 1)[-1] for case in cases}
           identities = [(case.get("classname"), case.get("name")) for case in cases]
           duplicate = len(set(identities)) != len(cases)
+          plex = ("com.dineshdevkota.cinevault.plex.PlexTlsIntegrationTest", "ownerConnectsOverTlsAndReadsCatalogAndMediaRange")
+          if plex not in identities:
+              raise SystemExit("Plex TLS connection did not execute in the Android TV emulator")
           webdav = ("com.dineshdevkota.cinevault.playback.SmbPlaybackTest", "webDavAuthenticationScanPlaybackAndSeek")
           if webdav not in identities:
               raise SystemExit("WebDAV playback did not execute in the Android TV emulator")
@@ -197,5 +209,6 @@ jobs:
             ${{ runner.temp }}/android-nas-fixture.log
             ${{ runner.temp }}/jellyfin-android.log
             ${{ runner.temp }}/android-webdav-fixture/server.log
+            ${{ runner.temp }}/android-plex-fixture/server.log
           if-no-files-found: error
           retention-days: 7

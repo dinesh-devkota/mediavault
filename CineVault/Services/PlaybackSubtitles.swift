@@ -406,7 +406,7 @@ final class PlaybackSubtitles: ObservableObject {
                 guard !self.stopped, self.generation == token, self.sourceUnchanged else { return }
                 self.online = results; self.searching = false
                 // Jellyfin catalog paths use item IDs instead of the release's filename.
-                if automatically, !self.config.isJellyfin, let exact = Self.automaticMatch(results, videoPath: self.path) {
+                if automatically, !self.config.isJellyfin, !self.config.isPlex, let exact = Self.automaticMatch(results, videoPath: self.path) {
                     self.selectOnline(exact, remember: false)
                 } else if !results.isEmpty {
                     self.onlineMessage = "Subtitles are available. Choose the release that matches your video."

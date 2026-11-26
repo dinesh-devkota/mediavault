@@ -2,7 +2,7 @@ name: Fire OS compatibility
 
 on:
   pull_request:
-    paths: ["android/**", "scripts/test_fire_os_runtime.sh", "scripts/nas_fixture.py", "scripts/media_library_fixture.py", ".github/workflows/fire-os.yml"]
+    paths: ["android/**", "scripts/test_fire_os_runtime.sh", "scripts/nas_fixture.py", "scripts/media_library_fixture.py", "scripts/start_plex_fixture.sh", "scripts/plex_fixture.py", ".github/workflows/fire-os.yml"]
   workflow_dispatch:
 
 permissions:
@@ -57,7 +57,9 @@ jobs:
               print((Path(os.environ["RUNNER_TEMP"]) / "fire-nas.log").read_text())
               raise SystemExit("Synthetic NAS fixture did not start")
           PY
-      - name: Verify secure storage, remote playback and library imports
+      - name: Start isolated Plex fixture
+        run: bash scripts/start_plex_fixture.sh "$RUNNER_TEMP/fire-plex" android
+      - name: Verify secure storage, remote playback, Plex and library imports
         uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808
         with:
           api-level: ${{ matrix.api }}
@@ -77,10 +79,14 @@ jobs:
             android/app/build/reports/androidTests/
             android/app/build/fire-os-evidence/
             ${{ runner.temp }}/fire-nas.log
+            ${{ runner.temp }}/fire-plex/server.log
           if-no-files-found: warn
-      - name: Stop isolated NAS fixture
+      - name: Stop isolated NAS and Plex fixtures
         if: always()
         run: |
           if [[ -f "$RUNNER_TEMP/fire-nas.pid" ]]; then
             kill "$(cat "$RUNNER_TEMP/fire-nas.pid")" 2>/dev/null || true
+          fi
+          if [[ -f "$RUNNER_TEMP/fire-plex/server.pid" ]]; then
+            kill "$(cat "$RUNNER_TEMP/fire-plex/server.pid")" 2>/dev/null || true
           fi

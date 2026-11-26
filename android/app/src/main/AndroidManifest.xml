@@ -59,6 +59,7 @@
             android:name=".ui.NasSetupActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ui.PlexSetupActivity" android:exported="false" />
         <activity
             android:name=".ui.JellyfinSetupActivity"
             android:exported="false"

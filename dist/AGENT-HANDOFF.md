@@ -9,6 +9,23 @@ below retain their original names. Development work remains on
 
 ## Active library/playback work — November 25, 2026
 
+Development advanced to `290b4a6` with Plex support while this candidate was being
+validated. The library/playback branch incorporates that pinned revision, retaining
+both sets of artwork, playback and test-runner behavior. iPhone now starts and
+trusts the synthetic Plex fixture and requires its shared runtime suite; Android
+phone retains all seven earlier journeys and adds its two Plex journeys. The merged
+candidate needs new hosted validation. Local validation includes four real HTTPS
+Plex fixture tests, seven XCTest-report guards, and syntax checks of four workflows
+and 27 embedded shell blocks. Earlier platform results below apply to their stated
+revisions, not automatically to this merge.
+
+The owner-approved private Apple run `45734118734` at `7420284` completed
+successfully: package tests, unsigned tvOS build, simulator test build and full
+simulator test command all passed. TestFlight upload was explicitly skipped.
+Successful private test output is not published, so exact per-test execution
+counts are not independently available. This run uses old trusted-main wiring
+and does not validate the new licensed iPhone/VLC integration.
+
 The owner explicitly requires feature parity on **Apple TV, iPhone, Android TV,
 and Android phones**. Work is isolated on `codex/mediavault-library-playback`,
 PR [19](https://github.com/dinesh-devkota/mediavault/pull/19), based on the iPhone

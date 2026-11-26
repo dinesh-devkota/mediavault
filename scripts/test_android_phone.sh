@@ -12,12 +12,18 @@ if [[ -z "$SERIAL" || "$SERIAL" == *$'\n'* || "$(adb -s "$SERIAL" shell getprop 
   exit 1
 fi
 export ANDROID_SERIAL="$SERIAL"
+PLEX_CERTIFICATE=$(base64 -w0 "$RUNNER_TEMP/phone-plex/fixture.cer")
+PHONE_CASES=com.dineshdevkota.cinevault.AndroidPhoneNavigationTest
+LIBRARY_CASES=com.dineshdevkota.cinevault.LibraryFeaturesNavigationTest,com.dineshdevkota.cinevault.library.LocalLibraryIntegrationTest
+PLAYBACK_CASES=com.dineshdevkota.cinevault.playback.SmbPlaybackTest#mkvPlaybackAndSeekFromNas
+PLEX_CASES=com.dineshdevkota.cinevault.plex.PlexTlsIntegrationTest
 cd android
 status=0
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
   -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.dineshdevkota.cinevault.AndroidPhoneNavigationTest,com.dineshdevkota.cinevault.LibraryFeaturesNavigationTest,com.dineshdevkota.cinevault.library.LocalLibraryIntegrationTest,com.dineshdevkota.cinevault.playback.SmbPlaybackTest#mkvPlaybackAndSeekFromNas \
+  -Pandroid.testInstrumentationRunnerArguments.class="$PHONE_CASES,$LIBRARY_CASES,$PLAYBACK_CASES,$PLEX_CASES" \
   -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
+  -Pandroid.testInstrumentationRunnerArguments.plexCertificate="$PLEX_CERTIFICATE" \
   -Pandroid.testInstrumentationRunnerArguments.libraryUiFixture=true \
   -Pandroid.testInstrumentationRunnerArguments.phoneUiFixture=true || status=$?
 mkdir -p app/build/phone-screenshots
@@ -39,10 +45,12 @@ expected = {
     "customCollectionsPersistButNeverCrossHouseholdProfilesOrRevealRestrictedFranchises",
     "mkvPlaybackAndSeekFromNas",
     "invalidSidecarsClearOldRatingButTemporaryReadFailurePreservesIt",
+    "touchNavigationOpensPlexLinking",
+    "ownerConnectsOverTlsAndReadsCatalogAndMediaRange",
 }
 if len(cases) != len(expected) or {case.get("name") for case in cases} != expected:
     raise SystemExit("Every required phone library, playback and touch journey must execute on exactly one emulator.")
 if any(case.find(tag) is not None for case in cases for tag in ("failure", "error", "skipped")):
     raise SystemExit("Phone runtime journeys failed or skipped.")
-print(f"Android phone: {len(cases)} library, playback and touch journeys passed.")
+print(f"Android phone: {len(cases)} library, playback, Plex and touch journeys passed.")
 PY

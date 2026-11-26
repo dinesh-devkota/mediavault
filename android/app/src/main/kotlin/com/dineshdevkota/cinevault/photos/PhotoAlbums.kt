@@ -4,6 +4,8 @@ import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.jellyfin.jellyfinPhotoID
+import com.dineshdevkota.cinevault.plex.PLEX
+import com.dineshdevkota.cinevault.plex.plexItemId
 import java.util.Locale
 
 data class PhotoAlbum(
@@ -16,8 +18,11 @@ fun photoAlbumId(photo: MovieEntity): String = "${photo.sourceId}:${photo.filePa
 /** Photos from different NAS sources are never merged just because their folder names match. */
 fun photoAvailable(photo: MovieEntity, source: SourceEntity?): Boolean {
     if (source == null || !photo.isPhoto || photo.isHidden || photo.isMissing) return false
-    return if (source.sourceType == JELLYFIN) jellyfinPhotoID(photo.filePath) != null
-        else source.includesFile(photo.filePath)
+    return when (source.sourceType) {
+        JELLYFIN -> jellyfinPhotoID(photo.filePath) != null
+        PLEX -> plexItemId(photo.filePath) != null && source.includesFile(photo.filePath)
+        else -> source.includesFile(photo.filePath)
+    }
 }
 
 fun photoAlbums(items: List<MovieEntity>, sources: List<SourceEntity>? = null): List<PhotoAlbum> {
@@ -28,7 +33,7 @@ fun photoAlbums(items: List<MovieEntity>, sources: List<SourceEntity>? = null): 
     .map { (id, photos) ->
         val first = photos.first()
         val folder = first.filePath.replace('\\', '/').substringBeforeLast('/', "")
-        val library = sourceById?.get(first.sourceId)?.takeIf { it.sourceType == JELLYFIN }
+        val library = sourceById?.get(first.sourceId)?.takeIf { it.sourceType == JELLYFIN || it.sourceType == PLEX }
         PhotoAlbum(id, first.sourceId, folder,
             photos.sortedWith(compareBy<MovieEntity> { it.fileName.lowercase(Locale.ROOT) }.thenBy { it.id }),
             title = library?.name ?: folder.substringAfterLast('/').ifBlank { "Shared folder" })
