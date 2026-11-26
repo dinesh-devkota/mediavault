@@ -146,6 +146,11 @@ class AndroidPhoneNavigationTest {
                 node.assertIsDisplayed()
                 true
             } catch (_: AssertionError) { false }
+            catch (failure: IllegalStateException) {
+                // Returning from the native player briefly leaves neither Compose window resumed.
+                if (failure.message?.startsWith("No compose hierarchies found") != true) throw failure
+                false
+            }
         }
         return node
     }
