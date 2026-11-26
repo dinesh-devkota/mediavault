@@ -57,6 +57,13 @@ and all touch-target checks remain. Production controls and their timeout are
 unchanged. Evidence is in `.artifacts/apple-phone-c538` and the full test log in
 `.artifacts/apple-phone-c538-full`. The follow-up needs hosted verification.
 
+The same recording exposed a real light-mode contrast issue: the fallback player's
+title and time labels inherited dark text on its black overlay. Both Apple
+platforms now explicitly use white metadata/time text, with lower emphasis for
+the episode caption. Button tint, disabled styling, Dynamic Type, and the hide
+timer retain their existing behavior. The phone journey checks the title while
+paused and its existing subtitle/control screenshot provides visual evidence.
+
 Earlier actual defects are corrected: TCP send completion, VLC parser timeout
 units, pending-pause acknowledgement, synchronous stream revocation, nested
 version navigation, phone collection sizing, focused button contrast and the

@@ -13,6 +13,8 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         waitLabel(app.staticTexts["fixture-alternative-state"], "Playing", app)
         tapPlayingControl("alternative-play-pause", app)
         waitLabel(app.staticTexts["fixture-alternative-state"], "Paused", app)
+        XCTAssertTrue(app.staticTexts["MKV playback controls"].exists,
+                      "The dark playback overlay must include the current title.")
         // Inspect targets while paused; repeated accessibility snapshots can
         // legitimately outlast the five-second playing-controls timeout.
         for id in ["playback-close", "playback-subtitles", "alternative-rewind", "alternative-play-pause", "alternative-forward"] {
