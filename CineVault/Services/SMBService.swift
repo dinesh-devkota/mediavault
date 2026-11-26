@@ -357,7 +357,7 @@ actor SMBService {
     }
 
     private func withCloud<T>(_ config: SourceConfig, provider: CloudFileProvider, path: String,
-                              operation: (CloudFileTransport, CloudFileTransport.Permission) async throws -> T) async throws -> T {
+                              operation: (CloudFileTransport, @escaping CloudFileTransport.Permission) async throws -> T) async throws -> T {
         let generation = generations[config.id, default: 0]
         let household = HouseholdStore.shared
         let session = household.sessionToken
