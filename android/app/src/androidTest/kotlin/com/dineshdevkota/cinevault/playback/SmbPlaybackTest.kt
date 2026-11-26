@@ -1,5 +1,6 @@
 package com.dineshdevkota.cinevault.playback
 
+import android.net.Uri
 import android.util.Base64
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -52,7 +53,7 @@ class SmbPlaybackTest {
         val smb = SmbService()
         try {
             val movie = smb.scanVideos(config).single()
-            verifyPlayback(config, movie.path) { smb.open(config, movie.path) }
+            Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, movie.path)) { smb.open(config, movie.path) }
         } finally {
             smb.reset(config.id)
         }
@@ -90,10 +91,12 @@ class SmbPlaybackTest {
         assertEquals("https://10.0.2.2:15443/dav/Movies/Film.mp4", PlayerActivity.filePlaybackUri(config, movie.path).toString())
         val captions = provider.subtitles(config, movie.path, "en")
         assertEquals(1, captions.files.size)
-        verifyPlayback(config, movie.path) { provider.service.open(config, movie.path) }
+        Media3FixturePlayback.verify(PlayerActivity.filePlaybackUri(config, movie.path)) { provider.service.open(config, movie.path) }
     }
+}
 
-    private suspend fun verifyPlayback(config: SourceConfig, path: String, openFile: () -> RemoteHandle) {
+internal object Media3FixturePlayback {
+    suspend fun verify(uri: Uri, openFile: () -> RemoteHandle) {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             var player: ExoPlayer? = null
             var view: PlayerView? = null
@@ -120,7 +123,7 @@ class SmbPlaybackTest {
                     }
                     // An actual attached SurfaceView exercises decoding/rendering on the emulator.
                     activity.setContentView(view)
-                    exo.setMediaItem(MediaItem.fromUri(PlayerActivity.filePlaybackUri(config, path)))
+                    exo.setMediaItem(MediaItem.fromUri(uri))
                     exo.prepare()
                     exo.play()
                 }

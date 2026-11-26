@@ -45,6 +45,10 @@ final class LibraryScanner: ObservableObject {
         status = "Scanning \(source.name)…"
         do {
             let config = try source.config()
+            if config.isPlex {
+                try await scanPlex(source, config: config, context: context)
+                return
+            }
             if config.isJellyfin {
                 try await scanJellyfin(source, config: config, context: context)
                 return
@@ -103,6 +107,147 @@ final class LibraryScanner: ObservableObject {
             let separator = reason.hasSuffix(".") ? " " : ". "
             status = "Scan failed for \(source.name): \(reason)\(separator)Items already found are kept. Retry from Sources."
         }
+    }
+
+    private func scanPlex(_ source: MediaSource, config: SourceConfig, context: ModelContext) async throws {
+        let household = HouseholdStore.shared
+        let session = household.sessionToken
+        func verifyOwner() throws {
+            try Task.checkCancellation()
+            guard household.isAdmin, household.sessionIsCurrent(session) else { throw HouseholdError.denied }
+            guard !source.isDeleted, source.modelContext != nil, try source.config() == config else { throw SMBError.sourceChanged }
+        }
+        try verifyOwner()
+        let connection = try PlexSourceConnection(config: config)
+        let client = connection.client
+        try await client.verifyIdentity()
+        try verifyOwner()
+        let libraries = try await client.libraries()
+        guard let section = libraries.first(where: { $0.id == config.share && PlexSourceConnection.supports($0) }) else {
+            throw PlexSourceError.selectionUnavailable
+        }
+
+        struct Entry {
+            let item: PlexMediaClient.CatalogItem
+            let show: PlexMediaClient.CatalogItem?
+            let season: Int?
+            var path: String { item.type == "photo" ? "PlexPhotos/\(item.id).jpg" : "PlexVideo/\(item.id).mp4" }
+        }
+        var entries: [Entry] = []
+        var foundIDs: Set<String> = []
+        var visitedAlbums: Set<String> = []
+        func add(_ item: PlexMediaClient.CatalogItem, show: PlexMediaClient.CatalogItem? = nil, season: Int? = nil) throws {
+            guard !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, entries.count < 250_000,
+                  foundIDs.insert(item.id).inserted else { throw PlexAccountError.invalidResponse }
+            entries.append(Entry(item: item, show: show, season: season))
+        }
+        func walkPhotos(_ items: [PlexMediaClient.CatalogItem], depth: Int) async throws {
+            try verifyOwner()
+            guard depth <= 16 else { throw PlexAccountError.invalidResponse }
+            for item in items {
+                if item.type == "photo" { try add(item) }
+                else if item.type == "photoalbum" {
+                    guard visitedAlbums.count < 25_000, visitedAlbums.insert(item.id).inserted else {
+                        throw PlexAccountError.invalidResponse
+                    }
+                    try await client.children(of: item) { try await walkPhotos($0, depth: depth + 1) }
+                }
+            }
+        }
+
+        try await client.catalog(in: section) { page in
+            try verifyOwner()
+            switch section.type {
+            case "movie":
+                for item in page where item.type == "movie" { try add(item) }
+            case "show":
+                for show in page where show.type == "show" {
+                    try verifyOwner()
+                    try await client.children(of: show) { seasons in
+                        try verifyOwner()
+                        for season in seasons where season.type == "season" {
+                            guard let number = season.index, (0...999).contains(number) else { continue }
+                            try verifyOwner()
+                            try await client.children(of: season) { episodes in
+                                try verifyOwner()
+                                for episode in episodes where episode.type == "episode" {
+                                    guard episode.grandparentRatingKey.map({ $0 == show.id }) ?? true,
+                                          episode.parentIndex.map({ $0 == number }) ?? true,
+                                          let index = episode.index, (0...999).contains(index) else {
+                                        throw PlexAccountError.invalidResponse
+                                    }
+                                    try add(episode, show: show, season: number)
+                                }
+                            }
+                        }
+                    }
+                }
+            case "photo":
+                try await walkPhotos(page, depth: 0)
+            default:
+                throw PlexSourceError.selectionUnavailable
+            }
+            self.status = "Scanning \(source.name): \(entries.count) items…"
+        }
+        try verifyOwner()
+
+        var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { first, _ in first })
+        let previousDate = source.lastScanDate
+        var inserted: [Movie] = []
+        var undo: [() -> Void] = []
+        for entry in entries {
+            let item = entry.item
+            let movie: Movie
+            if let current = existing.removeValue(forKey: entry.path) {
+                let previous = (current.isMissing, current.fileName, current.parsedTitle, current.parsedYear, current.providerImageTag,
+                                current.title, current.sortTitle, current.overview, current.year, current.runtimeMinutes,
+                                current.seriesTitle, current.providerSeriesID, current.seasonNumber, current.episodeNumber,
+                                current.usContentRating, current.usContentRatingFetched)
+                undo.append {
+                    (current.isMissing, current.fileName, current.parsedTitle, current.parsedYear, current.providerImageTag,
+                     current.title, current.sortTitle, current.overview, current.year, current.runtimeMinutes,
+                     current.seriesTitle, current.providerSeriesID, current.seasonNumber, current.episodeNumber,
+                     current.usContentRating, current.usContentRatingFetched) = previous
+                }
+                movie = current
+            } else {
+                movie = Movie(filePath: entry.path, fileSize: 0, source: source)
+                movie.metadataFetched = true
+                context.insert(movie)
+                inserted.append(movie)
+            }
+            movie.fileName = item.title
+            movie.parsedTitle = item.title
+            movie.parsedYear = item.year
+            movie.isMissing = false
+            if !movie.isLocked {
+                movie.setTitle(item.title)
+                movie.year = item.year
+                movie.overview = item.summary
+                movie.runtimeMinutes = item.duration.flatMap { $0 > 0 ? Int($0 / 60_000) : nil }
+            }
+            movie.providerImageTag = item.thumb
+            movie.seriesTitle = entry.show?.title
+            movie.providerSeriesID = entry.show?.id
+            movie.seasonNumber = entry.season
+            movie.episodeNumber = entry.show == nil ? nil : item.index
+            // An episode's rating cannot lower its show's restriction.
+            movie.usContentRating = entry.show == nil ? item.contentRating : entry.show?.contentRating
+            movie.usContentRatingFetched = true
+        }
+        for movie in existing.values where !movie.isMissing {
+            undo.append { movie.isMissing = false }
+            movie.isMissing = true
+        }
+        source.lastScanDate = Date()
+        do { try saveContext(context) }
+        catch {
+            for restore in undo.reversed() { restore() }
+            source.lastScanDate = previousDate
+            for movie in inserted { context.delete(movie) }
+            throw error
+        }
+        status = "\(source.name): \(entries.count) items (\(inserted.count) new)"
     }
 
     private func scanJellyfin(_ source: MediaSource, config: SourceConfig, context: ModelContext) async throws {
