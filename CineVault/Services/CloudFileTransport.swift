@@ -51,8 +51,8 @@ struct CloudFileTransport: Sendable {
         }
     }
 
-    typealias ListedChildren = @Sendable (String, Permission) async throws -> [Item]
-    typealias RangeRead = @Sendable (Item, Int64, Int, Permission) async throws -> Data
+    typealias ListedChildren = @Sendable (String, @escaping Permission) async throws -> [Item]
+    typealias RangeRead = @Sendable (Item, Int64, Int, @escaping Permission) async throws -> Data
     typealias Permission = @Sendable () throws -> Void
 
     let rootID: String
