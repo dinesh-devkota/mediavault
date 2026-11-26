@@ -38,9 +38,17 @@ enum LocalSubtitleService {
               !config.excludesFile(videoPath) else { throw SMBError.sourceChanged }
         let entries = try await list(config, directory)
         try Task.checkCancellation()
-        let matches = entries.prefix(4096).filter { !$0.isDirectory }.compactMap {
-            SubtitleFile.match(name: $0.name, videoPath: videoPath, rootPath: config.rootPath,
-                               ignoredFolders: config.ignoredFolders, ignoredFiles: config.ignoredFiles, caseSensitive: config.caseSensitivePaths)
+        let matches = entries.prefix(4096).filter { !$0.isDirectory }.compactMap { entry -> SubtitleFile? in
+            if config.cloudFileProvider == .dropbox {
+                // Dropbox matches filenames without case. Keep the service-supplied
+                // path spelling for the byte-scoped cloud transport and exclusions.
+                guard let match = SubtitleFile.match(name: entry.name, videoPath: videoPath, rootPath: config.rootPath) else { return nil }
+                let path = directory.isEmpty ? entry.name : directory + "/" + entry.name
+                guard WebDAVAddress.contains(path, within: config.rootPath), !config.excludesFile(path) else { return nil }
+                return SubtitleFile(path: path, language: match.language, forced: match.forced, hearingImpaired: match.hearingImpaired)
+            }
+            return SubtitleFile.match(name: entry.name, videoPath: videoPath, rootPath: config.rootPath,
+                                      ignoredFolders: config.ignoredFolders, ignoredFiles: config.ignoredFiles, caseSensitive: config.caseSensitivePaths)
         }.sorted {
             let left = PlaybackSubtitles.sameLanguage($0.language, preferredLanguage)
             let right = PlaybackSubtitles.sameLanguage($1.language, preferredLanguage)
@@ -355,7 +363,7 @@ final class PlaybackSubtitles: ObservableObject {
                 guard !self.stopped, self.generation == token, self.sourceUnchanged else { return }
                 self.online = results; self.searching = false
                 // Jellyfin catalog paths use item IDs instead of the release's filename.
-                if automatically, !self.config.isJellyfin, let exact = Self.automaticMatch(results, videoPath: self.path) {
+                if automatically, !self.config.isJellyfin, !self.config.isPlex, let exact = Self.automaticMatch(results, videoPath: self.path) {
                     self.selectOnline(exact, remember: false)
                 } else if !results.isEmpty {
                     self.onlineMessage = "Subtitles are available. Choose the release that matches your video."

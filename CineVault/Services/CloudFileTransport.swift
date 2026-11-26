@@ -3,9 +3,15 @@ import Foundation
 
 enum CloudFileProvider: String, Hashable, Sendable {
     case appleFiles = "apple-files"
+    case oneDrive = "onedrive"
+    case dropbox
 
     var title: String {
-        switch self { case .appleFiles: "Files" }
+        switch self {
+        case .appleFiles: "Files"
+        case .oneDrive: "OneDrive"
+        case .dropbox: "Dropbox"
+        }
     }
 }
 
@@ -36,6 +42,15 @@ struct CloudFileTransport: Sendable {
         let name: String
         let isDirectory: Bool
         let size: Int64
+        let revision: String?
+
+        init(id: String, name: String, isDirectory: Bool, size: Int64, revision: String? = nil) {
+            self.id = id
+            self.name = name
+            self.isDirectory = isDirectory
+            self.size = size
+            self.revision = revision
+        }
     }
 
     typealias ListedChildren = @Sendable (String, @escaping Permission) async throws -> [Item]

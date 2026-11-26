@@ -76,6 +76,8 @@ actor SMBService {
              #else
              throw CloudFileError.invalidPath
              #endif
+             case .oneDrive: return try OneDriveFileSource.transport(config)
+             case .dropbox: return try DropboxFileSource.transport(config)
              }
          },
          connect: @escaping (SMB2Manager, String) async throws -> Void = { manager, share in

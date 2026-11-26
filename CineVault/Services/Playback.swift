@@ -21,16 +21,21 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     fileprivate let config: SourceConfig
     private let reader: Reader
     private let path: String
+    private let contentPath: String
+    private let allowsRead: (@MainActor @Sendable () -> Bool)?
     private let household: HouseholdStore
     private let householdSession: UUID
     private let queue = DispatchQueue(label: "cinevault.resource-loader")
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var sizeTask: Task<Int64, Error>?
 
-    init(config: SourceConfig, path: String, household: HouseholdStore = .shared, reader: Reader? = nil) {
+    init(config: SourceConfig, path: String, household: HouseholdStore = .shared, reader: Reader? = nil,
+         contentPath: String? = nil, allowsRead: (@MainActor @Sendable () -> Bool)? = nil) {
         self.household = household; householdSession = household.sessionToken
         self.config = config
         self.path = path
+        self.contentPath = contentPath ?? path
+        self.allowsRead = allowsRead
         self.reader = reader ?? Reader(
             size: { try await SMBService.shared.fileSize(config, path: path) },
             read: { try await SMBService.shared.read(config, path: path, offset: $0, length: $1) }
@@ -45,7 +50,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         var components = URLComponents()
         components.scheme = Self.scheme
         components.host = "nas"
-        components.path = "/" + path
+        components.path = "/" + contentPath
         let asset = AVURLAsset(url: components.url!)
         asset.resourceLoader.setDelegate(self, queue: queue)
         return asset
@@ -59,15 +64,9 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             sizeTask = existing
         } else {
             let reader = self.reader
-            let household = self.household
-            let session = self.householdSession
-            let config = self.config
-            let path = self.path
-            sizeTask = Task {
-                guard household.sessionIsCurrent(session),
-                      household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths) else {
-                    throw PlaybackPreparationError.fileUnavailable
-                }
+            sizeTask = Task { [weak self] in
+                guard let self else { throw PlaybackPreparationError.fileUnavailable }
+                try await self.verifyRead()
                 return try await reader.size()
             }
             self.sizeTask = sizeTask
@@ -87,12 +86,9 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         do {
             let size = try await sizeTask.value
             try Task.checkCancellation()
-            guard household.sessionIsCurrent(householdSession),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths) else {
-                throw PlaybackPreparationError.fileUnavailable
-            }
+            try await verifyRead()
             if let info = request.contentInformationRequest {
-                info.contentType = MediaFile.contentType(path: path)
+                info.contentType = MediaFile.contentType(path: contentPath)
                 info.contentLength = size
                 info.isByteRangeAccessSupported = true
             }
@@ -122,18 +118,24 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         }
     }
 
-    func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
+    private func verifyRead() async throws {
+        if let allowsRead, await !allowsRead() { throw PlaybackPreparationError.fileUnavailable }
         guard household.sessionIsCurrent(householdSession),
-              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths) else { throw PlaybackPreparationError.fileUnavailable }
+              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths,
+                                   entireSourceOnly: config.isPlex) else { throw PlaybackPreparationError.fileUnavailable }
+    }
+
+    func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
+        try await verifyRead()
         guard start >= 0, end >= start else { throw SMBError.invalidByteRange }
         var offset = start
         while offset < end {
             try Task.checkCancellation()
+            try await verifyRead()
             let length = Int(min(Self.chunkSize, end - offset))
             let data = try await reader.read(offset, length)
             try Task.checkCancellation()
-            guard household.sessionIsCurrent(householdSession),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths) else { throw PlaybackPreparationError.fileUnavailable }
+            try await verifyRead()
             guard !data.isEmpty else { throw SMBError.unexpectedEndOfFile }
             respond(data)
             offset += Int64(data.count)
@@ -199,13 +201,20 @@ final class PlaybackController: ObservableObject {
     /// Check the actual asset before creating a player or changing playback history.
     static func prepare(movie: Movie, resume: Bool, services: PlaybackServices,
                         defaults: UserDefaults = .standard,
-                        sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() },
+                        sourceConfig: @escaping @MainActor (MediaSource) throws -> SourceConfig = { try $0.config() },
                         loadPlayable: (AVURLAsset) async throws -> Bool = { try await $0.load(.isPlayable) },
                         household: HouseholdStore = .shared) async throws -> PlaybackController? {
         let householdSession = household.sessionToken
         guard let source = try playbackSource(for: movie, household: household) else { return nil }
         let config = try sourceConfig(source)
         let path = movie.filePath
+        if config.isPlex {
+            return try await preparePlex(
+                movie: movie, resume: resume, services: services, defaults: defaults, household: household,
+                householdSession: householdSession, source: source, config: config, path: path,
+                sourceConfig: sourceConfig, loadPlayable: loadPlayable
+            )
+        }
         if config.isJellyfin {
             return try await prepareJellyfin(
                 movie: movie, resume: resume, services: services, defaults: defaults, household: household,
@@ -233,6 +242,68 @@ final class PlaybackController: ObservableObject {
         } onCancel: {
             asset.cancelLoading()
         }
+    }
+
+    private static func preparePlex(
+        movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, household: HouseholdStore,
+        householdSession: UUID, source: MediaSource, config: SourceConfig, path: String,
+        sourceConfig: @escaping @MainActor (MediaSource) throws -> SourceConfig, loadPlayable: (AVURLAsset) async throws -> Bool
+    ) async throws -> PlaybackController {
+        let connection = try PlexSourceConnection(config: config)
+        let client = connection.client
+        let id = try PlexSourceConnection.itemID(for: path, photo: false)
+        let current: @MainActor @Sendable () -> Bool = { [weak movie, weak source] in
+            guard let movie, let source, !source.isDeleted, household.sessionIsCurrent(householdSession),
+                  let selected = try? playbackSource(for: movie, household: household), selected === source,
+                  movie.filePath == path, (try? sourceConfig(source)) == config else { return false }
+            return true
+        }
+        func verifySource() throws {
+            try Task.checkCancellation()
+            guard current() else { throw PlaybackPreparationError.fileUnavailable }
+        }
+        try verifySource()
+        try await client.verifyIdentity()
+        try verifySource()
+        let item = try await client.item(id: id, in: connection.sectionID)
+        try verifySource()
+        guard item.type == (movie.episodeInfo == nil ? "movie" : "episode") else { throw PlexAccountError.invalidResponse }
+        for part in client.singleFileParts(for: item) {
+            guard let ext = part.container?.lowercased(), ["mp4", "m4v", "mov"].contains(ext) else { continue }
+            let reader = SMBResourceLoader.Reader(size: { part.size }, read: { try await client.read(part, offset: $0, length: $1) })
+            let loader = SMBResourceLoader(config: config, path: path, household: household, reader: reader,
+                                           contentPath: "video.\(ext)", allowsRead: current)
+            let asset = loader.makeAsset()
+            do {
+                let playable = try await withTaskCancellationHandler {
+                    try await loadPlayable(asset)
+                } onCancel: { asset.cancelLoading() }
+                try verifySource()
+                if playable {
+                    let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults,
+                                                        loader: loader, asset: asset, household: household)
+                    let files = part.textSubtitles.map {
+                        SubtitleFile(path: "plex-caption-\($0.id)", language: $0.language,
+                                     forced: $0.forced, hearingImpaired: $0.hearingImpaired)
+                    }
+                    let scoped = Dictionary(uniqueKeysWithValues: zip(files.map(\.path), part.textSubtitles))
+                    controller.subtitles.providerTracks = PlaybackSubtitles.ProviderTracks(files: files, read: { file in
+                        try verifySource()
+                        guard let track = scoped[file.path] else { throw PlexAccountError.invalidResponse }
+                        let bytes = try await client.readSubtitle(track, for: part)
+                        try verifySource()
+                        return try SubtitleDocument.parse(bytes)
+                    })
+                    return controller
+                }
+            } catch {
+                asset.cancelLoading()
+                try verifySource()
+                continue
+            }
+            asset.cancelLoading()
+        }
+        throw PlexSourceError.unsupportedVideo
     }
 
     private static func prepareJellyfin(
@@ -317,7 +388,7 @@ final class PlaybackController: ObservableObject {
           defaults: UserDefaults = .standard,
           sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() }, household: HouseholdStore = .shared) throws {
         guard let source = try Self.playbackSource(for: movie, household: household) else { return nil }
-        guard !source.isJellyfin else { throw PlaybackPreparationError.fileUnavailable }
+        guard !source.isJellyfin, !source.isPlex else { throw PlaybackPreparationError.fileUnavailable }
         let loader = SMBResourceLoader(config: try sourceConfig(source), path: movie.filePath, household: household)
         self.init(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: loader.makeAsset(), household: household)
     }

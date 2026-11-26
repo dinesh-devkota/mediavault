@@ -81,6 +81,12 @@ struct NASSetupView: View {
 
     @ViewBuilder private var deviceSections: some View {
         Section {
+            NavigationLink("Connect OneDrive") {
+                OneDriveSourceEditor(source: nil, onSaved: { dismiss() })
+            }.accessibilityIdentifier("add-onedrive-source")
+            NavigationLink("Connect Dropbox") {
+                DropboxSourceEditor(source: nil, onSaved: { dismiss() })
+            }.accessibilityIdentifier("add-dropbox-source")
             #if os(iOS)
             NavigationLink("Connect Google Drive via Files") {
                 AppleFilesSourceEditor(source: nil, onSaved: { dismiss() })
