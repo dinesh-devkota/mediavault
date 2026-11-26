@@ -46,6 +46,15 @@ async function element(xpath) {
   return (await call('POST', '/element', {using: 'xpath', value: xpath}))[elementKey];
 }
 async function click(id) { await clickXPath(byID(id)); }
+async function nativeFocused(xpath) {
+  const matches = await call('POST', '/elements', {using: 'xpath', value: xpath});
+  if (!matches.length) { return false; }
+  // The pinned driver maps UiObject:focused to the native isFocused RPC.
+  // Its true value is the string "true"; false is null. The bare "focused"
+  // attribute is unrecognized, and XPath reflects serialized publisher state.
+  const value = await call('GET', `/element/${matches[0][elementKey]}/attribute/UiObject:focused`);
+  return value === 'true';
+}
 async function dismissFixtureWarning() {
   if (!fixtureBuild || await exists(byID('key_Done'))) { return false; }
   const app = `//app[@appName=${literal(packageId)}]`;
@@ -78,13 +87,15 @@ async function focusVisible(xpath) {
       if (rect.width > 0 && rect.height > 0 && x >= window.x && x < window.x + window.width && y >= window.y && y < window.y + window.height) {
         const result = await call('POST', '/execute/sync', {script: 'jsonrpc: setFocus', args: [[{id: Number(id)}]]});
         try {
-          await waitFor(() => exists(xpath + '[@focused="true"]'), `The remote could not focus the target control: ${xpath}`, 1000);
+          await waitFor(() => nativeFocused(xpath), `The remote could not focus the target control: ${xpath}`, 1000);
         } catch (error) {
           if (await dismissFixtureWarning()) { continue; }
           // A screen transition may assign its initial focus after setFocus.
           // Retry within the same overall deadline, then use real D-pad input
           // so an unresponsive focus target still fails the bounded journey.
-          console.log('[Vega journey] Focus not acknowledged', JSON.stringify({xpath, result}));
+          const native = await nativeFocused(xpath);
+          const serialized = await exists(xpath + '[@focused="true"]');
+          console.log('[Vega journey] Focus not acknowledged', JSON.stringify({xpath, result, native, serialized}));
           await key(direction); await sleep(100);
           continue;
         }
@@ -175,6 +186,13 @@ async function capture(name) {
   await writeFile(resolve(output, `${name}.xml`), source);
   const screenshot = await call('GET', '/screenshot');
   await writeFile(resolve(output, `${name}.png`), Buffer.from(screenshot, 'base64'));
+  // VVD has a reported alternating stale/current screenshot buffer. Retain
+  // both consecutive captures for review; neither is a substitute for live
+  // native state assertions or a successful library/player journey.
+  await sleep(150);
+  const nextScreenshot = await call('GET', '/screenshot');
+  await writeFile(resolve(output, `${name}.next.png`), Buffer.from(nextScreenshot, 'base64'));
+  await writeFile(resolve(output, `${name}.after.xml`), await call('GET', '/source'));
 }
 async function step(name, run) {
   const started = Date.now();

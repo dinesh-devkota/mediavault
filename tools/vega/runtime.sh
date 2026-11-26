@@ -14,8 +14,9 @@ evidence="$repo/.artifacts/vega-ui"
 mkdir -p "$evidence"
 bash tools/vega/check-package.sh "$package" production x86_64 >"$evidence/production-package-validation.json"
 bash tools/vega/check-package.sh "$fixture_package" fixture x86_64 >"$evidence/fixture-package-validation.json"
-nas_pid=''; appium_pid=''; virtual_device_verified=false
+nas_pid=''; appium_pid=''; fixture_log_pid=''; virtual_device_verified=false
 cleanup() {
+  [[ -z "$fixture_log_pid" ]] || kill "$fixture_log_pid" 2>/dev/null || true
   if [[ "$virtual_device_verified" == true ]]; then
     # LoggingCtl resolves access from already-installed apps. Query after the
     # journeys (before stopping the disposable device), including stored logs
@@ -88,6 +89,13 @@ else:
 PY
 vega exec vda reverse tcp:1445 tcp:1445
 vega run-app "$fixture_package" com.dineshdevkota.mediavault.vvdfixture.main -d VirtualDevice >"$evidence/fixture-launch.log" 2>&1
+# Start after installation so LoggingCtl has permission to see this package.
+# Following now retains initial focus/render diagnostics before a noisy native
+# input loop pushes them out of the default end-of-run snapshot.
+timeout --kill-after=2s 1200s vega exec vda shell \
+  'loggingctl log -v com.dineshdevkota.mediavault.vvdfixture --since today --follow' \
+  >"$evidence/fixture-live.log" 2>&1 &
+fixture_log_pid=$!
 export MEDIA_VAULT_E2E_PACKAGE_ID=com.dineshdevkota.mediavault.vvdfixture
 export MEDIA_VAULT_E2E_STARTUP_CHECK_ONLY=0
 export MEDIA_VAULT_E2E_NAS_ENDPOINT=smb://127.0.0.1:1445/MEDIALIBRARY

@@ -115,6 +115,33 @@ content and bounds the handoff. Its full Android TV workflow passed
 
 ## Amazon Fire TV work — November 25, 2026
 
+Run `45732509539` at `7e207f2` passed all packages/native checks and production
+startup. Fixture warning dismissal now works (count 1), but Add source focus was
+not acknowledged within 25 seconds despite successful setFocus RPC responses.
+XPath/XML retained Back focus; the screenshot showed the prior Home page. Amazon's
+community has a reproducible alternating stale/current VVD screenshot report.
+No production rendering defect is established. The next harness uses the pinned
+driver's documented `UiObject:focused` attribute (native `isFocused`, string true
+or null), records native-versus-serialized focus, and retains paired screenshots.
+It follows app logs after installation to preserve early diagnostics. Evidence is
+under `.artifacts/vega-ui-45732509539`; complete library journeys remain unverified.
+
+Fire `7e207f2` phone run `45732509596` passed all 7 tests, including the formerly
+failing touch setup/playback case; compatibility run `45732510580` also passed.
+Base `7983719` is now merged: measured Apple caption clearance plus the bounded
+20-second fixture TLS handshake allowance (HTTP idle stays five seconds). Five
+real-socket fixture tests pass. New Apple runtime checks are pending.
+
+Approved commercial run `45727288957` finished: 28/28 package tests, 41/42 simulator
+cases, all six new engine tests passing in both suites, unsigned tvOS build passed,
+TestFlight skipped. The single actual StoreKit iterator stall remains unproven.
+Private `7420284383009976eaa6121d3d3cc55a9b928427` fixes a separately confirmed
+cancelled-waiter retention defect, with three new regressions and independent
+review. Five generator tests pass; new Swift tests await hosted validation.
+Build-only run `45734118734` pins that private revision and waits for a fresh owner
+approval, already requested. Do not reuse the prior approval. Its old trusted-main
+workflow still cannot verify the new licensed iPhone/VLC wiring.
+
 Run `45730914333` at `96073fa` passed all packages, native checks and the production
 startup probe. Fixture journey 01 still failed before Add source focused. The
 warning detector incorrectly queried an XML-only `<text>` node without an object
