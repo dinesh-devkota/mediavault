@@ -5,6 +5,8 @@ import android.content.Intent
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasClickAction
@@ -50,8 +52,7 @@ class PlexSetupNavigationTest {
             sources.upsert(source)
             ActivityScenario.launch<PlexSetupActivity>(intent()).use { scenario ->
                 val field = hasText("Source name (optional)") and hasSetTextAction()
-                compose.onNode(hasScrollToIndexAction()).performScrollToNode(field)
-                compose.onNode(field).assertIsDisplayed().performTextReplacement("Renamed fixture")
+                visible(field).performTextReplacement("Renamed fixture")
                 press("Save source name")
                 compose.waitUntil(timeoutMillis = 8_000) { scenario.state == Lifecycle.State.DESTROYED }
             }
@@ -69,9 +70,19 @@ class PlexSetupNavigationTest {
 
     private fun press(label: String) {
         val matcher = hasText(label) and hasClickAction()
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(matcher)
-        compose.onNode(matcher).assertIsDisplayed()
-            .performSemanticsAction(SemanticsActions.RequestFocus)
-        compose.onNode(matcher).assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+        val button = visible(matcher)
+        button.performSemanticsAction(SemanticsActions.RequestFocus)
+        button.assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+    }
+
+    private fun visible(matcher: SemanticsMatcher): SemanticsNodeInteraction {
+        compose.waitUntil(timeoutMillis = 8_000) {
+            try {
+                compose.onNode(hasScrollToIndexAction()).performScrollToNode(matcher)
+                compose.onNode(matcher).assertIsDisplayed()
+                true
+            } catch (_: AssertionError) { false }
+        }
+        return compose.onNode(matcher).assertIsDisplayed()
     }
 }

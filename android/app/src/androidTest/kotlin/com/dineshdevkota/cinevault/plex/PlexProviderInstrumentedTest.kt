@@ -50,7 +50,12 @@ class PlexProviderInstrumentedTest {
         val client = PlexMediaClient(server, connection, UUID.randomUUID()) { request, maximumBytes ->
             assertEquals("fixture.example", request.url.host)
             assertEquals("server-token", request.header("X-Plex-Token"))
-            assertNull(request.url.query)
+            if (request.url.encodedPath.endsWith("/all")) {
+                assertEquals(setOf("includeGuids"), request.url.queryParameterNames)
+                assertEquals("1", request.url.queryParameter("includeGuids"))
+            } else {
+                assertNull(request.url.query)
+            }
             when (request.url.encodedPath) {
                 "/library/sections" -> PlexResponse(
                     200,

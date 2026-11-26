@@ -7,6 +7,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
+import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SecretBox
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.family.FamilyLibrary
@@ -132,12 +133,13 @@ class PlexTlsIntegrationTest {
 
             val session = family.current
             val client = movies.plexClient(secrets, exchange)
-            val detail = client.item(checkNotNull(plexItemId(movie.filePath)))
-            val part = client.singleFileParts(detail).single()
-            val authorize = {
-                if (!family.isCurrent(session) || !family.permits(movie)) throw IOException("Plex access denied.")
+            val checkAccess: (MovieEntity) -> Unit = {
+                if (!family.isCurrent(session) || !family.permits(it)) throw IOException("Plex access denied.")
             }
-            val artwork = client.image(detail, backdrop = false, authorize)
+            val ready = client.authorizedItem(movie, movies.share, checkAccess)
+            val part = client.singleFileParts(ready.item).single()
+            val authorize = { checkAccess(movie.copy(ageCertification = ready.rating)) }
+            val artwork = client.image(ready.item, backdrop = false, authorize)
             assertArrayEquals(byteArrayOf(0xff.toByte(), 0xd8.toByte()), artwork.copyOfRange(0, 2))
             val subtitle = client.subtitle(part, part.tracks.single(), authorize).decodeToString()
             assertTrue(subtitle.contains("Fixture Plex caption."))
