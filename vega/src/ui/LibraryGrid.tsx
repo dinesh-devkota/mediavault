@@ -57,7 +57,7 @@ function GroupTile({group, open, loadImage, session, preferred, selecting, selec
   const [focused, setFocused] = useState(false);
   const representative = group.items.find(item => item.posterPath || item.imageTag) ?? group.items[0]!;
   const detail = representative.kind === 'episode' ? `${group.items.length} episodes` : group.items.length > 1 ? `${group.items.length} versions` : String(representative.year ?? representative.kind);
-  return <Pressable ref={setRef} style={[styles.tile, focused && styles.focused, selected && styles.selected]} onPress={open} onLayout={onLayout}
+  return <Pressable ref={setRef} style={[styles.tile, selected && styles.selected, focused && styles.focused]} onPress={open} onLayout={onLayout}
     onFocus={() => { setFocused(true); onFocused(); }} onBlur={() => setFocused(false)} hasTVPreferredFocus={preferred}
     role="button" aria-label={`${selecting ? selected ? 'Selected, ' : 'Select, ' : ''}${group.title}, ${detail}`}
     accessibilityHint={selecting ? 'Selects or deselects every file in this title.' : representative.kind === 'episode' ? 'Opens this show’s seasons.' : representative.kind === 'photo' ? 'Opens the photo viewer.' : group.items.length > 1 ? 'Opens the available versions.' : 'Opens media details and playback.'} testID={`media-group-${group.id}`}>
@@ -66,5 +66,5 @@ function GroupTile({group, open, loadImage, session, preferred, selecting, selec
     <Text style={styles.detail}>{detail}{status ? ` · ${status}` : ''}</Text>
   </Pressable>;
 }
-const styles = StyleSheet.create({grid: {padding: 8, paddingBottom: 70}, row: {gap: 20}, tile: {flex: 1, maxWidth: '16%', padding: 8, marginBottom: 24, borderWidth: 3, borderColor: 'transparent'},
+const styles = StyleSheet.create({grid: {padding: 8, paddingTop: 4, paddingBottom: 70}, row: {gap: 20}, tile: {flex: 1, maxWidth: '16%', padding: 8, marginBottom: 24, borderWidth: 3, borderColor: 'transparent'},
   focused: {borderColor: colors.focus, backgroundColor: colors.raised}, selected: {borderColor: colors.accent}, title: {fontSize: 22, color: colors.text, marginTop: 12, fontWeight: '600'}, detail: {fontSize: 18, color: colors.secondary, marginTop: 6}});

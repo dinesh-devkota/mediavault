@@ -555,6 +555,11 @@ try {
     await click('action-back');
     await element(byID(feature)); assert.equal(await exists(byID(sequel)), false);
     await click('action-back'); await click('action-back');
+    await waitFor(async () => await exists(byID('action-done-selecting'))
+      && await exists("//*[@role='text' and text='3 selected']") && !await exists(byID('field-new-collection-name'))
+      && await exists(byID(feature) + "[starts-with(@description,'Selected, ')]")
+      && await exists(byID(sequel) + "[starts-with(@description,'Selected, ')]"),
+      'Returning from collections must restore selecting Home with all three selected files and both selected groups.');
     assert(await exists("//*[@role='text' and text='3 selected']"), 'Detail collection actions must preserve all three selected Home files.');
     for (const id of [feature, sequel]) {
       assert(await exists(byID(id) + "[starts-with(@description,'Selected, ')]"), 'Both original Home title groups must remain selected.');
@@ -618,6 +623,8 @@ try {
       'A restricted profile must not receive a title with malformed/unknown rating.');
     assert.equal(await exists(byID('action-sources')), false, 'A viewer cannot manage credentials or household permissions.');
     await click('action-collections');
+    await waitFor(async () => await exists("//*[@role='text' and text='Your collections']")
+      && await exists(byID('field-new-collection-name')), 'The restricted profile must reach its collections before checking isolation.');
     assert.equal(await exists(byID('action-movie-night-1-title')), false, 'Collections belong to the creating profile.');
   });
   await step('09-pin-rejection-and-unlock', async () => {

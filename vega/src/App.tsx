@@ -242,9 +242,9 @@ const MediaVaultApp = () => {
     {error && <Text style={shared.error} aria-live="polite">{error}</Text>}
     {route.page === 'home' && unlocked && <>
       {selecting ? <View style={shared.row}>
-        <Action label="Select shown" onPress={() => setSelected(new Set(filtered.map(value => value.id)))}/>
-        <Action label="Mark watched" disabled={!selected.size} onPress={() => mark(available.filter(value => selected.has(value.id)), true)}/><Action label="Mark unwatched" disabled={!selected.size} onPress={() => mark(available.filter(value => selected.has(value.id)), false)}/>
-        <Action label="Add to collection" disabled={!selected.size} onPress={() => navigate({page: 'add-to-collection'})}/>
+        <Action label="Select shown" compact onPress={() => setSelected(new Set(filtered.map(value => value.id)))}/>
+        <Action label="Mark watched" compact disabled={!selected.size} onPress={() => mark(available.filter(value => selected.has(value.id)), true)}/><Action label="Mark unwatched" compact disabled={!selected.size} onPress={() => mark(available.filter(value => selected.has(value.id)), false)}/>
+        <Action label="Add to collection" compact disabled={!selected.size} onPress={() => navigate({page: 'add-to-collection'})}/>
       </View> : <View style={shared.row}>
         <Action label={sectionTitle} compact preferred={!filtered.length && (library.sources.length > 0 || !canManage)} testID="library-section" hint="Choose movies, shows, music, photos, or your Watchlist." onPress={() => navigate({page: 'sections'})}/>
         <Action label="Search" compact selected={!!query.trim()} testID="library-search" hint={query.trim() ? 'A search is applied. Open to change or clear it.' : 'Search by movie or show title.'} onPress={() => navigate({page: 'search'})}/>

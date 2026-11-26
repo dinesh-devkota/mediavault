@@ -35,6 +35,14 @@ FlatList container's testID, so it is not a route or privacy predicate.
 Secure-storage, failed-PIN and locked-restart checks require every exposed Home
 toolbar/source action and every poster group to be absent.
 
+Collection return waits for Done selecting, the exact three-file count, both
+selected poster descriptions, and absence of the collection form before the
+final exact count and group assertions.
+Profile collection isolation waits for the destination collections heading and
+form before checking that another profile's collection is absent. These waits
+acknowledge rendered route state; they do not insert fixed delays.
+
+
 
 On a production installation, journey 10 additionally restarts the app, unlocks with the saved PIN, and rescans using saved NAS credentials. Physical Vega hardware is required when the virtual device lacks the native secure-storage service.
 

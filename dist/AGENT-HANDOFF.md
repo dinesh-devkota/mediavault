@@ -212,16 +212,30 @@ on every target. Evidence is in `.artifacts/android-tv-b98f180`,
 `.artifacts/android-phone-b98f180` and `.artifacts/fire-compat-b98f180`.
 
 Vega follow-ups are on `codex/mediavault-vega-keyboard-visibility`, not PR20's
-remote head. Follow-up `3e4b813`, run `45765161506`, passed packages/native checks
-but stopped in the new cold-start journey after hardware Back: FlatList's
-`library-grid` test ID is not exposed by the native publisher, including in older
-successful Home captures. Screenshots show the correct Home and focused Add source,
-but the strict native return-focus assertion had not yet run. The harness now
-uses exposed Home controls plus prior-route disappearance. This also corrects
-pre-existing startup/PIN predicates that relied on the unpublished grid ID.
-A duplicate empty-grid panel clipped below onboarding is removed only while
-an administrator with no sources sees the initial Add source card. Filtered-empty
-and restricted-profile grids remain. No later journey ran at this checkpoint.
+remote head. Latest tested `9bee02d`, run `45766726436`, passed all package/native
+checks and stages 01-02, including strict cold-start/native Back focus and a
+non-first poster reached with arrows and restored after Back. Stage03 now reaches
+Clear, exact rename acknowledgement (7 -> 0 -> 11 characters), save/removal,
+detail collection cancellation and persisted name checks. It stopped on an
+immediate selection-count assertion while the previous Collections page was
+still publishing. The next XML/image shows exactly three selected files and
+both original groups selected. A bounded acknowledgement of selecting Home,
+exact count and both descriptions now precedes the retained assertions. Stage08
+also waits for the actual Collections page before checking profile isolation.
+All 17 harness contracts pass. Playback/photo/household stages remain unvisited.
+
+Screenshots confirm the duplicate initial empty-grid panel is removed. Newly
+reached bulk mode wrapped its four regular actions into two rows, cropping the
+604px posters inside a 404px viewport. The follow-up makes those actions compact,
+keeps text/poster dimensions, reduces grid top padding to avoid an eight-pixel
+bottom border clip, and gives focused selected tiles a white border. These style
+changes still need native visual verification.
+
+Earlier `3e4b813`, run `45765161506`, established that FlatList's `library-grid`
+ID is absent from the native publisher. Home/lock predicates now use actual
+exposed toolbar controls and poster groups, plus prior-route disappearance.
+The native return-focus assertion remains mandatory. Initial onboarding now has
+one setup card; filtered-empty and restricted-profile grids remain available.
 
 Earlier checkpoint `0590298`, run `45761600966`, passed all
 packages/native/startup checks and stages01/02. Reviewed screenshots confirm
