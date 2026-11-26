@@ -183,3 +183,4 @@ jobs:
             ${{ runner.temp }}/webdav-fixture/server.log
             ${{ runner.temp }}/jellyfin-fixture/server.log
             ${{ runner.temp }}/onedrive-iphone.log
+            ${{ runner.temp }}/dropbox-fixture/server.log
