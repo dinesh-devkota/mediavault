@@ -1,5 +1,6 @@
 package com.dineshdevkota.cinevault.nfs
 
+import java.io.IOException
 import java.nio.charset.CharacterCodingException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -43,7 +44,10 @@ internal class NfsSession private constructor(private var handle: Long) {
     }
 
     companion object {
+        fun hasNativeLibrary(): Boolean = NativeNfs.available
+
         suspend fun connect(host: String, export: String, mountPort: Int = 0, nfsPort: Int = 0): NfsSession {
+            if (!hasNativeLibrary()) throw IOException("NFS is unavailable in this build.")
             var pending: NfsSession? = null
             try {
                 return withContext(Dispatchers.IO) {
@@ -60,8 +64,13 @@ internal class NfsSession private constructor(private var handle: Long) {
 }
 
 private object NativeNfs {
-    init {
+    val available = try {
         System.loadLibrary("mediavaultnfs")
+        true
+    } catch (_: LinkageError) {
+        false
+    } catch (_: SecurityException) {
+        false
     }
 
     class Entry(val name: ByteArray, val directory: Boolean, val size: Long)

@@ -38,15 +38,15 @@ enum HomeCollection: Hashable, Identifiable {
         let available = Self.available(library)
         switch self {
         case .section(let kind): return available.filter { $0.mediaKind == kind }
-        case .watchlist: return LibrarySort.title.sorted(available.filter(\.isWatchlisted))
-        case .unwatched: return available.filter { !$0.isWatched }
+        case .watchlist: return LibrarySort.title.sorted(available.filter(\.householdWatchlisted))
+        case .unwatched: return available.filter { !$0.householdWatched }
         case .continueWatching: return ContinueWatching.home(available, limit: .max).map(\.movie)
         }
     }
 
     @MainActor
     func items(in library: [Movie]) -> [CollectionRowItem] {
-        CollectionRowItem.grouped(movies(in: library), limit: .max)
+        CollectionRowItem.grouped(movies(in: library), limit: .max, groupVersions: true)
     }
 }
 
@@ -80,7 +80,7 @@ struct HomeShelfHeader: View {
             if let collection { HomeSeeAllButton(collection: collection) }
         }
         .frame(maxWidth: .infinity)
-        .focusSection()
+        .tvFocusSection()
     }
 }
 
@@ -122,8 +122,8 @@ struct HomeCollectionView: View {
     @FocusState private var focusedItem: String?
     @State private var lastFocusedItem: String?
     @State private var focusedMovieAnchor: UUID?
-    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
-    private let wideColumns = [GridItem(.adaptive(minimum: 400, maximum: 400), spacing: 48)]
+    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: CinemaTheme.gridSpacing)]
+    private let wideColumns = [GridItem(.adaptive(minimum: CinemaTheme.episodeWidth, maximum: CinemaTheme.episodeWidth), spacing: CinemaTheme.gridSpacing)]
 
     var body: some View {
         let items = collection == .continueWatching ? [] : collection.items(in: library)
@@ -144,7 +144,7 @@ struct HomeCollectionView: View {
                             .accessibilityIdentifier("home-collection-count")
                     }
                     .frame(maxWidth: .infinity)
-                    .focusSection()
+                    .tvFocusSection()
                     if count == 0 {
                         ContentUnavailableView {
                             Label("Nothing here yet", systemImage: "rectangle.stack")
@@ -176,7 +176,7 @@ struct HomeCollectionView: View {
                         }.padding(.vertical, 24)
                     }
                 }
-                .padding(.horizontal, 70).padding(.bottom, 100)
+                .padding(.horizontal, CinemaTheme.edgeInset).padding(.bottom, 100)
             }
             .onChange(of: focusedItem) { _, value in
                 if let value {
@@ -220,14 +220,12 @@ struct HomeCollectionView: View {
     @ViewBuilder private func collectionCard(_ item: CollectionRowItem) -> some View {
         switch item {
         case .movie(let movie):
-            NavigationLink(value: movie) {
-                PosterView(movie: movie, isFocused: focusedItem == item.id)
-            }.accessibilityLabel(movie.title)
+            VersionAwareMovieLink(movie: movie, candidates: collection.movies(in: library), isFocused: focusedItem == item.id)
         case .show(let show):
             NavigationLink(value: SearchShowSelection(show)) {
                 TVShowArtwork(title: show.title,
                               subtitle: "\(show.seasons.count) \(show.seasons.count == 1 ? "season" : "seasons")",
-                              path: show.posterPath, focused: focusedItem == item.id)
+                              path: show.posterPath, localMovie: show.episodes.first(where: { $0.localPosterPath != nil }), localPath: show.episodes.compactMap(\.localPosterPath).first, focused: focusedItem == item.id)
             }.accessibilityLabel("\(show.title), \(show.seasons.count) \(show.seasons.count == 1 ? "season" : "seasons")")
         }
     }

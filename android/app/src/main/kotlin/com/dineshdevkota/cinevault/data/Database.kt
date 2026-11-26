@@ -41,8 +41,15 @@ interface SourceDao {
 
 @Dao
 interface MovieDao {
+    @Query("UPDATE movies SET franchiseId = :id, franchiseName = :name WHERE id = :movieId")
+    suspend fun setFranchise(movieId: String, id: Int?, name: String?)
+    @Query("UPDATE movies SET ageCertification = :rating, certificationFetched = 1 WHERE id = :id")
+    suspend fun setCertification(id: String, rating: String?)
     @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND filePath IN (:paths)")
     suspend fun forPaths(sourceId: String, paths: List<String>): List<MovieEntity>
+
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND (filePath = :path OR localPosterPath = :path OR localBackdropPath = :path OR localSeasonPosterPath = :path)")
+    suspend fun nfsItemsForPath(sourceId: String, path: String): List<MovieEntity>
 
     @Query("SELECT * FROM movies")
     fun observeAll(): Flow<List<MovieEntity>>
@@ -112,7 +119,7 @@ interface MovieDao {
     @Query(
         "UPDATE movies SET tmdbId = :tmdbId, overview = :overview, tagline = :tagline, runtimeMinutes = :runtimeMinutes, " +
             "rating = :rating, posterPath = :posterPath, backdropPath = :backdropPath, genres = :genresJson, " +
-            "metadataFetched = 1 WHERE id = :id",
+            "metadataFetched = 1, ageCertification = NULL, certificationFetched = 0 WHERE id = :id",
     )
     suspend fun applyMetadata(
         id: String,
@@ -131,7 +138,7 @@ interface MovieDao {
         "UPDATE movies SET tmdbId = NULL, seriesTitle = :seriesTitle, seriesTmdbId = :seriesTmdbId, " +
             "seasonNumber = :seasonNumber, episodeNumber = :episodeNumber, seasonPosterPath = :seasonPosterPath, " +
             "overview = :overview, tagline = NULL, runtimeMinutes = :runtimeMinutes, rating = :rating, " +
-            "posterPath = :posterPath, backdropPath = :backdropPath, genres = :genresJson, metadataFetched = 1 WHERE id = :id",
+            "posterPath = :posterPath, backdropPath = :backdropPath, genres = :genresJson, metadataFetched = 1, ageCertification = NULL, certificationFetched = 0 WHERE id = :id",
     )
     suspend fun applyTVMetadata(
         id: String, seriesTitle: String, seriesTmdbId: Int, seasonNumber: Int, episodeNumber: Int,
@@ -141,7 +148,8 @@ interface MovieDao {
 
     @Query("UPDATE movies SET seriesTitle = :seriesTitle, seasonNumber = :season, episodeNumber = :episode, " +
         "tmdbId = NULL, overview = NULL, tagline = NULL, posterPath = NULL, backdropPath = NULL, " +
-        "runtimeMinutes = NULL, rating = NULL, genres = '[]', metadataFetched = 1 WHERE id = :id")
+        "runtimeMinutes = NULL, rating = NULL, genres = '[]', metadataFetched = 1, seriesTmdbId = NULL, " +
+        "ageCertification = NULL, certificationFetched = 0 WHERE id = :id")
     suspend fun rememberEpisode(id: String, seriesTitle: String, season: Int, episode: Int)
 
     /** Takes TMDB's title and year unless the user locked the title; a manual re-match ([force]) always does. */
@@ -154,7 +162,7 @@ interface MovieDao {
     @Query("UPDATE movies SET metadataFetched = 1 WHERE id = :id")
     suspend fun markMetadataFetched(id: String)
 
-    @Query("UPDATE movies SET metadataFetched = 0")
+    @Query("UPDATE movies SET metadataFetched = 0 WHERE sourceId NOT IN (SELECT id FROM sources WHERE sourceType IN ('plex', 'jellyfin'))")
     suspend fun clearMetadataFetched()
 
     /** A manual rename; locked so rescans and automatic matching keep the user's title. */
@@ -167,20 +175,66 @@ interface MovieDao {
     /** Forgets edits and the TMDB match, back to what a fresh scan of the file shows. */
     @Query(
         "UPDATE movies SET title = :title, sortTitle = :sortTitle, year = :year, tmdbId = :tmdbId, isLocked = 0, " +
-            "metadataFetched = 0, overview = NULL, tagline = NULL, runtimeMinutes = NULL, rating = NULL, " +
+            "metadataFetched = 0, ageCertification = NULL, certificationFetched = 0, overview = NULL, tagline = NULL, runtimeMinutes = NULL, rating = NULL, " +
             "posterPath = NULL, backdropPath = NULL, genres = :noGenresJson, seriesTitle = NULL, seriesTmdbId = NULL, " +
-            "seasonNumber = NULL, episodeNumber = NULL, seasonPosterPath = NULL WHERE id = :id",
+            "seasonNumber = NULL, episodeNumber = NULL, seasonPosterPath = NULL, hasLocalMetadata = 0, localMetadataJson = NULL, " +
+            "edition = NULL, franchiseId = NULL, franchiseName = NULL WHERE id = :id",
     )
     suspend fun resetToFile(id: String, title: String, sortTitle: String, year: Int?, tmdbId: Int?, noGenresJson: String)
 }
 
-@Database(entities = [SourceEntity::class, MovieEntity::class], version = 4, exportSchema = false)
+@androidx.room.Entity(tableName = "profile_history", primaryKeys = ["profileId", "movieId"],
+    foreignKeys = [androidx.room.ForeignKey(entity = MovieEntity::class, parentColumns = ["id"], childColumns = ["movieId"], onDelete = androidx.room.ForeignKey.CASCADE)],
+    indices = [androidx.room.Index("movieId")])
+data class ProfileHistory(val profileId: String, val movieId: String, val watched: Boolean = false,
+    val watchlisted: Boolean = false, val positionMs: Long = 0, val durationMs: Long = 0,
+    val lastPlayedAt: Long? = null, val hidden: Boolean = false)
+
+@Dao
+interface ProfileHistoryDao {
+    @Query("SELECT * FROM profile_history") fun observeAll(): Flow<List<ProfileHistory>>
+    @Query("SELECT * FROM profile_history WHERE movieId = :movieId") fun observeMovie(movieId: String): Flow<List<ProfileHistory>>
+    @Query("SELECT * FROM profile_history WHERE profileId = :profileId") suspend fun forProfile(profileId: String): List<ProfileHistory>
+    @Query("SELECT * FROM profile_history WHERE profileId = :profileId AND movieId = :movieId")
+    suspend fun get(profileId: String, movieId: String): ProfileHistory?
+    @Upsert suspend fun upsert(history: ProfileHistory)
+    @Query("DELETE FROM profile_history WHERE profileId = :profileId") suspend fun deleteProfile(profileId: String)
+}
+
+@Database(entities = [SourceEntity::class, MovieEntity::class, ProfileHistory::class], version = 7, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class CineVaultDatabase : RoomDatabase() {
     abstract fun sources(): SourceDao
     abstract fun movies(): MovieDao
+    abstract fun profileHistory(): ProfileHistoryDao
 
     companion object {
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE movies ADD COLUMN localPosterPath TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN localMetadataJson TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN edition TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN localBackdropPath TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN localSeasonPosterPath TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN hasLocalMetadata INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE movies ADD COLUMN franchiseId INTEGER")
+                db.execSQL("ALTER TABLE movies ADD COLUMN franchiseName TEXT")
+            }
+        }
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sources ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'smb'")
+                db.execSQL("ALTER TABLE sources ADD COLUMN allowInsecureHttp INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE movies ADD COLUMN ageCertification TEXT")
+                db.execSQL("ALTER TABLE movies ADD COLUMN certificationFetched INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE TABLE IF NOT EXISTS profile_history (profileId TEXT NOT NULL, movieId TEXT NOT NULL, watched INTEGER NOT NULL, watchlisted INTEGER NOT NULL, positionMs INTEGER NOT NULL, durationMs INTEGER NOT NULL, lastPlayedAt INTEGER, hidden INTEGER NOT NULL, PRIMARY KEY(profileId, movieId), FOREIGN KEY(movieId) REFERENCES movies(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_profile_history_movieId ON profile_history(movieId)")
+            }
+        }
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE movies ADD COLUMN isWatchlisted INTEGER NOT NULL DEFAULT 0")
@@ -206,7 +260,7 @@ abstract class CineVaultDatabase : RoomDatabase() {
 
         fun create(context: Context, name: String = "cinevault.db"): CineVaultDatabase =
             Room.databaseBuilder(context, CineVaultDatabase::class.java, name)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
     }
 }

@@ -23,6 +23,10 @@ import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.Tab as PhoneTab
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text as PhoneText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -66,6 +71,7 @@ import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
 import com.dineshdevkota.cinevault.photos.photoAvailable
+import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
 import com.dineshdevkota.cinevault.library.watchStatusItems
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -74,9 +80,10 @@ private val tabs = listOf("Home", "Library", "Photos", "Search", "Sources", "Set
 
 @Composable
 fun RootScreen() {
+    val isTv = LocalTvLayout.current
     val context = LocalContext.current
     val container = context.container
-    val loadedMovies by remember { container.database.movies().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val loadedMovies by remember { container.library.observeAll() }.collectAsStateWithLifecycle(initialValue = null)
     val movies = loadedMovies.orEmpty()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val tabFocus = remember { List(tabs.size) { FocusRequester() } }
@@ -92,19 +99,21 @@ fun RootScreen() {
 
     fun openTab(index: Int) {
         tab = index
-        tabFocus[index].requestFocus()
+        if (isTv) tabFocus[index].requestFocus()
     }
 
     // Like tvOS: Back first returns to the tab bar, then to Home, then leaves the app.
-    BackHandler(enabled = !tabRowFocused || tab != 0) {
-        if (tabRowFocused) tab = 0
-        tabFocus[tab].requestFocus()
+    BackHandler(enabled = if (isTv) !tabRowFocused || tab != 0 else tab != 0) {
+        if (isTv) {
+            if (tabRowFocused) tab = 0
+            tabFocus[tab].requestFocus()
+        } else tab = 0
     }
     // TabRow subcomposes its tabs during layout, after this effect can first run.
     // Wait for their placement before restoring focus. A recreated window can
     // also have focus while its Compose view does not; acquire the owner first.
     LaunchedEffect(windowFocused, tabsPlaced) {
-        if (windowFocused && tabsPlaced && !initialFocusRequested) {
+        if (isTv && windowFocused && tabsPlaced && !initialFocusRequested) {
             // The owner's initial focus search can select another tab.
             val selectedTab = tab
             if (!view.hasFocus()) view.requestFocus()
@@ -113,7 +122,12 @@ fun RootScreen() {
     }
 
     Column(Modifier.fillMaxSize()) {
-        TabRow(
+        if (container.family.current.enabled) {
+            Row(Modifier.padding(horizontal = ScreenPadding), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                OutlinedButton(onClick = { container.family.lock() }) { Text("Switch profile · ${container.family.current.profile?.name.orEmpty()}") }
+            }
+        }
+        if (isTv) TabRow(
             selectedTabIndex = tab,
             modifier = Modifier
                 .padding(start = ScreenPadding, top = 20.dp, bottom = 4.dp)
@@ -147,6 +161,26 @@ fun RootScreen() {
                 else -> SettingsTab()
             }
         }
+        if (!isTv) Column(Modifier.selectableGroup()) {
+            HorizontalDivider()
+            tabs.chunked(3).forEachIndexed { row, titles ->
+                Row(Modifier.fillMaxWidth().background(SurfaceColor)) {
+                    titles.forEachIndexed { col, title ->
+                        val index = row * 3 + col
+                        PhoneTab(
+                            selected = index == tab,
+                            onClick = { openTab(index) },
+                            modifier = Modifier.weight(1f),
+                            selectedContentColor = Accent,
+                            unselectedContentColor = SecondaryText,
+                            text = {
+                                PhoneText(title, fontWeight = if (index == tab) FontWeight.Bold else FontWeight.Normal)
+                            },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -164,7 +198,7 @@ private fun HomeTab(
     val context = LocalContext.current
     val container = context.container
     val status by container.scanner.status.collectAsStateWithLifecycle()
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(initialValue = null)
     val available = remember(movies, sources) { homeAvailableItems(movies, sources.orEmpty()) }
     val collections = remember(available) { available.groupBy { it.mediaKind } }
     val loadedSources = sources
@@ -194,12 +228,20 @@ private fun HomeTab(
             ScreenHeader(
                 "Welcome to MediaVault",
                 Modifier.padding(horizontal = ScreenPadding),
-                trailing = status,
+                trailing = if (container.family.current.admin) status else null,
             )
         }
         if (available.isEmpty()) {
-            item { loadedSources?.let { EmptyHome(movies, it, openPhotos, openSources) } }
+            item {
+                if (container.family.current.enabled && !container.family.current.admin) {
+                    Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("No media available for this profile yet", style = MaterialTheme.typography.headlineMedium)
+                        Text("There is no available media for this profile yet. Ask Admin to choose folders and check the rating limits.", color = SecondaryText)
+                    }
+                } else loadedSources?.let { EmptyHome(movies, it, openPhotos, openSources) }
+            }
         } else {
+            item { OutlinedButton(onClick = { MediaCollectionsActivity.start(context) }, modifier = Modifier.padding(horizontal = ScreenPadding)) { Text("Collections") } }
             if (continuing.isNotEmpty()) item(key = "continue-watching") {
                 ContinueWatchingRow(continuing, onOpen) { HomeCollectionActivity.start(context, HomeCollection.CONTINUE) }
             }
@@ -271,7 +313,8 @@ private fun FeaturedCard(movie: MovieEntity, onClick: () -> Unit) {
         scale = CardDefaults.scale(focusedScale = 1.02f),
     ) {
         Box(Modifier.fillMaxSize()) {
-            Artwork(Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w1280"), "", Modifier.fillMaxSize())
+            MediaArtwork(movie, Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w1280"), "", Modifier.fillMaxSize(),
+                width = 1280, kind = JellyfinImage.Backdrop)
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.horizontalGradient(0f to Color.Black.copy(alpha = 0.85f), 0.7f to Color.Transparent),
@@ -303,11 +346,13 @@ private fun FeaturedCard(movie: MovieEntity, onClick: () -> Unit) {
 
 @Composable
 private fun MovieGrid(minimumPosterWidth: Dp = PosterWidth, content: LazyGridScope.() -> Unit) {
+    val isTv = LocalTvLayout.current
+    val spacing = if (isTv) 28.dp else 12.dp
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minimumPosterWidth),
+        columns = GridCells.Adaptive(if (isTv) minimumPosterWidth else minOf(minimumPosterWidth, 144.dp)),
         contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, bottom = 48.dp),
-        horizontalArrangement = Arrangement.spacedBy(28.dp),
-        verticalArrangement = Arrangement.spacedBy(28.dp),
+        horizontalArrangement = Arrangement.spacedBy(spacing),
+        verticalArrangement = Arrangement.spacedBy(spacing),
         content = content,
     )
 }
@@ -318,22 +363,24 @@ private fun LazyGridScope.fullWidth(content: @Composable () -> Unit) {
 
 private fun LazyGridScope.posters(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit,
     selection: WatchSelection? = null, selectable: Set<String> = emptySet()) {
-    items(movies, key = { it.id }) { movie ->
+    items(com.dineshdevkota.cinevault.library.groupMovieVersions(movies), key = { it.id }) { group ->
+        val movie = group.representative
+        val ids = group.versions.map { it.id }.filter { it in selectable }
         if (movie.isPhoto) PhotoTile(movie, onClick = { onOpen(movie) })
-        else PosterCard(movie, selected = if (selection?.selecting == true && movie.id in selectable) movie.id in selection.ids else null,
+        else PosterCard(movie, versionCount = group.versions.size,
+            selected = if (selection?.selecting == true && ids.isNotEmpty()) selection.ids.containsAll(ids) else null,
             onClick = {
-                if (selection?.selecting == true) {
-                    if (movie.id in selectable) selection.toggle(listOf(movie.id))
-                } else onOpen(movie)
+                if (selection?.selecting == true) selection.toggle(ids) else onOpen(movie)
             })
     }
 }
 
 @Composable
 private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, openSources: () -> Unit) {
-    val container = LocalContext.current.container
+    val containerContext = LocalContext.current
+    val container = containerContext.container
     val settings = container.settings
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(initialValue = null)
     var sort by remember { mutableStateOf(settings.librarySort) }
     var filter by remember { mutableStateOf(settings.libraryFilter) }
     var facets by remember { mutableStateOf(settings.libraryFacets) }
@@ -378,12 +425,13 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, 
     val emptyMessage = when {
         filter == LibraryFilter.WATCHLIST && facets == LibraryFacets() -> "Open a title and choose Add to Watchlist to save it for later."
         hasFilters -> "Clear your filters to browse all ${kind.label.lowercase()}."
+        !container.family.current.admin -> "Ask Admin to choose folders and check the rating limits for your profile."
         else -> "Add the parent media folder in Sources. Its subfolders are scanned automatically."
     }
     val emptyContent: @Composable () -> Unit = {
         EmptyState(emptyTitle, emptyMessage,
-            actionLabel = if (hasFilters) "Clear filters" else "Open Sources",
-            onAction = if (hasFilters) ::clearFilters else openSources,
+            actionLabel = if (hasFilters) "Clear filters" else if (!container.family.current.admin) "Switch profile" else "Open Sources",
+            onAction = if (hasFilters) ::clearFilters else if (!container.family.current.admin) ({ container.family.lock() }) else openSources,
             actionModifier = Modifier.testTag("library-empty-action"))
     }
 
@@ -392,8 +440,9 @@ private fun MoviesTab(movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, 
             kind.label, Modifier.padding(horizontal = ScreenPadding),
             kicker = "YOUR COLLECTION", trailing = if (kind == MediaKind.TV_SHOW)
                 "${tvShows.size} ${if (tvShows.size == 1) "show" else "shows"}"
-            else "${visible.size} ${if (visible.size == 1) "title" else "titles"}",
+            else com.dineshdevkota.cinevault.library.groupMovieVersions(visible).size.let { "$it ${if (it == 1) "title" else "titles"}" },
         )
+        OutlinedButton(onClick = { MediaCollectionsActivity.start(containerContext) }, modifier = Modifier.padding(horizontal = ScreenPadding).testTag("open-collections")) { Text("Collections") }
         // Keep focused filters outside the recycled result items. Replacing all
         // posters with an empty state must not dispose the control being used.
         Column(

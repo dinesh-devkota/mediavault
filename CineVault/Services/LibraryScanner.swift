@@ -11,14 +11,19 @@ final class LibraryScanner: ObservableObject {
     private let scanWithProgress: ((SourceConfig, MediaScanReporter) async throws -> [RemoteFile])?
     private let saveContext: (ModelContext) throws -> Void
     private let fetchMetadata: (ModelContext) async throws -> MetadataFetchSummary?
+    private let importLocalMetadata: ((MediaSource, ModelContext, SourceConfig) async throws -> Void)?
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     init(fetchMetadata: ((ModelContext) async throws -> MetadataFetchSummary?)? = nil,
          scanVideos: ((SourceConfig) async throws -> [RemoteFile])? = nil,
          scanWithProgress: ((SourceConfig, MediaScanReporter) async throws -> [RemoteFile])? = nil,
-         saveContext: @escaping (ModelContext) throws -> Void = { try $0.save() }) {
+         saveContext: @escaping (ModelContext) throws -> Void = { try $0.save() },
+         importLocalMetadata: ((MediaSource, ModelContext, SourceConfig) async throws -> Void)? = nil) {
         self.saveContext = saveContext
         self.fetchMetadata = fetchMetadata ?? { try await MetadataService.shared.fetchMissing(in: $0) }
+        self.importLocalMetadata = importLocalMetadata ?? (scanVideos == nil && scanWithProgress == nil ? { source, context, config in
+            _ = try await LocalMetadataService.shared.importFiles(source: source, context: context, config: config)
+        } : nil)
         self.scanVideos = scanVideos ?? { try await SMBService.shared.scanVideos($0) }
         if let scanWithProgress { self.scanWithProgress = scanWithProgress }
         else if scanVideos == nil {
@@ -45,6 +50,14 @@ final class LibraryScanner: ObservableObject {
         status = "Scanning \(source.name)…"
         do {
             let config = try source.config()
+            if config.isPlex {
+                try await scanPlex(source, config: config, context: context)
+                return
+            }
+            if config.isJellyfin {
+                try await scanJellyfin(source, config: config, context: context)
+                return
+            }
             let state = LibraryScanState(source: source, context: context, config: config, saveContext: saveContext)
             let scannedFiles: [RemoteFile]
             if let scanWithProgress {
@@ -56,12 +69,12 @@ final class LibraryScanner: ObservableObject {
             try Task.checkCancellation()
             try state.verifySource()
             let files = scannedFiles.filter { !config.excludesFile($0.path) && MediaFile.shouldIndex(path: $0.path, size: $0.size) }
-            var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { a, _ in a })
+            var existing = Dictionary(source.movies.map { (Data($0.filePath.utf8), $0) }, uniquingKeysWith: { a, _ in a })
             let previous = existing.values.map { ($0, $0.isMissing, $0.fileSize) }
             let previousScanDate = source.lastScanDate
             var finalInsertions: [Movie] = []
             for file in files {
-                if let movie = existing.removeValue(forKey: file.path) {
+                if let movie = existing.removeValue(forKey: Data(file.path.utf8)) {
                     movie.isMissing = false
                     movie.fileSize = file.size
                     continue
@@ -83,6 +96,7 @@ final class LibraryScanner: ObservableObject {
             }
             status = scanSummary()
             do {
+                if let importLocalMetadata { try await importLocalMetadata(source, context, config) }
                 let result = try await fetchMetadata(context)
                 let complete = scanSummary()
                 status = complete
@@ -99,6 +113,229 @@ final class LibraryScanner: ObservableObject {
             let separator = reason.hasSuffix(".") ? " " : ". "
             status = "Scan failed for \(source.name): \(reason)\(separator)Items already found are kept. Retry from Sources."
         }
+    }
+
+    private func scanPlex(_ source: MediaSource, config: SourceConfig, context: ModelContext) async throws {
+        let household = HouseholdStore.shared
+        let session = household.sessionToken
+        func verifyOwner() throws {
+            try Task.checkCancellation()
+            guard household.isAdmin, household.sessionIsCurrent(session) else { throw HouseholdError.denied }
+            guard !source.isDeleted, source.modelContext != nil, try source.config() == config else { throw SMBError.sourceChanged }
+        }
+        try verifyOwner()
+        let connection = try PlexSourceConnection(config: config)
+        let client = connection.client
+        try await client.verifyIdentity()
+        try verifyOwner()
+        let libraries = try await client.libraries()
+        guard let section = libraries.first(where: { $0.id == config.share && PlexSourceConnection.supports($0) }) else {
+            throw PlexSourceError.selectionUnavailable
+        }
+
+        struct Entry {
+            let item: PlexMediaClient.CatalogItem
+            let show: PlexMediaClient.CatalogItem?
+            let season: Int?
+            var path: String { item.type == "photo" ? "PlexPhotos/\(item.id).jpg" : "PlexVideo/\(item.id).mp4" }
+        }
+        var entries: [Entry] = []
+        var foundIDs: Set<String> = []
+        var visitedAlbums: Set<String> = []
+        func add(_ item: PlexMediaClient.CatalogItem, show: PlexMediaClient.CatalogItem? = nil, season: Int? = nil) throws {
+            guard !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, entries.count < 250_000,
+                  foundIDs.insert(item.id).inserted else { throw PlexAccountError.invalidResponse }
+            entries.append(Entry(item: item, show: show, season: season))
+        }
+        func walkPhotos(_ items: [PlexMediaClient.CatalogItem], depth: Int) async throws {
+            try verifyOwner()
+            guard depth <= 16 else { throw PlexAccountError.invalidResponse }
+            for item in items {
+                if item.type == "photo" { try add(item) }
+                else if item.type == "photoalbum" {
+                    guard visitedAlbums.count < 25_000, visitedAlbums.insert(item.id).inserted else {
+                        throw PlexAccountError.invalidResponse
+                    }
+                    try await client.children(of: item) { try await walkPhotos($0, depth: depth + 1) }
+                }
+            }
+        }
+
+        try await client.catalog(in: section) { page in
+            try verifyOwner()
+            switch section.type {
+            case "movie":
+                for item in page where item.type == "movie" { try add(item) }
+            case "show":
+                for show in page where show.type == "show" {
+                    try verifyOwner()
+                    try await client.children(of: show) { seasons in
+                        try verifyOwner()
+                        for season in seasons where season.type == "season" {
+                            guard let number = season.index, (0...999).contains(number) else { continue }
+                            try verifyOwner()
+                            try await client.children(of: season) { episodes in
+                                try verifyOwner()
+                                for episode in episodes where episode.type == "episode" {
+                                    guard episode.grandparentRatingKey.map({ $0 == show.id }) ?? true,
+                                          episode.parentIndex.map({ $0 == number }) ?? true,
+                                          let index = episode.index, (0...999).contains(index) else {
+                                        throw PlexAccountError.invalidResponse
+                                    }
+                                    try add(episode, show: show, season: number)
+                                }
+                            }
+                        }
+                    }
+                }
+            case "photo":
+                try await walkPhotos(page, depth: 0)
+            default:
+                throw PlexSourceError.selectionUnavailable
+            }
+            self.status = "Scanning \(source.name): \(entries.count) items…"
+        }
+        try verifyOwner()
+
+        var existing = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { first, _ in first })
+        let previousDate = source.lastScanDate
+        var inserted: [Movie] = []
+        var undo: [() -> Void] = []
+        for entry in entries {
+            let item = entry.item
+            let movie: Movie
+            if let current = existing.removeValue(forKey: entry.path) {
+                let previous = (current.isMissing, current.fileName, current.parsedTitle, current.parsedYear, current.providerImageTag,
+                                current.title, current.sortTitle, current.overview, current.year, current.runtimeMinutes,
+                                current.seriesTitle, current.providerSeriesID, current.seasonNumber, current.episodeNumber,
+                                current.usContentRating, current.usContentRatingFetched)
+                undo.append {
+                    (current.isMissing, current.fileName, current.parsedTitle, current.parsedYear, current.providerImageTag,
+                     current.title, current.sortTitle, current.overview, current.year, current.runtimeMinutes,
+                     current.seriesTitle, current.providerSeriesID, current.seasonNumber, current.episodeNumber,
+                     current.usContentRating, current.usContentRatingFetched) = previous
+                }
+                movie = current
+            } else {
+                movie = Movie(filePath: entry.path, fileSize: 0, source: source)
+                movie.metadataFetched = true
+                context.insert(movie)
+                inserted.append(movie)
+            }
+            movie.fileName = item.title
+            movie.parsedTitle = item.title
+            movie.parsedYear = item.year
+            movie.isMissing = false
+            if !movie.isLocked {
+                movie.setTitle(item.title)
+                movie.year = item.year
+                movie.overview = item.summary
+                movie.runtimeMinutes = item.duration.flatMap { $0 > 0 ? Int($0 / 60_000) : nil }
+            }
+            movie.providerImageTag = item.thumb
+            movie.seriesTitle = entry.show?.title
+            movie.providerSeriesID = entry.show?.id
+            movie.seasonNumber = entry.season
+            movie.episodeNumber = entry.show == nil ? nil : item.index
+            // An episode's rating cannot lower its show's restriction.
+            movie.usContentRating = entry.show == nil ? item.contentRating : entry.show?.contentRating
+            movie.usContentRatingFetched = true
+        }
+        for movie in existing.values where !movie.isMissing {
+            undo.append { movie.isMissing = false }
+            movie.isMissing = true
+        }
+        source.lastScanDate = Date()
+        do { try saveContext(context) }
+        catch {
+            for restore in undo.reversed() { restore() }
+            source.lastScanDate = previousDate
+            for movie in inserted { context.delete(movie) }
+            throw error
+        }
+        status = "\(source.name): \(entries.count) items (\(inserted.count) new)"
+    }
+
+    private func scanJellyfin(_ source: MediaSource, config: SourceConfig, context: ModelContext) async throws {
+        let household = HouseholdStore.shared
+        let session = household.sessionToken
+        guard household.isAdmin, JellyfinSourceConnection.validItemID(config.share) else { throw HouseholdError.denied }
+        let connection = try JellyfinSourceConnection(config: config)
+        var catalog: [(String, JellyfinCatalogItem)] = []
+        var seriesTMDBIDs: [String: Int] = [:]
+        try await connection.client.catalog(connection.account, libraryID: config.share) { items in
+            guard household.sessionIsCurrent(session), household.isAdmin else { throw HouseholdError.denied }
+            for item in items {
+                if item.type == "Series", let id = item.tmdbID { seriesTMDBIDs[item.id] = id }
+                if let path = JellyfinSourceConnection.mediaPath(item) { catalog.append((path, item)) }
+            }
+            self.status = "Scanning \(source.name): \(catalog.count) items…"
+        }
+        try Task.checkCancellation()
+        guard household.sessionIsCurrent(session), household.isAdmin,
+              !source.isDeleted, try source.config() == config else { throw SMBError.sourceChanged }
+
+        let indexed = source.movies.compactMap { movie -> (String, Movie)? in
+            guard let id = try? JellyfinSourceConnection.itemID(for: movie.filePath) else { return nil }
+            return (id, movie)
+        }
+        var existing = Dictionary(indexed, uniquingKeysWith: { first, _ in first })
+        let date = source.lastScanDate
+        var inserted: [Movie] = []
+        var undo: [() -> Void] = []
+        for (path, item) in catalog {
+            let movie: Movie
+            if let current = existing.removeValue(forKey: item.id) {
+                let previous = (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
+                                current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
+                                current.providerImageTag, current.tmdbID, current.seriesTMDBID)
+                undo.append {
+                    (current.filePath, current.isMissing, current.seriesTitle, current.providerSeriesID,
+                     current.seasonNumber, current.episodeNumber, current.usContentRating, current.usContentRatingFetched,
+                     current.providerImageTag, current.tmdbID, current.seriesTMDBID) = previous
+                }
+                movie = current
+            } else {
+                movie = Movie(filePath: path, fileSize: 0, source: source)
+                movie.fileName = item.name
+                movie.parsedTitle = item.name
+                movie.setTitle(item.name)
+                movie.parsedYear = item.year
+                movie.year = item.year
+                movie.overview = item.overview
+                movie.metadataFetched = true
+                context.insert(movie)
+                inserted.append(movie)
+            }
+            movie.filePath = path
+            movie.isMissing = false
+            movie.seriesTitle = item.seriesName
+            movie.providerSeriesID = item.seriesID
+            movie.seasonNumber = item.season
+            movie.episodeNumber = item.number
+            movie.usContentRating = item.rating
+            movie.usContentRatingFetched = true
+            movie.providerImageTag = item.primaryImage?["Primary"]
+            if item.type == "Movie", movie.tmdbID == nil {
+                movie.tmdbID = item.tmdbID
+            }
+            if item.type == "Episode", movie.seriesTMDBID == nil, let seriesID = item.seriesID {
+                movie.seriesTMDBID = seriesTMDBIDs[seriesID]
+            }
+        }
+        for movie in existing.values where !movie.isMissing {
+            undo.append { movie.isMissing = false }
+            movie.isMissing = true
+        }
+        source.lastScanDate = Date()
+        do { try saveContext(context) }
+        catch {
+            for restore in undo.reversed() { restore() }
+            source.lastScanDate = date
+            for movie in inserted { context.delete(movie) }
+            throw error
+        }
+        status = "\(source.name): \(catalog.count) items (\(inserted.count) new)"
     }
 
     func scanAll(context: ModelContext) async {
@@ -118,15 +355,15 @@ private final class LibraryScanState {
     let context: ModelContext
     let config: SourceConfig
     private(set) var added = 0
-    private var foundPaths: Set<String> = []
+    private var foundPaths: Set<Data> = []
     var foundCount: Int { foundPaths.count }
-    private var indexed: [String: Movie]
+    private var indexed: [Data: Movie]
     private let saveContext: (ModelContext) throws -> Void
     init(source: MediaSource, context: ModelContext, config: SourceConfig,
          saveContext: @escaping (ModelContext) throws -> Void) {
         self.source = source; self.context = context; self.config = config
         self.saveContext = saveContext
-        indexed = Dictionary(source.movies.map { ($0.filePath, $0) }, uniquingKeysWith: { a, _ in a })
+        indexed = Dictionary(source.movies.map { (Data($0.filePath.utf8), $0) }, uniquingKeysWith: { a, _ in a })
     }
     func verifySource() throws {
         try Task.checkCancellation()
@@ -140,7 +377,7 @@ private final class LibraryScanState {
         var previous: [(Movie, Bool, Int64)] = []
         var inserted: [Movie] = []
         for file in files {
-            if let movie = indexed[file.path], !movie.isDeleted {
+            if let movie = indexed[Data(file.path.utf8)], !movie.isDeleted {
                 previous.append((movie, movie.isMissing, movie.fileSize))
                 movie.isMissing = false; movie.fileSize = file.size
             } else { inserted.append(insert(file)) }
@@ -148,11 +385,11 @@ private final class LibraryScanState {
         do { try saveContext(context) }
         catch {
             for (movie, missing, size) in previous.reversed() { movie.isMissing = missing; movie.fileSize = size }
-            for movie in inserted { indexed.removeValue(forKey: movie.filePath); context.delete(movie) }
+            for movie in inserted { indexed.removeValue(forKey: Data(movie.filePath.utf8)); context.delete(movie) }
             added -= inserted.count
             throw error
         }
-        foundPaths.formUnion(files.map(\.path))
+        foundPaths.formUnion(files.map { Data($0.path.utf8) })
     }
     @discardableResult
     func insert(_ file: RemoteFile) -> Movie {
@@ -167,7 +404,7 @@ private final class LibraryScanState {
         movie.year = localOnly ? nil : parsed.year
         movie.metadataFetched = localOnly
         context.insert(movie)
-        indexed[file.path] = movie
+        indexed[Data(file.path.utf8)] = movie
         added += 1
         return movie
     }

@@ -1,5 +1,46 @@
 # Validation and regression coverage
 
+## Library and playback parity
+
+The feature branch targets Apple TV, iPhone, Android TV, and Android phones.
+The four runtime workflows must pass for the same source revision before the
+new features are considered validated. A successful compile is insufficient.
+
+| Coverage | Apple TV and iPhone | Android TV and phones |
+| --- | --- | --- |
+| Local NFO/artwork, real source reads, versions and franchise | `LocalLibrarySMBIntegrationTests` | `LocalLibraryIntegrationTest` |
+| Create/rename collection, change membership, choose edition | `LibraryFeaturesNavigationTests` | `LibraryFeaturesNavigationTest` |
+| Actual additional-format decoding and seeking | `AlternativePlaybackIntegrationTests` (MKV, AVI, WebM) | `SmbPlaybackTest.mkvPlaybackAndSeekFromNas` |
+| Real additional-player transport, subtitle/audio sheets, Back | `AlternativePlaybackRemoteTests`, `AlternativePlaybackPhoneTests` | Existing native playback controls journeys |
+| Profile isolation and safe metadata | `LibraryCollectionsTests`, `LocalMetadataImportTests`, core parser tests | Local library integration and core/app unit tests |
+| Stream ranges, revocation and cancellation | `MediaByteRelayTests` | Existing data-source contract tests |
+| Plex linking, imported catalog, restricted reads and direct playback | `PlexFixtureTests`, account/media client tests | Plex provider, TLS and setup tests |
+
+The NAS fixture now exposes separate read-only `MEDIALIBRARY` and
+`FORMATPLAYBACK` shares. They contain synthetic NFO/images and real short videos,
+not private user media. `scripts/media_library_fixture.py` creates the fixtures;
+`ffmpeg` is required to remux/encode the format samples. Existing fixture shares
+remain separate so unrelated tests keep their original catalog.
+`Controls.mkv` is a separate 60-second synthetic clip with two selectable audio
+tracks and a local SRT file for the Apple phone/remote controls journeys. The
+shorter format samples still test natural completion.
+
+Both Android runners are restricted to disposable hosted emulators. The phone
+runner requires twelve executed cases, including the library journey, MKV playback,
+Plex setup, authenticated Plex range reads, and preservation of server ratings and
+episode identity during metadata edits. Apple workflows also start and trust
+the isolated Plex HTTPS fixture and require its shared test suite. They check the
+expected cases explicitly and reject skipped
+or missing results. Screenshots from the collection/version journeys are retained
+on successful runs as well as failures. Review them for clipping, remote focus,
+phone touch controls and readable source/version labels.
+
+Commercial engine metering has separate private tests and a protected build.
+Simulator checks cannot establish physical-device HDR, audio passthrough,
+maximum bitrate, or NAS reliability. See [playback limits](PLAYBACK-ENGINE.md).
+
+## Local checks
+
 Run the portable tests and Android build checks from the repository checkout:
 
 ```bash
@@ -39,7 +80,8 @@ python3 scripts/nas_fixture.py /tmp/cinevault-nas-fixture
 # In another terminal, with the Android TV emulator running:
 cd android
 ./gradlew --no-daemon --max-workers=4 :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2
+  -Pandroid.testInstrumentationRunnerArguments.nasHost=10.0.2.2 \
+  -Pandroid.testInstrumentationRunnerArguments.notClass=com.dineshdevkota.cinevault.FamilyNavigationTest
 ```
 
 `10.0.2.2` reaches the emulator host's loopback interface. SMB-only tests skip when
@@ -76,6 +118,75 @@ SubDL client tests use injected responses for account validation, exact title/ep
 identity, malformed responses, request limits, bounded raw downloads, redirects,
 and cancellation. They do not use a real API key or consume a user's download quota.
 A live account connection still needs a key entered by its owner in the app.
+
+## OneDrive source fixtures
+
+Android JVM fixtures cover device authorization, refresh rotation, Graph pagination,
+and scoped download ranges. Both hosted Android variants exercise source form
+validation and Android Keystore storage with a synthetic account record. The
+integrated fixture drives staged Microsoft sign-in, folder selection, a Room import,
+household restrictions, photo decoding, matching subtitle sidecars, rendered
+Media3 playback, and seeking. It verifies that Graph bearer tokens never reach
+the download host. Test media and OAuth responses stay within the test fixtures.
+
+For a live test, register a public Microsoft Entra application that accepts
+personal Microsoft accounts. Enable public client flows, add the Microsoft Graph
+delegated `Files.Read` permission, and test with a dedicated OneDrive account.
+Admin enters the public Application (client) ID in Sources. An Android build
+can prefill it through `-Pmediavault.oneDriveClientId=<application-uuid>`.
+The app requests `offline_access` for token refresh. Microsoft handles passwords
+and user approval on its device-code verification page. With Household Profiles
+enabled, leave MediaVault open and complete sign-in on a second device.
+[Microsoft device authorization](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code)
+[OneDrive item addressing](https://learn.microsoft.com/en-us/graph/onedrive-addressing-driveitems)
+[Drive item downloads](https://learn.microsoft.com/en-us/graph/api/driveitem-get-content)
+
+Verify an Android source can rename, rescan, ignore and restore relative folders
+and files, reconnect the original account, and disconnect. Selecting a different
+root requires a new source and fresh viewer grants. Disconnect removes local
+credentials and indexed history. Microsoft permissions can be withdrawn separately
+from the Microsoft account. Work or school accounts and Shared Shortcuts are
+outside the personal OneDrive connector. Real account and device verification
+requires owner-provided registration and account access.
+
+## Household profile acceptance
+
+Family controls affect authorization, not just layout. Validate both platforms
+using synthetic libraries and isolated profile stores. Never enable test controls,
+seed histories or reset the owner's installed app for instrumentation.
+
+- Enable profiles without altering existing sources, credentials, metadata or owner
+  history. New viewers have empty histories and no access until granted a folder.
+- Check complete path-component matching, source identity, nested folders, aliases,
+  deleted sources and newly connected sources. Similar folder names must not match.
+- Verify movie and TV certifications separately, restrictive selection when TMDB
+  reports multiple US ratings, unknown/unrated handling and photo/audio folder rules.
+  A manual metadata rematch must not retain an old title's certification.
+- Exercise Admin/protected-viewer PIN entry, cancellation, persisted retry delays,
+  damaged or missing secure storage, relaunch and background relocking. A late PIN
+  calculation must not unlock a session that was locked while it was running.
+- Assert restricted titles, artwork, counts and photos are absent from Home, Library,
+  Search, grouped shows, Watchlist, Continue Watching and bulk actions. Direct detail,
+  photo and playback routes must enforce the same policy.
+- Switch or lock during playback, photo reads, subtitle work and the next-episode
+  countdown. Late work must not display old-profile content or save history to the
+  next profile. Back must not reveal the previous person's navigation stack.
+- Check separate Watchlist/watched/resume state, Admin legacy history, migration
+  preservation, and viewer inability to edit sources, metadata or access rules.
+- Keep commercial playback allowance device-wide. Profile switching, deleting a
+  profile or editing watch history must not reset trial usage or purchases.
+
+Run the full Android runtime suite and full Apple simulator suite for these changes;
+UI-only checks are insufficient. The hosted Android workflow first runs the baseline
+suite excluding `FamilyNavigationTest`, archives its results, then clears only the
+disposable emulator's app data and runs that explicit household journey. Both suites
+are required, with zero failures or skips. `scripts/test_android_runtime.sh` refuses
+to run outside GitHub Actions and verifies an emulator before clearing fixture data.
+The journey itself requires `familyUiFixture=true` and an empty app. Do not run that
+journey on an owner's TV or emulator.
+
+Keep synthetic remote screenshots for the profile
+picker and permission editor so focus, readable labels and empty states are reviewed.
 
 ## Further device testing
 

@@ -1,6 +1,7 @@
 import CineVaultCore
 import SwiftData
 import SwiftUI
+import UIKit
 
 enum LibrarySort: String, CaseIterable, Identifiable {
     case title = "Title", recentlyAdded = "Recently Added", year = "Year", rating = "Rating", lastPlayed = "Last Played"
@@ -12,7 +13,7 @@ enum LibrarySort: String, CaseIterable, Identifiable {
         case .recentlyAdded: return movies.sorted { $0.dateAdded > $1.dateAdded }
         case .year: return movies.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
         case .rating: return movies.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
-        case .lastPlayed: return movies.sorted { ($0.lastPlayedAt ?? .distantPast) > ($1.lastPlayedAt ?? .distantPast) }
+        case .lastPlayed: return movies.sorted { ($0.householdLastPlayed ?? .distantPast) > ($1.householdLastPlayed ?? .distantPast) }
         }
     }
 }
@@ -24,11 +25,11 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     func matches(_ movie: Movie) -> Bool {
         switch self {
         case .all: return !movie.isHidden
-        case .unwatched: return !movie.isHidden && !movie.isWatched
+        case .unwatched: return !movie.isHidden && !movie.householdWatched
         case .inProgress: return !movie.isHidden && movie.isInProgress
-        case .watched: return !movie.isHidden && movie.isWatched
+        case .watched: return !movie.isHidden && movie.householdWatched
         case .hidden: return movie.isHidden
-        case .watchlist: return !movie.isHidden && movie.isWatchlisted
+        case .watchlist: return !movie.isHidden && movie.householdWatchlisted
         }
     }
 }
@@ -37,7 +38,7 @@ enum LibraryQuery {
     static func visible(_ movies: [Movie], sort: LibrarySort, filter: LibraryFilter,
                         genres: Set<String> = [], sourceIDs: Set<UUID> = [], decades: Set<Int> = []) -> [Movie] {
         sort.sorted(movies.filter { movie in
-            !movie.isMissing && filter.matches(movie)
+            HouseholdStore.shared.allows(movie) && !movie.isMissing && filter.matches(movie)
                 && (genres.isEmpty || !genres.isDisjoint(with: movie.genres))
                 && (sourceIDs.isEmpty || movie.source.map { sourceIDs.contains($0.id) } == true)
                 && (decades.isEmpty || movie.year.map { decades.contains($0 / 10 * 10) } == true)
@@ -60,7 +61,8 @@ final class LibraryPreferences: ObservableObject {
     @Published var sourceIDs: Set<UUID> { didSet { defaults.set(sourceIDs.map(\.uuidString).sorted(), forKey: "librarySourceIDs") } }
     @Published var decades: Set<Int> { didSet { defaults.set(decades.sorted(), forKey: "libraryDecades") } }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults suppliedDefaults: UserDefaults? = nil) {
+        let defaults = suppliedDefaults ?? HouseholdStore.shared.preferenceDefaults
         self.defaults = defaults
         let savedSection = defaults.string(forKey: "librarySection").flatMap(MediaKind.init(rawValue:)) ?? .movie
         section = savedSection == .photo ? .movie : savedSection
@@ -97,13 +99,18 @@ struct LibraryView: View {
     @State private var presentingChoices = false
     @FocusState private var focusedControl: Control?
     @Query private var movies: [Movie]
-    @Query(sort: \MediaSource.name) private var sources: [MediaSource]
+    @Query(sort: \MediaSource.name) private var allSources: [MediaSource]
+    private var sources: [MediaSource] {
+        allSources.filter { source in
+            HouseholdStore.shared.isAdmin || HouseholdStore.shared.current?.allowedFolders.contains { $0.sourceID == source.id } == true
+        }
+    }
     @StateObject private var preferences = LibraryPreferences()
 
     private var kind: MediaKind { preferences.section }
 
     private var filterCandidates: [Movie] {
-        movies.filter { !$0.isMissing && preferences.filter.matches($0) && $0.mediaKind == kind }
+        movies.filter { HouseholdStore.shared.allows($0) && !$0.isMissing && preferences.filter.matches($0) && $0.mediaKind == kind }
     }
 
     private var genres: [String] {
@@ -144,12 +151,12 @@ struct LibraryView: View {
                             .font(.system(size: 18, weight: .semibold))
                             .tracking(3)
                             .foregroundStyle(CinemaTheme.accent)
-                        Text(kind.label).font(.system(size: 62, weight: .bold))
+                        Text(kind.label).font(.system(size: CinemaTheme.titleSize(tvOS: 62), weight: .bold))
                     }
                     Spacer()
                     Button("Clear filters") { preferences.clearFilters() }
                         .disabled(!hasFilters)
-                    Text("\(results.count) \(resultKind)\(results.count == 1 ? "" : "s")")
+                    Text("\(MovieVersions.groups(results).count) \(resultKind)\(MovieVersions.groups(results).count == 1 ? "" : "s")")
                         .font(.callout)
                         .foregroundStyle(CinemaTheme.secondaryText)
                 }
@@ -158,14 +165,16 @@ struct LibraryView: View {
                     filterButton(.sort, value: preferences.sort.rawValue)
                     filterButton(.show, value: preferences.filter.rawValue)
                     filterButton(.genre, value: selectionLabel(preferences.genres.sorted(), all: "All Genres"))
-                }
+                }.horizontalControlsOnPhone()
 
                 HStack(spacing: 24) {
                     filterButton(.source, value: selectionLabel(sources.filter { preferences.sourceIDs.contains($0.id) }.map(\.name), all: "All Sources"))
                     filterButton(.decade, value: selectionLabel(preferences.decades.sorted().map { "\($0)s" }, all: "All Decades"))
                     filterButton(.section, value: kind.label)
-                }
+                }.horizontalControlsOnPhone()
 
+                NavigationLink { MediaCollectionsView() } label: { Label("Collections", systemImage: "rectangle.stack") }
+                    .accessibilityIdentifier("library-collections")
                 BulkWatchControl(title: "Select", scope: "\(kind.label) · current results", movies: results,
                                  startsSelected: false, groupShows: true, includeHidden: preferences.filter == .hidden)
 
@@ -193,7 +202,7 @@ struct LibraryView: View {
                     PosterGrid(movies: results)
                 }
             }
-            .padding(.horizontal, 70)
+            .padding(.horizontal, CinemaTheme.edgeInset)
             .padding(.bottom, 100)
         }
         }
@@ -298,7 +307,7 @@ struct HomeView: View {
 
     private var available: [Movie] { HomeCollection.available(movies) }
     private var featured: Movie? {
-        let unwatched = available.filter { !$0.isInProgress && !$0.isWatched && $0.mediaKind != .music }
+        let unwatched = available.filter { !$0.isInProgress && !$0.householdWatched && $0.mediaKind != .music }
         return unwatched.first { $0.backdropPath != nil } ?? unwatched.first ?? available.first
     }
 
@@ -307,9 +316,13 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 48) {
                 HStack(alignment: .bottom) {
                     Text("Welcome to MediaVault")
-                        .font(.system(size: 54, weight: .bold))
+                        .font(.system(size: CinemaTheme.titleSize(tvOS: 54), weight: .bold))
                     Spacer()
-                    if let status = scanner.status {
+                    if HouseholdStore.shared.configured {
+                        Button(HouseholdStore.shared.current?.name ?? "Switch profile") { HouseholdStore.shared.lock() }
+                            .accessibilityIdentifier("household-switch")
+                    }
+                    if HouseholdStore.shared.isAdmin, let status = scanner.status {
                         Text(status)
                             .font(.caption)
                             .foregroundStyle(CinemaTheme.secondaryText)
@@ -321,6 +334,10 @@ struct HomeView: View {
                     if movies.contains(where: PhotoLibrary.isAvailable) {
                         homePrompt("Your photo albums are ready", symbol: "photo.on.rectangle",
                                    detail: "Browse your photos by folder.", button: "Browse Photos", action: openPhotos)
+                    } else if !HouseholdStore.shared.isAdmin {
+                        homePrompt("No media available for this profile yet", symbol: "person.crop.circle.badge.checkmark",
+                                   detail: "Ask an Admin to allow folders or adjust your ratings. Unknown ratings remain hidden when a limit is set.",
+                                   button: "Switch profile") { HouseholdStore.shared.lock() }
                     } else if sources.isEmpty {
                         homePrompt("Connect your first shared folder", symbol: "externaldrive.connected.to.line.below",
                                    detail: "Choose a folder on your NAS to add movies, shows, music and photos.",
@@ -345,10 +362,10 @@ struct HomeView: View {
                             else { PosterRow(title: kind.label, movies: Array(collection.prefix(20)), collection: .section(kind)) }
                         }
                     }
-                    CollectionPosterRow(title: "Unwatched", movies: available.filter { !$0.isWatched }, collection: .unwatched)
+                    CollectionPosterRow(title: "Unwatched", movies: available.filter { !$0.householdWatched }, collection: .unwatched)
                 }
             }
-            .padding(.horizontal, 70)
+            .padding(.horizontal, CinemaTheme.edgeInset)
             .padding(.bottom, 100)
         }
         .background(CinemaBackground())
@@ -362,7 +379,7 @@ struct HomeView: View {
             if !ContinueWatching.home(movies, limit: 1).isEmpty { collections.append(.continueWatching) }
             if !HomeCollection.watchlist.movies(in: movies).isEmpty { collections.append(.watchlist) }
             collections += MediaKind.allCases.filter { kind in available.contains { $0.mediaKind == kind } }.map(HomeCollection.section)
-            if available.contains(where: { !$0.isWatched }) { collections.append(.unwatched) }
+            if available.contains(where: { !$0.householdWatched }) { collections.append(.unwatched) }
             collectionNavigation.focusRequest = collections.contains(origin) ? origin : collections.first
         }
     }
@@ -409,8 +426,8 @@ private struct SearchResultsView: View {
     @State private var lastFocusedResult: String?
     @State private var focusedMovieAnchor: UUID?
     @FocusState private var focusedResult: String?
-    private let posterColumns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
-    private let episodeColumns = [GridItem(.adaptive(minimum: 400, maximum: 400), spacing: 48)]
+    private let posterColumns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: CinemaTheme.gridSpacing)]
+    private let episodeColumns = [GridItem(.adaptive(minimum: CinemaTheme.episodeWidth, maximum: CinemaTheme.episodeWidth), spacing: CinemaTheme.gridSpacing)]
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -450,7 +467,7 @@ private struct SearchResultsView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 70).padding(.bottom, 100)
+                .padding(.horizontal, CinemaTheme.edgeInset).padding(.bottom, 100)
             }
             .frame(maxWidth: .infinity)
             .task {
@@ -485,7 +502,7 @@ private struct SearchResultsView: View {
                 let key = "show:\(result.id)"
                 NavigationLink(value: SearchShowSelection(result.show)) {
                     TVShowArtwork(title: result.show.title, subtitle: result.subtitle,
-                        path: result.show.posterPath, focused: focusedResult == key)
+                        path: result.show.posterPath, localMovie: result.show.episodes.first(where: { $0.localPosterPath != nil }), localPath: result.show.episodes.compactMap(\.localPosterPath).first, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -497,7 +514,7 @@ private struct SearchResultsView: View {
                 let key = "episode:\(result.id)"
                 NavigationLink(value: result.movie) {
                     TVShowArtwork(title: result.movie.title, subtitle: result.subtitle,
-                        path: result.movie.backdropPath, wide: true, focused: focusedResult == key)
+                        path: result.movie.backdropPath, localMovie: result.movie, localPath: result.movie.localBackdropPath, wide: true, focused: focusedResult == key)
                 }.buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -505,9 +522,10 @@ private struct SearchResultsView: View {
 
     private func titleGrid(_ movies: [Movie]) -> some View {
         LazyVGrid(columns: posterColumns, spacing: 55) {
-            ForEach(movies) { movie in
+            ForEach(MovieVersions.groups(movies)) { group in
+                let movie = group.representative
                 let key = "title:\(movie.id)"
-                NavigationLink(value: movie) { PosterView(movie: movie, isFocused: focusedResult == key) }
+                VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedResult == key)
                     .buttonStyle(ArtworkButtonStyle()).focusEffectDisabled().focused($focusedResult, equals: key).id(key)
             }
         }.padding(.vertical, 24)
@@ -536,14 +554,13 @@ private struct SearchShowDestination: View {
 struct PosterGrid: View {
     let movies: [Movie]
     @FocusState private var focusedMovie: UUID?
-    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: 48)]
+    private let columns = [GridItem(.adaptive(minimum: CinemaTheme.posterWidth, maximum: CinemaTheme.posterWidth), spacing: CinemaTheme.gridSpacing)]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 55) {
-            ForEach(movies) { movie in
-                NavigationLink(value: movie) {
-                    PosterView(movie: movie, isFocused: focusedMovie == movie.id)
-                }
+            ForEach(MovieVersions.groups(movies)) { group in
+                let movie = group.representative
+                VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedMovie == movie.id)
                 .buttonStyle(ArtworkButtonStyle())
                 .focusEffectDisabled()
                 .focused($focusedMovie, equals: movie.id)
@@ -565,10 +582,9 @@ struct PosterRow: View {
                 HomeShelfHeader(title: title, collection: collection)
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 42) {
-                        ForEach(movies) { movie in
-                            NavigationLink(value: movie) {
-                                PosterView(movie: movie, isFocused: focusedMovie == movie.id)
-                            }
+                        ForEach(MovieVersions.groups(movies)) { group in
+                            let movie = group.representative
+                            VersionAwareMovieLink(movie: movie, candidates: movies, isFocused: focusedMovie == movie.id)
                             .buttonStyle(ArtworkButtonStyle())
                             .focusEffectDisabled()
                             .focused($focusedMovie, equals: movie.id)
@@ -608,7 +624,7 @@ struct FeaturedMovieCard: View {
                         .tracking(3)
                         .foregroundStyle(CinemaTheme.accent)
                     Text(movie.title)
-                        .font(.system(size: 52, weight: .bold))
+                        .font(.system(size: CinemaTheme.titleSize(tvOS: 52), weight: .bold))
                         .lineLimit(2)
                     Text(MoviePresentation.metadata(for: movie))
                         .font(.callout)
@@ -628,7 +644,7 @@ struct FeaturedMovieCard: View {
                     .padding(.top, 8)
                 }
                 .frame(maxWidth: 720, alignment: .leading)
-                .padding(48)
+                .padding(CinemaTheme.featuredInset)
             }
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .overlay {
@@ -636,7 +652,7 @@ struct FeaturedMovieCard: View {
                     .strokeBorder(.white.opacity(0.10), lineWidth: 1)
             }
         }
-        .frame(height: 500)
+        .frame(height: CinemaTheme.featuredHeight)
     }
 }
 
@@ -721,6 +737,7 @@ struct ContinueWatchingCard: View {
 struct PosterView: View {
     let movie: Movie
     var isFocused = false
+    var compact = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -737,10 +754,16 @@ struct PosterView: View {
                         .lineLimit(3)
                         .padding(.horizontal, 18)
                 }
-                AsyncImage(url: TMDB.imageURL(movie.posterPath, size: "w342")) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Color.clear
+                if let path = movie.localPosterPath {
+                    LocalArtworkView(movie: movie, path: path)
+                } else if let tag = movie.providerImageTag, let source = movie.source, source.isJellyfin || source.isPlex {
+                    ProviderPosterArtwork(movie: movie, tag: tag)
+                } else {
+                    AsyncImage(url: TMDB.imageURL(movie.posterPath, size: "w342")) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Color.clear
+                    }
                 }
             }
             .frame(width: CinemaTheme.posterWidth, height: CinemaTheme.posterHeight)
@@ -754,7 +777,7 @@ struct PosterView: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if movie.isWatched {
+                if movie.householdWatched {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 26))
                         .foregroundStyle(.white)
@@ -769,15 +792,45 @@ struct PosterView: View {
             .shadow(color: .black.opacity(isFocused ? 0.6 : 0.25), radius: isFocused ? 20 : 8, y: 10)
 
             Text(movie.title)
-                .font(.system(size: 23, weight: .semibold))
+                .font(.system(size: compact ? 15 : 23, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
             Text(movie.displayYear.isEmpty ? "Movie" : movie.displayYear)
-                .font(.system(size: 19))
+                .font(.system(size: compact ? 13 : 19))
                 .foregroundStyle(CinemaTheme.secondaryText)
         }
         .frame(width: CinemaTheme.posterWidth, alignment: .leading)
         .scaleEffect(isFocused ? 1.04 : 1)
         .animation(.easeOut(duration: 0.18), value: isFocused)
+    }
+}
+
+
+private struct ProviderPosterArtwork: View {
+    let movie: Movie
+    let tag: String
+    @ObservedObject private var household = HouseholdStore.shared
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image, LibrarySearch.isAvailable(movie) {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+            }
+        }
+        .task(id: "\(movie.id)/\(movie.filePath)/\(tag)/\(household.sessionToken)") {
+            image = nil
+            let session = household.sessionToken
+            guard LibrarySearch.isAvailable(movie), let source = movie.source,
+                  let config = try? source.config(), config.isJellyfin || config.isPlex else { return }
+            let path = movie.filePath
+            guard let decoded = try? await PhotoImageLoader.shared.image(
+                config: config, path: path, knownSize: 0, maxPixelSize: PhotoImageLoader.thumbnailPixels,
+                revision: source.lastScanDate, artworkTag: tag),
+                !Task.isCancelled, household.sessionIsCurrent(session),
+                LibrarySearch.isAvailable(movie), movie.filePath == path, movie.providerImageTag == tag,
+                (try? movie.source?.config()) == config else { return }
+            image = decoded
+        }
     }
 }

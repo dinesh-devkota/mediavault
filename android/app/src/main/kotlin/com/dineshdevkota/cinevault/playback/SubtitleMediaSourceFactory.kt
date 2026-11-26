@@ -26,15 +26,16 @@ internal class SubtitleMediaSourceFactory(
         val configurations = mediaItem.localConfiguration?.subtitleConfigurations.orEmpty()
         if (configurations.isEmpty()) return primary.createMediaSource(mediaItem)
         val preparedByConfiguration = subtitles().associateBy { it.configuration }
-        // Only our already validated, bounded sidecars use this path.
-        if (configurations.any { it !in preparedByConfiguration }) return primary.createMediaSource(mediaItem)
-        val video = primary.createMediaSource(mediaItem.buildUpon().setSubtitleConfigurations(emptyList()).build())
-        val sidecars = configurations.map { configuration ->
-            val prepared = checkNotNull(preparedByConfiguration[configuration])
-            val extractors = ExtractorsFactory { arrayOf(extractor(prepared)) }
+        // Only already validated captions use the bounded local data source.
+        val prepared = configurations.mapNotNull(preparedByConfiguration::get)
+        if (prepared.isEmpty()) return primary.createMediaSource(mediaItem)
+        val remote = configurations.filterNot(preparedByConfiguration::containsKey)
+        val video = primary.createMediaSource(mediaItem.buildUpon().setSubtitleConfigurations(remote).build())
+        val sidecars = prepared.map { subtitle ->
+            val extractors = ExtractorsFactory { arrayOf(extractor(subtitle)) }
             ProgressiveMediaSource.Factory(dataSources, extractors)
                 .setLoadErrorHandlingPolicy(SmbDataSource.loadErrorPolicy)
-                .createMediaSource(MediaItem.fromUri(configuration.uri))
+                .createMediaSource(MediaItem.fromUri(subtitle.configuration.uri))
         }
         // The video defines the timeline; a short caption file must never clip the movie.
         return MergingMediaSource(video, *sidecars.toTypedArray())

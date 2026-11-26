@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import CineVaultCore
+import Observation
 import SwiftUI
 #if CINEVAULT_COMMERCIAL
 import CineVaultCommercial
@@ -12,15 +13,33 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     static let scheme = "cinevault-smb"
     private static let chunkSize: Int64 = 2 * 1024 * 1024
 
+    struct Reader: Sendable {
+        let size: @Sendable () async throws -> Int64
+        let read: @Sendable (Int64, Int) async throws -> Data
+    }
+
     fileprivate let config: SourceConfig
+    private let reader: Reader
     private let path: String
+    private let contentPath: String
+    private let allowsRead: (@MainActor @Sendable () -> Bool)?
+    private let household: HouseholdStore
+    private let householdSession: UUID
     private let queue = DispatchQueue(label: "cinevault.resource-loader")
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var sizeTask: Task<Int64, Error>?
 
-    init(config: SourceConfig, path: String) {
+    init(config: SourceConfig, path: String, household: HouseholdStore = .shared, reader: Reader? = nil,
+         contentPath: String? = nil, allowsRead: (@MainActor @Sendable () -> Bool)? = nil) {
+        self.household = household; householdSession = household.sessionToken
         self.config = config
         self.path = path
+        self.contentPath = contentPath ?? path
+        self.allowsRead = allowsRead
+        self.reader = reader ?? Reader(
+            size: { try await SMBService.shared.fileSize(config, path: path) },
+            read: { try await SMBService.shared.read(config, path: path, offset: $0, length: $1) }
+        )
     }
 
     deinit {
@@ -31,7 +50,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         var components = URLComponents()
         components.scheme = Self.scheme
         components.host = "nas"
-        components.path = "/" + path
+        components.path = "/" + contentPath
         let asset = AVURLAsset(url: components.url!)
         asset.resourceLoader.setDelegate(self, queue: queue)
         return asset
@@ -44,9 +63,12 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         if let existing = self.sizeTask {
             sizeTask = existing
         } else {
-            let config = self.config
-            let path = self.path
-            sizeTask = Task { try await SMBService.shared.fileSize(config, path: path) }
+            let reader = self.reader
+            sizeTask = Task { [weak self] in
+                guard let self else { throw PlaybackPreparationError.fileUnavailable }
+                try await self.verifyRead()
+                return try await reader.size()
+            }
             self.sizeTask = sizeTask
         }
         tasks[key] = Task { [weak self] in
@@ -64,8 +86,9 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         do {
             let size = try await sizeTask.value
             try Task.checkCancellation()
+            try await verifyRead()
             if let info = request.contentInformationRequest {
-                info.contentType = MediaFile.contentType(path: path)
+                info.contentType = MediaFile.contentType(path: contentPath)
                 info.contentLength = size
                 info.isByteRangeAccessSupported = true
             }
@@ -95,14 +118,24 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         }
     }
 
+    private func verifyRead() async throws {
+        if let allowsRead, await !allowsRead() { throw PlaybackPreparationError.fileUnavailable }
+        guard household.sessionIsCurrent(householdSession),
+              household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths,
+                                   entireSourceOnly: config.isPlex) else { throw PlaybackPreparationError.fileUnavailable }
+    }
+
     func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {
+        try await verifyRead()
         guard start >= 0, end >= start else { throw SMBError.invalidByteRange }
         var offset = start
         while offset < end {
             try Task.checkCancellation()
+            try await verifyRead()
             let length = Int(min(Self.chunkSize, end - offset))
-            let data = try await SMBService.shared.read(config, path: path, offset: offset, length: length)
+            let data = try await reader.read(offset, length)
             try Task.checkCancellation()
+            try await verifyRead()
             guard !data.isEmpty else { throw SMBError.unexpectedEndOfFile }
             respond(data)
             offset += Int64(data.count)
@@ -118,7 +151,7 @@ enum PlaybackPreparationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedFormat:
-            return "Apple TV's native player cannot play this file's container or audio/video codecs. Use a supported container with compatible codecs."
+            return "This file could not be opened with the available players. Check the source connection or try another version with compatible audio and video."
         case .fileUnavailable:
             return "This file is missing or ignored by its NAS source. Include it again and rescan before playing."
         }
@@ -130,53 +163,109 @@ final class PlaybackController: ObservableObject {
     let player: AVPlayer
     @Published private(set) var playbackError: String?
     @Published private(set) var didEndNaturally = false
+    @Published var audioSelectionPresented = false
     let subtitles: PlaybackSubtitles
+    let alternative: AlternativePlayback?
     #if CINEVAULT_COMMERCIAL
     let commercialSession: CommercialPlaybackSession
+    let externalCommercialSession: CommercialExternalPlaybackSession?
     #endif
     private let loader: SMBResourceLoader
     private let asset: AVURLAsset
     let movie: Movie
     private var finishedPlayback = false
     private var stopped = false
+    private var jellyfinReporter: JellyfinPlaybackReporter?
+    private var jellyfinRelay: JellyfinHLSRelay?
+    private var playbackStateObservation: NSKeyValueObservation?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var artworkTask: Task<Void, Never>?
     private var itemObservation: NSKeyValueObservation?
+    private var householdObserver: NSObjectProtocol?
+    private let household: HouseholdStore
+    private let householdSession: UUID
+    private let sourceIsCurrent: (() -> Bool)?
+    private var lastAlternativeCheckpoint = 0.0
+
+    var isPresentingPlaybackOptions: Bool { subtitles.presented || audioSelectionPresented }
 
     static func isNativeCandidate(_ movie: Movie) -> Bool {
         MediaFile.isPlayable(path: movie.filePath)
     }
 
-    private static func playbackSource(for movie: Movie) throws -> MediaSource? {
-        guard isNativeCandidate(movie) else { throw PlaybackPreparationError.unsupportedFormat }
+    static func isPlaybackCandidate(_ movie: Movie) -> Bool {
+        isNativeCandidate(movie) || AlternativePlayback.supports(path: movie.filePath)
+    }
+
+    private static func playbackSource(for movie: Movie, household: HouseholdStore = .shared) throws -> MediaSource? {
+        guard isPlaybackCandidate(movie) else { throw PlaybackPreparationError.unsupportedFormat }
         guard let source = movie.source else { return nil }
-        guard LibrarySearch.isAvailable(movie), !source.isIgnored(filePath: movie.filePath),
-              SubtitleFile.safePath(movie.filePath, within: source.rootPath) != nil else { throw PlaybackPreparationError.fileUnavailable }
+        guard household.allows(movie), LibrarySearch.isAvailable(movie), !source.isIgnored(filePath: movie.filePath),
+              (source.caseSensitivePaths
+                ? WebDAVAddress.contains(movie.filePath, within: source.rootPath)
+                : SubtitleFile.safePath(movie.filePath, within: source.rootPath) != nil) else { throw PlaybackPreparationError.fileUnavailable }
         return source
     }
 
     /// Check the actual asset before creating a player or changing playback history.
     static func prepare(movie: Movie, resume: Bool, services: PlaybackServices,
                         defaults: UserDefaults = .standard,
-                        sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() },
-                        loadPlayable: (AVURLAsset) async throws -> Bool = { try await $0.load(.isPlayable) }) async throws -> PlaybackController? {
-        guard let source = try playbackSource(for: movie) else { return nil }
+                        sourceConfig: @escaping @MainActor (MediaSource) throws -> SourceConfig = { try $0.config() },
+                        loadPlayable: (AVURLAsset) async throws -> Bool = { try await $0.load(.isPlayable) },
+                        allowAlternative: Bool = true,
+                        household: HouseholdStore = .shared) async throws -> PlaybackController? {
+        let householdSession = household.sessionToken
+        guard let source = try playbackSource(for: movie, household: household) else { return nil }
         let config = try sourceConfig(source)
         let path = movie.filePath
-        let loader = SMBResourceLoader(config: config, path: path)
+        if config.isPlex {
+            return try await preparePlex(
+                movie: movie, resume: resume, services: services, defaults: defaults, household: household,
+                householdSession: householdSession, source: source, config: config, path: path,
+                sourceConfig: sourceConfig, loadPlayable: loadPlayable
+            )
+        }
+        if config.isJellyfin {
+            return try await prepareJellyfin(
+                movie: movie, resume: resume, services: services, defaults: defaults, household: household,
+                householdSession: householdSession, source: source, config: config, path: path,
+                sourceConfig: sourceConfig, loadPlayable: loadPlayable
+            )
+        }
+        if !isNativeCandidate(movie) {
+            guard allowAlternative else { throw PlaybackPreparationError.unsupportedFormat }
+            return try await prepareAlternative(movie: movie, resume: resume, services: services, defaults: defaults,
+                household: household, source: source, config: config, path: path, sourceConfig: sourceConfig)
+        }
+        let loader = SMBResourceLoader(config: config, path: path, household: household)
         let asset = loader.makeAsset()
         return try await withTaskCancellationHandler {
             do {
-                let playable = try await loadPlayable(asset)
+                let playable: Bool
+                do { playable = try await loadPlayable(asset) }
+                catch {
+                    // Retry only decoder/container rejection. Connection, credentials, access and cancellation errors retain their original failure.
+                    let failure = error as NSError
+                    guard allowAlternative, failure.domain == AVFoundationErrorDomain,
+                          [AVError.fileFormatNotRecognized.rawValue, AVError.decoderNotFound.rawValue,
+                           AVError.operationNotSupportedForAsset.rawValue].contains(failure.code) else { throw error }
+                    playable = false
+                }
                 try Task.checkCancellation()
-                guard playable else { throw PlaybackPreparationError.unsupportedFormat }
-                guard let currentSource = try playbackSource(for: movie), currentSource === source,
+                guard household.sessionIsCurrent(householdSession) else { throw PlaybackPreparationError.fileUnavailable }
+                if !playable {
+                    asset.cancelLoading()
+                    guard allowAlternative else { throw PlaybackPreparationError.unsupportedFormat }
+                    return try await prepareAlternative(movie: movie, resume: resume, services: services, defaults: defaults,
+                        household: household, source: source, config: config, path: path, sourceConfig: sourceConfig)
+                }
+                guard let currentSource = try playbackSource(for: movie, household: household), currentSource === source,
                       movie.filePath == path, try sourceConfig(currentSource) == config else {
                     throw PlaybackPreparationError.fileUnavailable
                 }
-                return PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset)
+                return PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: asset, household: household)
             } catch {
                 asset.cancelLoading()
                 throw error
@@ -186,33 +275,244 @@ final class PlaybackController: ObservableObject {
         }
     }
 
-    convenience init?(movie: Movie, resume: Bool, services: PlaybackServices,
-          defaults: UserDefaults = .standard,
-          sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() }) throws {
-        guard let source = try Self.playbackSource(for: movie) else { return nil }
-        let loader = SMBResourceLoader(config: try sourceConfig(source), path: movie.filePath)
-        self.init(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: loader.makeAsset())
+    private static func prepareAlternative(movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults,
+                                           household: HouseholdStore, source: MediaSource, config: SourceConfig, path: String,
+                                           sourceConfig: @escaping @MainActor (MediaSource) throws -> SourceConfig) async throws -> PlaybackController {
+        guard AlternativePlayback.supports(path: path) else { throw PlaybackPreparationError.unsupportedFormat }
+        let session = household.sessionToken
+        let reader = SMBResourceLoader.Reader(
+            size: { try await SMBService.shared.fileSize(config, path: path) },
+            read: { try await SMBService.shared.read(config, path: path, offset: $0, length: $1) }
+        )
+        // Ambiguous .ts inputs are probed before any third-party decoding as well as during scans.
+        if MediaFile.requiresContentCheck(path: path) {
+            let prefix = try await reader.read(0, 1024)
+            guard MediaFile.isTransportStream(prefix: prefix) else { throw PlaybackPreparationError.unsupportedFormat }
+        }
+        let relay = try MediaByteRelay(fileExtension: (path as NSString).pathExtension, reader: reader) {
+            await MainActor.run {
+                household.sessionIsCurrent(session) && household.allows(movie) && LibrarySearch.isAvailable(movie) &&
+                movie.source === source && movie.filePath == path && (try? sourceConfig(source)) == config && !source.isIgnored(filePath: path)
+            }
+        }
+        let alternative = AlternativePlayback(relay: relay)
+        do {
+            let url = try await relay.start()
+            try await alternative.prepare(url: url)
+            try Task.checkCancellation()
+            guard household.sessionIsCurrent(session), try playbackSource(for: movie, household: household) === source,
+                  movie.filePath == path, try sourceConfig(source) == config else { throw PlaybackPreparationError.fileUnavailable }
+            let loader = SMBResourceLoader(config: config, path: path, household: household, reader: reader)
+            return PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults,
+                loader: loader, asset: loader.makeAsset(), household: household, alternative: alternative,
+                sourceIsCurrent: { movie.source === source && movie.filePath == path && (try? sourceConfig(source)) == config })
+        } catch { alternative.stop(); throw error }
     }
 
-    private init(movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, loader: SMBResourceLoader, asset: AVURLAsset) {
+    private static func preparePlex(
+        movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, household: HouseholdStore,
+        householdSession: UUID, source: MediaSource, config: SourceConfig, path: String,
+        sourceConfig: @escaping @MainActor (MediaSource) throws -> SourceConfig, loadPlayable: (AVURLAsset) async throws -> Bool
+    ) async throws -> PlaybackController {
+        let connection = try PlexSourceConnection(config: config)
+        let client = connection.client
+        let id = try PlexSourceConnection.itemID(for: path, photo: false)
+        let current: @MainActor @Sendable () -> Bool = { [weak movie, weak source] in
+            guard let movie, let source, !source.isDeleted, household.sessionIsCurrent(householdSession),
+                  let selected = try? playbackSource(for: movie, household: household), selected === source,
+                  movie.filePath == path, (try? sourceConfig(source)) == config else { return false }
+            return true
+        }
+        func verifySource() throws {
+            try Task.checkCancellation()
+            guard current() else { throw PlaybackPreparationError.fileUnavailable }
+        }
+        try verifySource()
+        try await client.verifyIdentity()
+        try verifySource()
+        let item = try await client.item(id: id, in: connection.sectionID)
+        try verifySource()
+        guard item.type == (movie.episodeInfo == nil ? "movie" : "episode") else { throw PlexAccountError.invalidResponse }
+        for part in client.singleFileParts(for: item) {
+            guard let ext = part.container?.lowercased(), ["mp4", "m4v", "mov"].contains(ext) else { continue }
+            let reader = SMBResourceLoader.Reader(size: { part.size }, read: { try await client.read(part, offset: $0, length: $1) })
+            let loader = SMBResourceLoader(config: config, path: path, household: household, reader: reader,
+                                           contentPath: "video.\(ext)", allowsRead: current)
+            let asset = loader.makeAsset()
+            do {
+                let playable = try await withTaskCancellationHandler {
+                    try await loadPlayable(asset)
+                } onCancel: { asset.cancelLoading() }
+                try verifySource()
+                if playable {
+                    let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults,
+                                                        loader: loader, asset: asset, household: household)
+                    let files = part.textSubtitles.map {
+                        SubtitleFile(path: "plex-caption-\($0.id)", language: $0.language,
+                                     forced: $0.forced, hearingImpaired: $0.hearingImpaired)
+                    }
+                    let scoped = Dictionary(uniqueKeysWithValues: zip(files.map(\.path), part.textSubtitles))
+                    controller.subtitles.providerTracks = PlaybackSubtitles.ProviderTracks(files: files, read: { file in
+                        try verifySource()
+                        guard let track = scoped[file.path] else { throw PlexAccountError.invalidResponse }
+                        let bytes = try await client.readSubtitle(track, for: part)
+                        try verifySource()
+                        return try SubtitleDocument.parse(bytes)
+                    })
+                    return controller
+                }
+            } catch {
+                asset.cancelLoading()
+                try verifySource()
+                continue
+            }
+            asset.cancelLoading()
+        }
+        throw PlexSourceError.unsupportedVideo
+    }
+
+    private static func prepareJellyfin(
+        movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, household: HouseholdStore,
+        householdSession: UUID, source: MediaSource, config: SourceConfig, path: String,
+        sourceConfig: @MainActor (MediaSource) throws -> SourceConfig, loadPlayable: (AVURLAsset) async throws -> Bool
+    ) async throws -> PlaybackController {
+        let connection = try JellyfinSourceConnection(config: config)
+        let sourceID = config.id
+        let allowsRead: @Sendable () -> Bool = {
+            household.sessionIsCurrent(householdSession) && household.allowsPath(sourceID: sourceID, path: path, caseSensitive: true)
+        }
+        func verifySource() throws {
+            try Task.checkCancellation()
+            guard allowsRead(), let currentSource = try playbackSource(for: movie, household: household),
+                  currentSource === source, movie.filePath == path, try sourceConfig(currentSource) == config else {
+                throw PlaybackPreparationError.fileUnavailable
+            }
+        }
+
+        for allowDirect in [true, false] {
+            let stream = try await connection.playback(path: path, allowDirect: allowDirect)
+            let reporter = JellyfinPlaybackReporter(connection: connection, playback: stream)
+            var relay: JellyfinHLSRelay?
+            var loadingAsset: AVURLAsset?
+            do {
+                try verifySource()
+                let loader: SMBResourceLoader
+                let asset: AVURLAsset
+                switch stream.method {
+                case .directPlay:
+                    let reader = SMBResourceLoader.Reader(
+                        size: { try await connection.client.readDirect(stream, account: connection.account, offset: 0, length: 1).size },
+                        read: { try await connection.client.readDirect(stream, account: connection.account, offset: $0, length: $1).data }
+                    )
+                    loader = SMBResourceLoader(config: config, path: path, household: household, reader: reader)
+                    asset = loader.makeAsset()
+                case .transcode:
+                    let streamRelay = try JellyfinHLSRelay(connection: connection, playback: stream, allowsRead: allowsRead)
+                    relay = streamRelay
+                    let url = try await streamRelay.start()
+                    loader = SMBResourceLoader(config: config, path: path, household: household)
+                    asset = AVURLAsset(url: url)
+                }
+                loadingAsset = asset
+                let playable = try await withTaskCancellationHandler {
+                    try await loadPlayable(asset)
+                } onCancel: { asset.cancelLoading() }
+                try verifySource()
+                guard playable else { throw PlaybackPreparationError.unsupportedFormat }
+
+                let controller = PlaybackController(movie: movie, resume: resume, services: services, defaults: defaults,
+                                                    loader: loader, asset: asset, household: household)
+                controller.jellyfinRelay = relay
+                controller.attachJellyfinReporter(reporter)
+                controller.subtitles.providerTracks = jellyfinTracks(stream, connection: connection)
+                return controller
+            } catch {
+                loadingAsset?.cancelLoading()
+                relay?.stop()
+                await reporter.stop(seconds: 0)
+                try verifySource()
+                guard allowDirect, stream.method == .directPlay else { throw error }
+            }
+        }
+        throw JellyfinClientError.unplayable
+    }
+
+    private static func jellyfinTracks(_ stream: JellyfinPlayback, connection: JellyfinSourceConnection) -> PlaybackSubtitles.ProviderTracks {
+        let tracks = Dictionary(stream.subtitles.prefix(64).map { ("jellyfin-caption-\($0.index)", $0) },
+                                uniquingKeysWith: { first, _ in first })
+        let choices = tracks.keys.sorted {
+            (tracks[$0]?.index ?? 0) < (tracks[$1]?.index ?? 0)
+        }.map { id in SubtitleFile(path: id, language: tracks[id]?.language) }
+        return PlaybackSubtitles.ProviderTracks(files: choices, read: { file in
+            guard let track = tracks[file.path] else { throw JellyfinClientError.invalidResponse }
+            return try await connection.client.fetchSubtitle(track, account: connection.account)
+        })
+    }
+
+    convenience init?(movie: Movie, resume: Bool, services: PlaybackServices,
+          defaults: UserDefaults = .standard,
+          sourceConfig: (MediaSource) throws -> SourceConfig = { try $0.config() }, household: HouseholdStore = .shared) throws {
+        guard let source = try Self.playbackSource(for: movie, household: household) else { return nil }
+        guard Self.isNativeCandidate(movie) else { throw PlaybackPreparationError.unsupportedFormat }
+        guard !source.isJellyfin, !source.isPlex else { throw PlaybackPreparationError.fileUnavailable }
+        let loader = SMBResourceLoader(config: try sourceConfig(source), path: movie.filePath, household: household)
+        self.init(movie: movie, resume: resume, services: services, defaults: defaults, loader: loader, asset: loader.makeAsset(), household: household)
+    }
+
+    private init(movie: Movie, resume: Bool, services: PlaybackServices, defaults: UserDefaults, loader: SMBResourceLoader, asset: AVURLAsset, household: HouseholdStore, alternative: AlternativePlayback? = nil, sourceIsCurrent: (() -> Bool)? = nil) {
+        self.household = household; householdSession = household.sessionToken
+        self.alternative = alternative
+        self.sourceIsCurrent = sourceIsCurrent
         self.movie = movie
         self.loader = loader
         self.asset = asset
         let item = AVPlayerItem(asset: asset)
         item.externalMetadata = Self.metadata(for: movie)
-        let player = AVPlayer(playerItem: item)
+        let player = alternative == nil ? AVPlayer(playerItem: item) : AVPlayer()
         self.player = player
         subtitles = PlaybackSubtitles(player: player, movie: movie, config: loader.config, defaults: defaults)
         #if CINEVAULT_COMMERCIAL
         commercialSession = services.commercial.makePlaybackSession(
-            player: player, mediaID: movie.id.uuidString, resume: resume,
-            initialPosition: resume ? services.resumePosition(movie) : 0
+            player: player, mediaID: household.playbackID(movie.id), resume: resume,
+            initialPosition: resume ? services.resumePosition(movie, household: household) : 0
         )
+        externalCommercialSession = alternative.map {
+            services.commercial.makeExternalPlaybackSession(engine: $0, mediaID: household.playbackID(movie.id), resume: resume,
+                initialPosition: resume ? services.resumePosition(movie, household: household) : 0)
+        }
         #else
-        if resume, movie.playbackPosition > 0 {
-            player.seek(to: CMTime(seconds: movie.playbackPosition, preferredTimescale: 600))
+        let position = services.resumePosition(movie, household: household)
+        if resume, position > 0 {
+            if let alternative { alternative.seek(to: position) }
+            else { player.seek(to: CMTime(seconds: position, preferredTimescale: 600)) }
         }
         #endif
+        if let alternative {
+            subtitles.externalPlayback = PlaybackSubtitles.ExternalPlayback(
+                time: { [weak alternative] in alternative?.position ?? 0 },
+                tracks: { [weak alternative] in alternative?.textTracks.map { .init(id: $0.id, label: $0.label, language: $0.language) } ?? [] },
+                selected: { [weak alternative] in alternative?.selectedText },
+                select: { [weak alternative] in alternative?.selectText($0) })
+            alternative.tick = { [weak self, weak alternative] in
+                guard let self, let alternative, !self.stopped, self.validateAccess() else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                if now - self.lastAlternativeCheckpoint >= 10 {
+                    self.lastAlternativeCheckpoint = now; self.record(time: alternative.position)
+                }
+            }
+            alternative.didEnd = { [weak self] in
+                guard let self, !self.stopped, self.validateAccess(), self.playbackError == nil else { return }
+                self.finish(); self.didEndNaturally = true
+            }
+            alternative.failed = { [weak self] message in
+                guard let self, !self.stopped else { return }
+                self.playbackError = message; self.didEndNaturally = false; self.pause()
+            }
+        }
+        householdObserver = NotificationCenter.default.addObserver(forName: HouseholdStore.willLock, object: household, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stop() }
+        }
+        observeAccess()
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             guard item.status == .failed else { return }
             let message = item.error?.localizedDescription ?? "The native player could not decode this file."
@@ -265,6 +565,7 @@ final class PlaybackController: ObservableObject {
     }
 
     static func metadata(for movie: Movie) -> [AVMetadataItem] {
+        guard HouseholdStore.shared.allows(movie) else { return [] }
         func item(_ id: AVMetadataIdentifier, _ value: String?) -> AVMetadataItem? {
             guard let value, !value.isEmpty else { return nil }
             let item = AVMutableMetadataItem()
@@ -284,48 +585,104 @@ final class PlaybackController: ObservableObject {
     }
 
     func record(time: Double) {
-        guard !stopped, !finishedPlayback, time.isFinite, time > 0 else { return }
+        guard !stopped, validateAccess(), !finishedPlayback, time.isFinite, time > 0 else { return }
         let boundary = player.currentItem?.forwardPlaybackEndTime
-        let limit = boundary.flatMap { $0.isValid && $0.seconds.isFinite ? $0.seconds : nil }
+        var limit = boundary.flatMap { $0.isValid && $0.seconds.isFinite ? $0.seconds : nil }
+        #if CINEVAULT_COMMERCIAL
+        if alternative != nil { limit = externalCommercialSession?.positionLimit }
+        #endif
         let position = limit.map { min(time, $0) } ?? time
         guard position > 0 else { return }
-        if let duration = player.currentItem?.duration.seconds, duration.isFinite, duration > 0 {
+        if let duration = alternative?.duration ?? player.currentItem?.duration.seconds, duration.isFinite, duration > 0 {
             movie.duration = duration
             if position / duration > 0.92 {
                 finish()
                 return
             }
         }
-        movie.isWatched = false
-        movie.playbackPosition = position
-        movie.lastPlayedAt = Date()
+        movie.recordHouseholdProgress(watched: false, position: position, at: Date(), household: household, session: householdSession)
+        if let jellyfinReporter, player.rate > 0, household.sessionIsCurrent(householdSession) {
+            Task { await jellyfinReporter.progress(seconds: position) }
+        }
+    }
+
+    private func attachJellyfinReporter(_ reporter: JellyfinPlaybackReporter) {
+        jellyfinReporter = reporter
+        playbackStateObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.stopped, self.validateAccess() else { return }
+                let state = self.player.timeControlStatus
+                if state == .playing || state == .paused {
+                    await reporter.progress(seconds: self.player.currentTime().seconds, paused: state == .paused)
+                }
+            }
+        }
     }
 
     private func finish() {
-        guard !stopped else { return }
+        guard !stopped, validateAccess() else { return }
         finishedPlayback = true
-        movie.isWatched = true
-        movie.playbackPosition = 0
-        movie.lastPlayedAt = Date()
+        movie.recordHouseholdProgress(watched: true, position: 0, at: Date(), household: household, session: householdSession)
+    }
+
+    /// A metadata refresh may discover a stricter certification without changing profiles.
+    /// Observe those model fields so paused/buffered playback is revoked as well as future reads.
+    private func observeAccess() {
+        guard !stopped else { return }
+        withObservationTracking {
+            _ = household.allows(movie)
+            _ = LibrarySearch.isAvailable(movie)
+            _ = sourceIsCurrent?()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.stopped, self.validateAccess() else { return }
+                self.observeAccess()
+            }
+        }
+    }
+
+    private func validateAccess() -> Bool {
+        guard household.sessionIsCurrent(householdSession), household.allows(movie), LibrarySearch.isAvailable(movie), sourceIsCurrent?() != false else {
+            didEndNaturally = false
+            playbackError = "This item is no longer available for this profile."
+            stop(saveProgress: false)
+            return false
+        }
+        return true
     }
 
     func stop(saveProgress: Bool = true) {
         guard !stopped else { return }
         #if CINEVAULT_COMMERCIAL
         commercialSession.stop()
+        externalCommercialSession?.stop()
         #endif
-        if saveProgress { record(time: player.currentTime().seconds) }
+        if saveProgress { record(time: currentPosition) }
         stopped = true
+        if let jellyfinReporter {
+            let position = player.currentTime().seconds
+            Task { await jellyfinReporter.stop(seconds: position) }
+            self.jellyfinReporter = nil
+        }
+        jellyfinRelay?.stop()
+        jellyfinRelay = nil
         subtitles.stop()
+        alternative?.stop()
         artworkTask?.cancel()
         artworkTask = nil
         player.pause()
+        player.currentItem?.externalMetadata = []
+        player.replaceCurrentItem(with: nil)
         asset.cancelLoading()
+        playbackStateObservation?.invalidate()
+        playbackStateObservation = nil
         itemObservation?.invalidate()
         itemObservation = nil
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
+        if let householdObserver { NotificationCenter.default.removeObserver(householdObserver) }
+        householdObserver = nil
         timeObserver = nil
         endObserver = nil
         failureObserver = nil
@@ -333,12 +690,53 @@ final class PlaybackController: ObservableObject {
     }
 
     var permitsContinuation: Bool {
-        guard !stopped, didEndNaturally, playbackError == nil,
+        guard !stopped, household.sessionIsCurrent(householdSession), household.allows(movie), didEndNaturally, playbackError == nil,
               player.currentItem?.forwardPlaybackEndTime.isValid != true else { return false }
         #if CINEVAULT_COMMERCIAL
-        guard commercialSession.endedSuccessfully else { return false }
+        guard externalCommercialSession?.endedSuccessfully ?? commercialSession.endedSuccessfully else { return false }
         #endif
         return true
+    }
+
+    var currentPosition: Double { alternative?.position ?? player.currentTime().seconds }
+    func play() {
+        guard validateAccess(), !stopped else { return }
+        if let alternative {
+            #if CINEVAULT_COMMERCIAL
+            externalCommercialSession?.play()
+            #else
+            alternative.play()
+            #endif
+        } else { player.play() }
+    }
+    func pause() {
+        if let alternative {
+            #if CINEVAULT_COMMERCIAL
+            externalCommercialSession?.pause()
+            #else
+            alternative.pause()
+            #endif
+        } else { player.pause() }
+    }
+    func seek(to seconds: Double) {
+        guard !stopped, validateAccess() else { return }
+        if let alternative {
+            #if CINEVAULT_COMMERCIAL
+            externalCommercialSession?.seek(to: seconds)
+            #else
+            alternative.seek(to: seconds)
+            #endif
+        } else { player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)) }
+    }
+}
+
+extension View {
+    @ViewBuilder func playbackScreenEdges() -> some View {
+        #if os(tvOS)
+        ignoresSafeArea()
+        #else
+        self
+        #endif
     }
 }
 
@@ -392,7 +790,7 @@ struct PlaybackScreen: View {
             }
             #endif
         }
-        .onExitCommand {
+        .onTVExit {
             if session.next != nil { session.cancel() }
             else { close() }
         }
@@ -418,27 +816,41 @@ private struct ActivePlaybackView: View {
 
     var body: some View {
         ZStack {
+            if let alternative = controller.alternative {
+                AlternativePlayerView(controller: controller, playback: alternative, close: close)
+            } else {
         #if CINEVAULT_COMMERCIAL
             CommercialPlayerView(session: controller.commercialSession, stopsSessionOnDisappear: false)
         #else
             PlayerView(controller: controller, close: close)
+                #if os(iOS)
+                .ignoresSafeArea()
+                #endif
         #endif
-            LocalCaptionOverlay(subtitles: subtitles)
-            #if CINEVAULT_COMMERCIAL
-            VStack {
+            }
+            if controller.alternative == nil { LocalCaptionOverlay(subtitles: subtitles) }
+            #if CINEVAULT_COMMERCIAL || os(iOS)
+            if controller.alternative == nil { VStack {
                 HStack {
                     Button(action: close) { Label("Back", systemImage: "chevron.left") }
+                        .accessibilityIdentifier("playback-close")
                     Spacer()
                     Button { subtitles.presented = true } label: { Label("Subtitles", systemImage: "captions.bubble") }
                         .accessibilityIdentifier("playback-subtitles")
-                }.buttonStyle(.bordered).padding(48)
+                }.buttonStyle(.bordered)
+                #if os(iOS)
+                    .padding()
+                #else
+                    .padding(48)
+                #endif
                 Spacer()
-            }
+            } }
             #endif
         }
         .task { subtitles.start() }
         .sheet(isPresented: $subtitles.presented) { SubtitleSelectionView(subtitles: subtitles) }
         .onChange(of: subtitles.presented) { _, shown in if shown { interacting() } }
+        .onChange(of: controller.audioSelectionPresented) { _, shown in if shown { interacting() } }
         .alert("Playback unavailable", isPresented: Binding(get: { controller.playbackError != nil }, set: { _ in })) {
             Button("Back", action: close)
         } message: { Text(controller.playbackError ?? "This file could not be played.") }
@@ -461,6 +873,7 @@ struct PlayerView: UIViewControllerRepresentable {
             viewController.view.isUserInteractionEnabled = false
         }
         #endif
+        #if os(tvOS)
         viewController.transportBarCustomMenuItems = [
             UIAction(title: "Subtitles", image: UIImage(systemName: "captions.bubble")) { _ in
                 controller.subtitles.presented = true
@@ -469,6 +882,7 @@ struct PlayerView: UIViewControllerRepresentable {
                 close()
             }
         ]
+        #endif
         controller.player.play()
         return viewController
     }
@@ -498,10 +912,12 @@ private struct NextEpisodeCountdown: View {
                         .focused($playFocused).disabled(session.preparing).accessibilityIdentifier("autoplay-play-now")
                     Button("Cancel") { session.cancel() }.accessibilityIdentifier("autoplay-cancel")
                 }
+                #if os(tvOS)
                 Text("Press Back to cancel").font(.caption).foregroundStyle(.secondary)
+                #endif
             }.padding(70)
         }
         .onAppear { playFocused = true }
-        .onExitCommand { session.cancel() }
+        .onTVExit { session.cancel() }
     }
 }

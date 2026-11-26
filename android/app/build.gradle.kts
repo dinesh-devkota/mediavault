@@ -8,6 +8,14 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val nfsDevelopmentLibraries = providers.gradleProperty("cinevault.nfsDevelopmentLibs").orNull
+
+val oneDriveClientId = providers.gradleProperty("mediavault.oneDriveClientId").orElse("").get().also {
+    require(it.isEmpty() || it.matches(Regex("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"))) {
+        "mediavault.oneDriveClientId must be a public Microsoft Entra application UUID."
+    }
+}
+
 // Signing is opt-in; ordinary release builds produce an unsigned community bundle.
 val releaseSigningEnabled = when (providers.gradleProperty("cinevault.releaseSigning").orNull) {
     null, "false" -> false
@@ -19,21 +27,26 @@ android {
     namespace = "com.dineshdevkota.cinevault"
     compileSdk = 36
 
-    // Supply the locally rebuilt libraries only to an explicit debug test build.
-    providers.gradleProperty("cinevault.nfsDevelopmentLibs").orNull?.let { nativeLibraries ->
-        val directory = file(nativeLibraries)
-        require(directory.isDirectory) { "Provide the jniLibs directory from build_android_nfs.py." }
-        sourceSets.getByName("debug").jniLibs.srcDir(directory)
-        sourceSets.getByName("androidTest").java.srcDir("src/nfsDevelopmentTest/kotlin")
-    }
-
     defaultConfig {
         applicationId = "com.dineshdevkota.cinevault"
         minSdk = 26
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 5
-        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.3.0"
+        buildConfigField("boolean", "NFS_DEVELOPMENT_ENABLED", "false")
+        buildConfigField("String", "ONEDRIVE_CLIENT_ID", "\"$oneDriveClientId\"")
+        versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 7
+        versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.5.0"
+    }
+
+    sourceSets.named("androidTest") {
+        assets.srcDir("../../CineVaultTests/Fixtures")
+    }
+
+    nfsDevelopmentLibraries?.let { path ->
+        val libraries = file(path)
+        require(libraries.isDirectory) { "Provide the jniLibs directory from build_android_nfs.py." }
+        sourceSets.named("debug") { jniLibs.srcDir(libraries) }
+        sourceSets.named("androidTest") { java.srcDir("src/nfsDevelopmentTest/kotlin") }
     }
 
     if (releaseSigningEnabled) {
@@ -61,6 +74,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (nfsDevelopmentLibraries != null) buildConfigField("boolean", "NFS_DEVELOPMENT_ENABLED", "true")
+        }
         release {
             // smbj pulls in BouncyCastle/Kerberos classes that R8 cannot shrink safely.
             isMinifyEnabled = false
@@ -118,10 +134,15 @@ dependencies {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk15on")
     }
     implementation(libs.media3.exoplayer)
+    implementation(libs.media3.hls)
+    implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.okhttp)
+    implementation(libs.zxing)
     testImplementation(libs.junit)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

@@ -28,6 +28,7 @@ public struct TMDBSearchResponse: Codable, Sendable {
 
 public struct TMDBMovieDetails: Codable, Sendable {
     public struct Genre: Codable, Sendable { public var name: String }
+    public struct Collection: Codable, Sendable { public var id: Int; public var name: String }
     public var id: Int
     public var title: String
     public var overview: String?
@@ -38,6 +39,8 @@ public struct TMDBMovieDetails: Codable, Sendable {
     public var posterPath: String?
     public var backdropPath: String?
     public var genres: [Genre]?
+    public var releaseDates: TMDBMovieReleaseDates?
+    public var belongsToCollection: Collection?
 
     public var year: Int? { releaseDate.flatMap { Int($0.prefix(4)) } }
 }
@@ -69,7 +72,11 @@ public enum TMDB {
     }
 
     public static func detailsRequest(id: Int, apiKey: String) -> URLRequest {
-        request(path: "/movie/\(id)", apiKey: apiKey)
+        request(path: "/movie/\(id)", query: ["append_to_response": "release_dates"], apiKey: apiKey)
+    }
+
+    public static func movieReleaseDatesRequest(id: Int, apiKey: String) -> URLRequest {
+        request(path: "/movie/\(id)/release_dates", apiKey: apiKey)
     }
 
     public static func tvSearchRequest(title: String, year: Int?, apiKey: String) -> URLRequest {
@@ -79,7 +86,11 @@ public enum TMDB {
     }
 
     public static func tvDetailsRequest(id: Int, apiKey: String) -> URLRequest {
-        request(path: "/tv/\(id)", apiKey: apiKey)
+        request(path: "/tv/\(id)", query: ["append_to_response": "content_ratings"], apiKey: apiKey)
+    }
+
+    public static func tvContentRatingsRequest(id: Int, apiKey: String) -> URLRequest {
+        request(path: "/tv/\(id)/content_ratings", apiKey: apiKey)
     }
 
     public static func tvSeasonRequest(id: Int, season: Int, apiKey: String) -> URLRequest {

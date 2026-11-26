@@ -2,6 +2,8 @@
 
 package com.dineshdevkota.cinevault.ui
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +28,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
@@ -33,7 +39,9 @@ import androidx.activity.compose.LocalActivity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -47,14 +55,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.core.Tmdb
 import com.dineshdevkota.cinevault.data.MovieEntity
+import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.plex.PLEX
+import com.dineshdevkota.cinevault.plex.plexItemId
+import com.dineshdevkota.cinevault.jellyfin.JellyfinImage
+import com.dineshdevkota.cinevault.jellyfin.jellyfinItemID
+import kotlinx.coroutines.CancellationException
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -65,7 +81,7 @@ private val CardShape = RoundedCornerShape(10.dp)
 
 /** Remote artwork over a titled placeholder, so missing or failed images still read well. */
 @Composable
-fun Artwork(url: String?, title: String, modifier: Modifier = Modifier) {
+fun Artwork(url: String?, title: String, modifier: Modifier = Modifier, image: Bitmap? = null) {
     Box(
         modifier.background(Brush.verticalGradient(listOf(Color(0xFF2A2D36), Color(0xFF15161B)))),
         contentAlignment = Alignment.Center,
@@ -81,7 +97,10 @@ fun Artwork(url: String?, title: String, modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(12.dp),
             )
         }
-        if (url != null) {
+        if (image != null) {
+            Image(image.asImageBitmap(), contentDescription = null,
+                contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+        } else if (url != null) {
             AsyncImage(
                 model = url,
                 contentDescription = null,
@@ -90,6 +109,45 @@ fun Artwork(url: String?, title: String, modifier: Modifier = Modifier) {
             )
         }
     }
+}
+
+@Composable
+internal fun MediaArtwork(
+    movie: MovieEntity,
+    url: String?,
+    title: String,
+    modifier: Modifier,
+    width: Int,
+    kind: JellyfinImage = JellyfinImage.Primary,
+    seasonArtwork: Boolean = false,
+) {
+    val localPath = if (kind == JellyfinImage.Backdrop) movie.localBackdropPath ?: movie.localPosterPath else if (seasonArtwork) movie.localSeasonPosterPath ?: movie.localPosterPath else movie.localPosterPath
+    if ((jellyfinItemID(movie.filePath) == null && plexItemId(movie.filePath) == null && localPath == null) || movie.isHidden || movie.isMissing) {
+        Artwork(url, title, modifier)
+        return
+    }
+    val container = LocalContext.current.container
+    val source by remember(movie.sourceId) { container.database.sources().observe(movie.sourceId) }
+        .collectAsStateWithLifecycle(null)
+    val session by container.family.session.collectAsStateWithLifecycle()
+    val activeSource = source
+    if (activeSource == null || (activeSource.sourceType !in setOf(JELLYFIN, PLEX) && localPath == null)) {
+        Artwork(url, title, modifier)
+        return
+    }
+    val bitmap by key(session, activeSource, movie.id, movie.filePath, movie.ageCertification, localPath, kind, width) {
+        produceState<Bitmap?>(null) {
+            if (!container.family.isCurrent(session) || !container.family.permits(movie)) return@produceState
+            try {
+                value = container.photos.loadArtwork(movie.id, width, kind, seasonArtwork)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // The card retains its normal title or existing matched artwork on an image error.
+            }
+        }
+    }
+    Artwork(url, title, modifier, bitmap)
 }
 
 @Composable
@@ -108,7 +166,7 @@ private fun WatchedBadge(modifier: Modifier = Modifier) {
 
 @Composable
 fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean? = null,
-    cardModifier: Modifier = Modifier) {
+    cardModifier: Modifier = Modifier, versionCount: Int = 1) {
     Column(modifier) {
         Card(
             onClick = onClick,
@@ -117,7 +175,7 @@ fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Mod
             shape = CardDefaults.shape(CardShape),
         ) {
             Box(Modifier.fillMaxSize()) {
-                Artwork(Tmdb.imageUrl(movie.posterPath, "w342"), movie.title, Modifier.fillMaxSize())
+                MediaArtwork(movie, Tmdb.imageUrl(movie.posterPath, "w342"), movie.title, Modifier.fillMaxSize(), width = 342)
                 if (movie.isWatched) WatchedBadge(Modifier.align(Alignment.TopEnd).padding(8.dp))
                 selected?.let { SelectionBadge(it, Modifier.align(Alignment.TopStart).padding(8.dp)) }
                 if (movie.isInProgress) {
@@ -132,7 +190,7 @@ fun PosterCard(movie: MovieEntity, onClick: () -> Unit, modifier: Modifier = Mod
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 10.dp),
         )
-        Text(movie.year?.toString() ?: " ", style = MaterialTheme.typography.labelMedium, color = SecondaryText)
+        Text(listOfNotNull(movie.year?.toString(), "$versionCount versions".takeIf { versionCount > 1 }).joinToString(" · ").ifEmpty { " " }, style = MaterialTheme.typography.labelMedium, color = SecondaryText)
     }
 }
 
@@ -154,8 +212,8 @@ private fun ContinueCard(item: ContinueWatchingItem, onClick: () -> Unit) {
             shape = CardDefaults.shape(CardShape),
         ) {
             Box(Modifier.fillMaxSize()) {
-                Artwork(Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w780"), movie.title,
-                    Modifier.fillMaxSize().clearAndSetSemantics {})
+                MediaArtwork(movie, Tmdb.imageUrl(movie.backdropPath ?: movie.posterPath, "w780"), movie.title,
+                    Modifier.fillMaxSize().clearAndSetSemantics {}, width = 780, kind = JellyfinImage.Backdrop)
                 if (movie.isInProgress && movie.durationMs > 0) {
                     ProgressLine(movie.progress, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp))
                 }
@@ -179,8 +237,9 @@ private fun ContinueCard(item: ContinueWatchingItem, onClick: () -> Unit) {
 @Composable
 fun MovieRow(title: String, movies: List<MovieEntity>, onOpen: (MovieEntity) -> Unit, onSeeAll: (() -> Unit)? = null) {
     MediaRow(title, onSeeAll) {
-        items(movies, key = { it.id }) { movie ->
-            PosterCard(movie, onClick = { onOpen(movie) }, modifier = Modifier.width(PosterWidth))
+        items(com.dineshdevkota.cinevault.library.groupMovieVersions(movies), key = { it.id }) { group ->
+            val movie = group.representative
+            PosterCard(movie, onClick = { onOpen(movie) }, modifier = Modifier.width(PosterWidth), versionCount = group.versions.size)
         }
     }
 }
@@ -218,6 +277,17 @@ internal fun HomeShelfHeader(title: String, onSeeAll: (() -> Unit)?) {
 @Composable
 fun ScreenHeader(title: String, modifier: Modifier = Modifier, kicker: String? = null, trailing: String? = null, showBack: Boolean = true) {
     val activity = LocalActivity.current as? ComponentActivity
+    if (!LocalTvLayout.current) {
+        Column(modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (showBack && activity != null && activity !is com.dineshdevkota.cinevault.MainActivity) {
+                OutlinedButton(onClick = { activity.onBackPressedDispatcher.onBackPressed() }) { Text("Back") }
+            }
+            kicker?.let { Text(it, style = MaterialTheme.typography.labelLarge, color = Accent) }
+            Text(title, style = MaterialTheme.typography.headlineMedium)
+            trailing?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = SecondaryText) }
+        }
+        return
+    }
     Row(modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
         if (showBack && activity != null && activity !is com.dineshdevkota.cinevault.MainActivity) {
             OutlinedButton(onClick = { activity.onBackPressedDispatcher.onBackPressed() }, modifier = Modifier.padding(end = 16.dp)) { Text("Back") }
@@ -281,10 +351,10 @@ fun TvTextField(
         label = { MobileText(label) },
         visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(
-            keyboardType = if (isPassword) KeyboardType.Password else keyboardType,
+            keyboardType = if (isPassword && keyboardType != KeyboardType.NumberPassword) KeyboardType.Password else keyboardType,
             imeAction = imeAction,
             autoCorrectEnabled = false,
-            showKeyboardOnFocus = false,
+            showKeyboardOnFocus = !LocalTvLayout.current,
         ),
         // Results update live, so the IME's Search key only needs to close the keyboard.
         keyboardActions = KeyboardActions(onSearch = { defaultKeyboardAction(ImeAction.Done) }),

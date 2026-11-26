@@ -2,12 +2,30 @@
 
 Add one parent NAS folder to build your Movies, Documentaries, TV Shows, Music, and Photos library. See the [media setup and naming guide](docs/MEDIA-GUIDE.md) for folder examples, photo albums, free personal TMDB setup, and playback help. Updates preserve your saved library, NAS credentials, and playback history.
 
-A personal media library for **Apple TV and Android TV** that plays movies,
-shows and music and displays photo albums directly from a NAS over SMB.
-Built with SwiftUI on tvOS and Compose for TV on Android.
+A personal media library for **Apple TV, iPhone, Android TV, and Android phones**
+that plays movies, shows and music and displays photo albums from SMB, HTTPS
+WebDAV, Jellyfin, Plex, and personal OneDrive sources. Built with SwiftUI on Apple devices and Compose
+on Android, with remote controls on TVs and touch navigation on phones.
+
+The **1.5.0, build 7** feature branch adds local NFO/XML details and artwork,
+personal collections, automatic movie series, and grouped movie versions across
+all four platforms. Apple playback gains an additional VideoLAN engine for
+formats such as MKV, AVI, and WebM. See the [organization guide](docs/MEDIA-GUIDE.md#use-local-artwork-and-details)
+and [playback implementation and limits](docs/PLAYBACK-ENGINE.md). Build and
+device validation status is recorded in the [handoff](dist/AGENT-HANDOFF.md).
+
+Plex setup uses an on-screen link code, then lets you choose a server and library.
+Server artwork and age ratings stay with imported titles. Apple Plex playback
+currently requires compatible MP4/M4V/MOV files; transcoding and Relay-only
+connections remain unsupported. See [Plex setup](docs/MEDIA-GUIDE.md#connect-a-plex-library).
 
 The Library remembers your last section when you return or reopen the app.
 Find the installed version and build in **Settings**.
+
+Version **1.4.0, build 6** adds optional local household profiles. Admin chooses
+each person's allowed NAS folders and US movie/TV rating limits. Restricted media
+stays hidden, and each viewer has separate watched status, resume positions and
+Watchlist. [Household profile setup](docs/MEDIA-GUIDE.md#use-household-profiles)
 
 Choose **See all** on a Home shelf to browse its complete collection, keeping
 shows grouped and your saved Library filters intact. Back returns to the same
@@ -21,7 +39,7 @@ On either TV, **Continue Watching** shows one card per active series. Resume
 the file you paused or see the season and episode number before playing the
 next available file on your NAS. [Continue a series from Home](docs/MEDIA-GUIDE.md#continue-a-series-from-home)
 
-Version **1.3.0, build 5** adds SRT/WebVTT subtitles from the video's NAS folder,
+Version **1.3.0, build 5** introduced SRT/WebVTT subtitles from the video's NAS folder,
 optional SubDL searches and downloads, and continuous TV viewing with a cancellable
 next-episode countdown. Connect SubDL once in Settings and choose your subtitle
 language; local subtitle files work without an account.
@@ -54,7 +72,7 @@ device and NAS validation has not yet been completed.
 
 ### Format support
 
-For video on Apple TV, MediaVault checks MP4, M4V, and MOV files with the native player before playback. The codecs inside the file must also work on the device. The [Media Guide](docs/MEDIA-GUIDE.md#check-the-scan-and-playback) lists the supported video and audio formats on each platform and explains how the scanner distinguishes MPEG-TS recordings from TypeScript files. Photos are grouped into albums by NAS source and folder; JPEG, PNG, WebP, HEIC, and HEIF viewing depends on the device's image decoder.
+Apple TV and iPhone use native playback where possible and VideoLAN playback for additional direct-file formats. Android TV and phones use Media3 with device decoders. A recognized container does not guarantee every codec or encoding will play. The [Media Guide](docs/MEDIA-GUIDE.md#check-the-scan-and-playback) lists candidates and explains how MPEG-TS recordings are distinguished from TypeScript files. Photos are grouped by source and folder; JPEG, PNG, WebP, HEIC, and HEIF viewing depends on the device's image decoder.
 
 ## Screenshots
 
@@ -264,6 +282,7 @@ Fastlane builds, the same bundle and product IDs can be provided as environment 
 
 1. **Settings** → paste your TMDB key (themoviedb.org → Settings → API; the v3 key or the v4 "read access token" both work).
 2. **Sources** → *Add NAS Source*: host/IP, username/password (empty = guest), share (use *List Shares*), and the folder inside the share (e.g. `Movies`). *Test Connection*, then *Save & Scan*.
+   For WebDAV, choose *Connect WebDAV*. Enter the full HTTPS address and the optional Basic-auth credentials. Choose a media folder, then test the connection and save. The server must respond to WebDAV folder listing requests and support HTTP byte ranges for seeking.
 3. Browse **Home** / **Movies**, press a poster to see details and play. Long scans run in the background; rescans happen on launch.
 4. Wrong poster? Open the movie → **Edit** → *Fix Match* and pick the right result, or rename it. Use *Hidden from library* to hide entries (see them under Movies → Show → Hidden).
 

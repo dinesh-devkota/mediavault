@@ -1,0 +1,257 @@
+name: iPhone simulator
+
+on:
+  push:
+    branches: [main, dinesh-devkota-sonepar-build-cinevault-tvos-app]
+    paths:
+      - ".github/workflows/ios-simulator.yml"
+      - "CineVault/**"
+      - "CineVaultiOS/**"
+      - "CineVaultTests/**"
+      - "CineVaultiOSUITests/**"
+      - "Packages/**"
+      - "project.ios.yml"
+      - "scripts/**"
+  pull_request:
+    paths:
+      - ".github/workflows/ios-simulator.yml"
+      - "CineVault/**"
+      - "CineVaultiOS/**"
+      - "CineVaultTests/**"
+      - "CineVaultiOSUITests/**"
+      - "Packages/**"
+      - "project.ios.yml"
+      - "scripts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iphone-simulator-${{ github.ref }}
+  # Keep the active simulator's evidence; newer commits replace only queued runs.
+  cancel-in-progress: false
+
+jobs:
+  simulator:
+    name: Build and test iPhone app
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache pinned Apple playback dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/apple-packages
+          key: apple-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('project.yml', 'project.ios.yml') }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate project
+        id: project
+        run: |
+          brew install xcodegen
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          python -m pip install -r scripts/nas-test-requirements.txt
+          xcodegen generate --spec project.ios.yml
+      - name: Select an iPhone simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-version | tr '.' '-')
+          DEVICE=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          prefix = "com.apple.CoreSimulator.SimRuntime.iOS-"
+          sdk = tuple(map(int, sys.argv[1].split("-")))
+          candidates = []
+          for runtime, devices in json.load(sys.stdin)["devices"].items():
+              if not runtime.startswith(prefix):
+                  continue
+              version = tuple(map(int, runtime.removeprefix(prefix).split("-")))
+              if not (17,) <= version <= sdk:
+                  continue
+              candidates += [(version, d["udid"]) for d in devices if d.get("isAvailable") and d["name"].startswith("iPhone")]
+          if not candidates:
+              sys.exit("No available iPhone runtime compatible with SDK " + sys.argv[1])
+          print(max(candidates, key=lambda candidate: candidate[0])[1])
+          ' "$SDK")
+          echo "device=$DEVICE" >> "$GITHUB_OUTPUT"
+      - name: Build simulator tests
+        run: |
+          set -o pipefail
+          xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
+            -destination 'id=${{ steps.simulator.outputs.device }}' \
+            -configuration Debug -derivedDataPath "$RUNNER_TEMP/cinevault-phone" \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES build-for-testing 2>&1 | tee "$RUNNER_TEMP/iphone-build.log" | tail -n 160
+      - name: Report compiler errors
+        if: failure()
+        run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/iphone-build.log" || true
+      - name: Test against local SMB, WebDAV, Jellyfin, OneDrive, Plex, and Dropbox fixtures
+        run: |
+          set -euo pipefail
+          DEVICE='${{ steps.simulator.outputs.device }}'
+          python scripts/nas_fixture.py "$RUNNER_TEMP/nas-fixture" >"$RUNNER_TEMP/nas-fixture.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_webdav_fixture.sh "$RUNNER_TEMP/webdav-fixture"
+          WEBDAV_PID=$(cat "$RUNNER_TEMP/webdav-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_jellyfin_tvos_fixture.sh "$RUNNER_TEMP/jellyfin-fixture"
+          JELLYFIN_PID=$(cat "$RUNNER_TEMP/jellyfin-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" 2>/dev/null || true' EXIT
+          python3 scripts/onedrive_iphone_fixture.py "$RUNNER_TEMP/webdav-fixture" > "$RUNNER_TEMP/onedrive-iphone.log" 2>&1 &
+          ONEDRIVE_PID=$!
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$ONEDRIVE_PID" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl --noproxy 127.0.0.1 --silent --fail --connect-timeout 1 --max-time 2 \
+              --cacert "$RUNNER_TEMP/webdav-fixture/fixture.pem" https://127.0.0.1:18897/health --output /dev/null; then break; fi
+            if ! kill -0 "$ONEDRIVE_PID" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if ! curl --noproxy 127.0.0.1 --silent --fail --connect-timeout 1 --max-time 2 \
+            --cacert "$RUNNER_TEMP/webdav-fixture/fixture.pem" https://127.0.0.1:18897/health --output /dev/null; then
+            echo "::error::The disposable OneDrive fixture was not ready."
+            cat "$RUNNER_TEMP/onedrive-iphone.log" >&2
+            exit 1
+          fi
+          bash scripts/start_plex_fixture.sh "$RUNNER_TEMP/plex-fixture"
+          PLEX_PID=$(cat "$RUNNER_TEMP/plex-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$ONEDRIVE_PID" "$PLEX_PID" 2>/dev/null || true' EXIT
+          bash scripts/start_dropbox_fixture.sh "$RUNNER_TEMP/dropbox-fixture"
+          DROPBOX_PID=$(cat "$RUNNER_TEMP/dropbox-fixture/server.pid")
+          trap 'kill "$SERVER_PID" "$WEBDAV_PID" "$JELLYFIN_PID" "$ONEDRIVE_PID" "$PLEX_PID" "$DROPBOX_PID" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$RUNNER_TEMP/nas-fixture.log" >&2
+              exit 1
+            fi
+            if nc -z 127.0.0.1 1445; then break; fi
+            sleep 1
+          done
+          if ! nc -z 127.0.0.1 1445; then
+            cat "$RUNNER_TEMP/nas-fixture.log" >&2
+            exit 1
+          fi
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/webdav-fixture/fixture.cer"
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/jellyfin-fixture/fixture.cer"
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/plex-fixture/fixture.cer"
+          xcrun simctl keychain "$DEVICE" add-root-cert "$RUNNER_TEMP/dropbox-fixture/fixture.cer"
+          xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
+            -destination "id=$DEVICE" -configuration Debug \
+            -derivedDataPath "$RUNNER_TEMP/cinevault-phone" \
+            -resultBundlePath "$RUNNER_TEMP/iphone-results.xcresult" \
+            -parallel-testing-enabled NO CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES CODE_SIGNING_ALLOWED=YES \
+            test-without-building 2>&1 | tee "$RUNNER_TEMP/iphone-tests.log" | tail -n 200
+      - name: Report simulator tests
+        if: always()
+        run: |
+          set -euo pipefail
+          xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/iphone-results.xcresult" > "$RUNNER_TEMP/iphone-summary.json"
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/iphone-results.xcresult" > "$RUNNER_TEMP/iphone-tests.json"
+          python3 scripts/report_xcresult.py "$RUNNER_TEMP/iphone-summary.json" --require-suite "$RUNNER_TEMP/iphone-tests.json" PlexFixtureTests
+          python3 scripts/report_xcresult.py "$RUNNER_TEMP/iphone-summary.json" --require-suite "$RUNNER_TEMP/iphone-tests.json" OneDriveClientTests
+          python3 scripts/report_xcresult.py "$RUNNER_TEMP/iphone-summary.json" --require-suite "$RUNNER_TEMP/iphone-tests.json" CloudFileTransportTests
+          python3 - "$RUNNER_TEMP/iphone-tests.json" <<'PY'
+          import json
+          import sys
+
+          def passed(nodes):
+              for node in nodes:
+                  if node.get("result") == "Passed":
+                      yield node.get("name", "").removesuffix("()")
+                  yield from passed(node.get("children", []))
+
+          with open(sys.argv[1]) as source:
+              tests = set(passed(json.load(source)["testNodes"]))
+          required = {
+              "testConnectAndImportWebDAVFromSources",
+              "testGoogleDriveFilesSetupOffersScopedPicker",
+              "testFilesFolderImportsCaptionsAndPlaysAfterSeek",
+              "testFilesReconnectsOriginalSelectionAfterAFailedDisconnect",
+              "testFilesNeverReadsAnUnselectedSiblingAndHandlesRevokedBookmarks",
+              "testOneDriveSetupEntryValidatesClientIDAndReturnsWithoutConnecting",
+              "testConnectOneDriveDeviceCodeAndImportSelectedFolder",
+              "testOneDriveGraphHTTPSPlaybackAndSeek",
+              "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot",
+              "testLinkPlexAndImportLibraryFromSources",
+              "testConnectDropboxAndImportSelectedFolder",
+              "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek",
+              "testNativePlaybackAndSubtitleControls",
+              "testViewerOnlySeesAllowedTitlesOnPhone",
+              "testPrivacyPolicyIsReadableFromTheLockedProfilePicker",
+              "testPlaybackAndSeekStreamTheScannedMovie",
+              "testWebDAVAuthenticationScanPlaybackAndSeek",
+              "testSignInImportDirectPlayAndSeekOverHTTPS",
+              "testNegotiatesAuthenticatedHLSWhenDirectPlayIsUnavailable",
+              "testCommonContainersDecodeAndSeekOverGuardedSMB",
+              "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey",
+              "testCreateEditCollectionAndChooseAlternateVersion",
+              "testMKVTouchPlaybackSeekingSubtitlesAndAudioKeepSession",
+          }
+          missing = sorted(required - tests)
+          if missing:
+              sys.exit("Required iPhone cases did not pass: " + ", ".join(missing))
+          print("All required iPhone UI and fixture cases passed.")
+          PY
+      - name: Export phone test screenshots
+        if: always()
+        run: |
+          if [[ -d "$RUNNER_TEMP/iphone-results.xcresult" ]]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/iphone-results.xcresult" \
+              --output-path "$RUNNER_TEMP/iphone-test-screenshots"
+          fi
+      - name: Retain phone test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iphone-test-evidence
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/iphone-test-screenshots
+            ${{ runner.temp }}/iphone-summary.json
+            ${{ runner.temp }}/iphone-tests.json
+      - name: Build unsigned iPhone release
+        if: ${{ !cancelled() && steps.project.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
+          echo "iPhone device SDK $SDK"
+          if (( ${SDK%%.*} < 26 )); then
+            echo "::error::This release validation requires iOS SDK 26 or later."
+            exit 1
+          fi
+          xcodebuild -project CineVaultPhone.xcodeproj -scheme CineVaultPhone \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/apple-packages" \
+            -destination 'generic/platform=iOS' -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/cinevault-phone-release" \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/iphone-release.log" | tail -n 160
+      - name: Verify privacy resources in the iPhone app
+        run: |
+          APP="$RUNNER_TEMP/cinevault-phone-release/Build/Products/Release-iphoneos/CineVault.app"
+          plutil -lint "$APP/PrivacyInfo.xcprivacy"
+          cmp docs/PRIVACY.md "$APP/PRIVACY.md"
+      - name: Report release compiler errors
+        if: failure()
+        run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/iphone-release.log" || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: iphone-simulator-results
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/iphone-results.xcresult
+            ${{ runner.temp }}/iphone-build.log
+            ${{ runner.temp }}/iphone-release.log
+            ${{ runner.temp }}/iphone-tests.log
+            ${{ runner.temp }}/nas-fixture.log
+            ${{ runner.temp }}/webdav-fixture/server.log
+            ${{ runner.temp }}/jellyfin-fixture/server.log
+            ${{ runner.temp }}/onedrive-iphone.log
+            ${{ runner.temp }}/plex-fixture/server.log
+            ${{ runner.temp }}/dropbox-fixture/server.log

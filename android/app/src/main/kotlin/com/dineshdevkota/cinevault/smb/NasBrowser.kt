@@ -1,6 +1,7 @@
 package com.dineshdevkota.cinevault.smb
 
 import com.dineshdevkota.cinevault.core.NasAddress
+import com.dineshdevkota.cinevault.nfs.NFS
 import com.hierynomus.msfscc.FileAttributes
 import com.hierynomus.mssmb2.SMBApiException
 import com.hierynomus.protocol.commons.EnumWithValue.EnumUtils
@@ -40,6 +41,7 @@ class NasBrowser {
     /** Explicit browsing includes ignored paths so users can include them again. */
     suspend fun listEntries(config: SourceConfig): List<NasEntry> = withContext(Dispatchers.IO) {
         coroutineContext.ensureActive()
+        if (config.isWebDav) return@withContext com.dineshdevkota.cinevault.webdav.WebDavService().list(config).map { NasEntry(it.name, it.directory) }
         withSession(config) { session ->
             val connected = session.connectShare(config.share.trim('/', '\\'))
             connected.use {
@@ -54,6 +56,7 @@ class NasBrowser {
     }
 
     private fun <T> withSession(config: SourceConfig, block: (Session) -> T): T {
+        if (config.sourceType == NFS) throw SmbException("This source is unavailable.")
         val address = NasAddress.parse(config.host, config.port)
         val contexts = if (config.username.isBlank()) {
             listOf(AuthenticationContext.anonymous(), AuthenticationContext.guest())

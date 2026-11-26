@@ -5,7 +5,9 @@ Usage: NFS_PROBE=/path/to/nfs_readonly_probe python3 -m unittest discover \
 """
 
 import argparse
+from contextlib import ExitStack
 import os
+from pathlib import Path
 import socketserver
 import struct
 import subprocess
@@ -15,6 +17,7 @@ import unittest
 from collections import Counter
 from dataclasses import dataclass
 
+PORTMAP = 100000
 MOUNT = 100005
 NFS = 100003
 DIR = 2
@@ -81,8 +84,9 @@ class Node:
 
 class ReadOnlyExport(socketserver.ThreadingTCPServer):
     daemon_threads = True
+    rpc_version = 3
 
-    def __init__(self, port=0, log_errors=False):
+    def __init__(self, port=0, log_errors=False, library_media=False):
         super().__init__(("127.0.0.1", port), RPCHandler)
         self.nodes = {
             b"root": Node(DIR, 1),
@@ -105,9 +109,31 @@ class ReadOnlyExport(socketserver.ThreadingTCPServer):
             },
             b"folder": {b"photo.jpg": b"nested"},
         }
+        if library_media:
+            self.add_media_library()
         self.calls = Counter()
         self.errors = []
         self.log_errors = log_errors
+
+    def add_media_library(self):
+        samples = Path(__file__).resolve().parents[2] / "CineVaultTests" / "Fixtures"
+        caption = b"1\n00:00:05,000 --> 00:00:11,000\nNFS fixture caption.\n"
+        self.nodes.update({
+            b"library": Node(DIR, 9),
+            b"album": Node(DIR, 10),
+            b"video_clip": Node(FILE, 11, (samples / "playback.mp4").read_bytes()),
+            b"album_photo": Node(FILE, 12, (samples / "Photos" / "01.jpg").read_bytes()),
+            b"caption": Node(FILE, 13, caption),
+            b"case_caption": Node(FILE, 14, b"Wrong case"),
+        })
+        self.children[b"root"][b"Library"] = b"library"
+        self.children[b"library"] = {
+            b"Movie.mp4": b"video_clip",
+            b"Movie.en.srt": b"caption",
+            b"movie.en.srt": b"case_caption",
+            b"Photos": b"album",
+        }
+        self.children[b"album"] = {b"01.jpg": b"album_photo"}
 
     def dispatch(self, program, procedure, arguments):
         self.calls[program, procedure] += 1
@@ -160,6 +186,29 @@ class ReadOnlyExport(socketserver.ThreadingTCPServer):
         raise ValueError(f"unexpected NFS procedure {procedure}")
 
 
+class ReadOnlyPortMapper(socketserver.ThreadingTCPServer):
+    daemon_threads = True
+    rpc_version = 2
+
+    def __init__(self, port, service_port, log_errors=False):
+        super().__init__(("127.0.0.1", port), RPCHandler)
+        self.service_port = service_port
+        self.log_errors = log_errors
+        self.errors = []
+
+    def dispatch(self, program, procedure, arguments):
+        if program != PORTMAP:
+            raise ValueError("unexpected portmapper RPC program")
+        if procedure == 0:
+            return b""
+        if procedure != 3:  # PMAPPROC_GETPORT
+            raise ValueError(f"unexpected portmapper procedure {procedure}")
+        service, version, protocol, _ = struct.unpack("!4I", arguments.take(16))
+        # Both NFS and MOUNT use the fixture's read-only TCP service.
+        is_available = service in (MOUNT, NFS) and version == 3 and protocol == 6
+        return words(self.service_port if is_available else 0)
+
+
 class RPCHandler(socketserver.StreamRequestHandler):
     def handle(self):
         try:
@@ -176,7 +225,7 @@ class RPCHandler(socketserver.StreamRequestHandler):
                     raise ValueError("invalid RPC fixture record")
                 reader = XDR(self.rfile.read(record & 0x7FFFFFFF))
                 xid, message, rpc_version, program, version, procedure = struct.unpack("!6I", reader.take(24))
-                if (message, rpc_version, version) != (0, 2, 3):
+                if (message, rpc_version, version) != (0, 2, self.server.rpc_version):
                     raise ValueError("unexpected RPC protocol version")
                 for _ in range(2):
                     reader.uint()
@@ -269,7 +318,20 @@ class NFSProbeTests(unittest.TestCase):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serve the synthetic NFSv3 export on loopback.")
     parser.add_argument("--serve-port", type=int, required=True)
+    parser.add_argument("--library-media", action="store_true", help="Include the MP4, photo, and caption fixture")
+    parser.add_argument("--serve-portmapper", type=int, metavar="PORT",
+                        help="Also serve IPv4 TCP portmapper v2 on loopback")
     args = parser.parse_args()
-    with ReadOnlyExport(port=args.serve_port, log_errors=True) as server:
-        print(f"NFS fixture listening on loopback port {server.server_address[1]}", flush=True)
-        server.serve_forever()
+    with ExitStack() as cleanup:
+        export = cleanup.enter_context(ReadOnlyExport(
+            port=args.serve_port, log_errors=True, library_media=args.library_media,
+        ))
+        if args.serve_portmapper is not None:
+            mapper = cleanup.enter_context(ReadOnlyPortMapper(
+                args.serve_portmapper, export.server_address[1], log_errors=True,
+            ))
+            threading.Thread(target=mapper.serve_forever, daemon=True).start()
+            cleanup.callback(mapper.shutdown)
+            print(f"NFS portmapper listening on loopback port {mapper.server_address[1]}", flush=True)
+        print(f"NFS fixture listening on loopback port {export.server_address[1]}", flush=True)
+        export.serve_forever()

@@ -15,6 +15,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
@@ -25,11 +26,12 @@ import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.data.MovieEntity
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit) {
     val container = LocalContext.current.container
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(initialValue = null)
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(initialValue = null)
     val loadedSources = sources
     if (movies == null || loadedSources == null) {
         ScreenHeader("Search", Modifier.padding(horizontal = ScreenPadding))
@@ -50,22 +52,31 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
     val resultFocus = remember { FocusRequester() }
     val transitionFocus = remember { FocusRequester() }
     val window = LocalWindowInfo.current
+    val focusManager = LocalFocusManager.current
+    var catalogHandoff by remember { mutableStateOf(false) }
     var holdingFocus by remember { mutableStateOf(false) }
     var holderFocused by remember { mutableStateOf(false) }
     var fieldFocused by remember { mutableStateOf(false) }
     var focusRequest by remember { mutableIntStateOf(0) }
     fun holdFocus() { focusRequest++; holdingFocus = true; transitionFocus.requestFocus() }
     suspend fun parkBeforeRemovingCard() {
+        // The nested season browser must stop restoring its old card while its
+        // parent moves focus away. Excluded media cannot wait indefinitely for
+        // a focus acknowledgment: the new catalog remains authoritative.
+        catalogHandoff = true
         holdFocus()
         val request = focusRequest
-        // Enabling a focus target and removing its focused child in the same frame
-        // can send focus to the first tab. Keep the old card mounted until the
-        // holder itself owns focus, including on the first layout after recreation.
-        while (request == focusRequest && holdingFocus && window.isWindowFocused && !holderFocused) {
-            withFrameNanos { }
-            if (request == focusRequest && holdingFocus && window.isWindowFocused && !holderFocused) {
-                transitionFocus.requestFocus()
+        withTimeoutOrNull(250) {
+            while (request == focusRequest && holdingFocus && window.isWindowFocused && !holderFocused) {
+                withFrameNanos { }
+                if (request == focusRequest && holdingFocus && window.isWindowFocused && !holderFocused) {
+                    transitionFocus.requestFocus()
+                }
             }
+        }
+        if (request == focusRequest && holdingFocus && window.isWindowFocused && !holderFocused) {
+            focusManager.clearFocus(force = true)
+            transitionFocus.requestFocus()
         }
     }
     var restore by remember { mutableStateOf(false) }
@@ -101,6 +112,7 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
                 }
             }
             catalog = replacement
+            catalogHandoff = false
         }
     }
     var queryReady by remember(selectedShow) { mutableStateOf(false) }
@@ -147,8 +159,8 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
         .focusProperties { canFocus = holdingFocus }.focusable()) {
     if (selectedShow != null) {
         TVShowBrowser(emptyList(), onOpen, initialShowId = selectedShow, preparedShows = catalog.shows,
-            onExit = { holdFocus(); selectedShow = null; restore = true }, restoreNavigationFocus = true,
-            onNavigationFocusReady = { if (requestIsCurrent()) holdingFocus = false })
+            onExit = { holdFocus(); selectedShow = null; restore = true }, restoreNavigationFocus = !catalogHandoff,
+            onNavigationFocusReady = { if (!catalogHandoff && requestIsCurrent()) holdingFocus = false })
     } else {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ScreenHeader("Search", Modifier.padding(horizontal = ScreenPadding))
@@ -186,13 +198,13 @@ internal fun SearchTab(movies: List<MovieEntity>?, onOpen: (MovieEntity) -> Unit
                             }
                         }
                         when (result) {
-                            is LibrarySearchResult.Show -> TVArtworkCard(result.title, result.subtitle, result.show.posterPath,
+                            is LibrarySearchResult.Show -> TVArtworkCard(result.title, result.subtitle, result.show.posterPath, artworkMovie = result.show.episodes.firstOrNull(),
                                 cardModifier = cardModifier, onClick = open)
                             is LibrarySearchResult.Media -> if (result.item.isPhoto) PhotoTile(result.item, cardModifier, onClick = open)
                             else TVArtworkCard(result.title, result.item.episodeInfo?.let {
                                 "${result.item.seriesTitle ?: it.seriesTitle} · S${it.season} E${it.episode}"
                             } ?: result.item.year?.toString() ?: result.item.mediaKind.label, result.item.posterPath,
-                                cardModifier = cardModifier, onClick = open)
+                                artworkMovie = result.item, cardModifier = cardModifier, onClick = open)
                         }
                     }
                 }

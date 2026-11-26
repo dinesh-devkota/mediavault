@@ -2,7 +2,8 @@ import CineVaultCore
 import Foundation
 
 enum PhotoLocation {
-    static func contains(path: String, root: String) -> Bool {
+    static func contains(path: String, root: String, caseSensitive: Bool = false) -> Bool {
+        if caseSensitive { return WebDAVAddress.contains(path, within: root) }
         guard let file = ScanExclusions.normalizeFile(path: path) else { return false }
         let trimmed = root.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || trimmed == "/" { return true }
@@ -23,8 +24,8 @@ struct PhotoAlbum: Identifiable {
 @MainActor
 enum PhotoLibrary {
     static func isAvailable(_ photo: Movie) -> Bool {
-        MediaFile.isPhoto(path: photo.filePath) && !photo.isDeleted && !photo.isHidden && !photo.isMissing &&
-            photo.source.map { !$0.isDeleted && PhotoLocation.contains(path: photo.filePath, root: $0.rootPath) &&
+        HouseholdStore.shared.allows(photo) && MediaFile.isPhoto(path: photo.filePath) && !photo.isDeleted && !photo.isHidden && !photo.isMissing &&
+            photo.source.map { !$0.isDeleted && PhotoLocation.contains(path: photo.filePath, root: $0.rootPath, caseSensitive: $0.caseSensitivePaths) &&
                 !$0.isIgnored(filePath: photo.filePath) } == true
     }
 
@@ -47,7 +48,9 @@ enum PhotoLibrary {
                 let order = title($0).localizedStandardCompare(title($1))
                 return order == .orderedSame ? $0.filePath < $1.filePath : order == .orderedAscending
             }
-            return PhotoAlbum(id: id, title: id.folder.split(separator: "/").last.map(String.init) ?? source.share,
+            let folderName = id.folder.split(separator: "/").last.map(String.init)
+            let albumName = (source.isJellyfin || source.isPlex) ? source.name : (folderName ?? (source.caseSensitivePaths ? source.name : source.share))
+            return PhotoAlbum(id: id, title: albumName,
                 sourceName: source.name, folder: id.folder, photos: sorted)
         }.sorted {
             let sourceOrder = $0.sourceName.localizedStandardCompare($1.sourceName)

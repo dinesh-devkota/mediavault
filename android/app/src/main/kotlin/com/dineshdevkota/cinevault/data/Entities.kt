@@ -6,6 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.core.LibraryEntry
 import com.dineshdevkota.cinevault.core.EpisodeInfo
 import com.dineshdevkota.cinevault.core.EpisodeParser
@@ -14,6 +15,7 @@ import com.dineshdevkota.cinevault.core.MediaKind
 import com.dineshdevkota.cinevault.core.ScanExclusions
 import com.dineshdevkota.cinevault.core.TitleMatcher
 import com.dineshdevkota.cinevault.core.WatchRules
+import com.dineshdevkota.cinevault.nfs.NFS
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -36,12 +38,19 @@ data class SourceEntity(
     /** Literal folder paths relative to rootPath; excluded rows retain their history. */
     @ColumnInfo(defaultValue = "'[]'") val ignoredFolders: List<String> = emptyList(),
     @ColumnInfo(defaultValue = "'[]'") val ignoredFiles: List<String> = emptyList(),
+    @ColumnInfo(defaultValue = "'smb'") val sourceType: String = "smb",
+    @ColumnInfo(defaultValue = "0") val allowInsecureHttp: Boolean = false,
 ) {
     fun includesFile(filePath: String): Boolean {
+        if (sourceType == "webdav" || sourceType == ONEDRIVE || sourceType == NFS) {
+            return com.dineshdevkota.cinevault.webdav.DavAddress.contains(filePath, rootPath) &&
+                !ScanExclusions.isFileExcluded(filePath, rootPath, ignoredFolders, ignoredFiles, caseSensitive = true)
+        }
         val path = ScanExclusions.normalizeFile(filePath) ?: return false
         val root = if (rootPath.isBlank()) "" else ScanExclusions.normalizeFolder(rootPath) ?: return false
-        return (root.isEmpty() || path.startsWith("$root/", ignoreCase = true)) &&
-            !ScanExclusions.isFileExcluded(path, root, ignoredFolders, ignoredFiles)
+        val caseSensitive = sourceType == com.dineshdevkota.cinevault.plex.PLEX
+        return (root.isEmpty() || path.startsWith("$root/", ignoreCase = !caseSensitive)) &&
+            !ScanExclusions.isFileExcluded(path, root, ignoredFolders, ignoredFiles, caseSensitive = caseSensitive)
     }
 
     fun config(secrets: SecretBox): SourceConfig = SourceConfig(
@@ -51,9 +60,10 @@ data class SourceEntity(
         share = share,
         rootPath = rootPath,
         username = username,
-        password = if (username.isEmpty()) "" else secrets.decrypt(encryptedPassword),
+        password = if (username.isEmpty() || sourceType == ONEDRIVE || sourceType == NFS) "" else secrets.decrypt(encryptedPassword),
         ignoredFolders = ignoredFolders,
         ignoredFiles = ignoredFiles,
+        sourceType = sourceType, allowInsecureHttp = allowInsecureHttp,
     )
 }
 
@@ -90,9 +100,19 @@ data class MovieEntity(
     val seasonPosterPath: String? = null,
     val posterPath: String? = null,
     val backdropPath: String? = null,
+    val localPosterPath: String? = null,
+    val localMetadataJson: String? = null,
+    val edition: String? = null,
+    val localBackdropPath: String? = null,
+    val localSeasonPosterPath: String? = null,
+    @ColumnInfo(defaultValue = "0") val hasLocalMetadata: Boolean = false,
+    val franchiseId: Int? = null,
+    val franchiseName: String? = null,
     override val genres: List<String> = emptyList(),
     val runtimeMinutes: Int? = null,
     override val rating: Double? = null,
+    val ageCertification: String? = null,
+    @ColumnInfo(defaultValue = "0") val certificationFetched: Boolean = false,
     val metadataFetched: Boolean = false,
     /** User renamed / re-matched manually; rescans and auto-match won't overwrite. */
     val isLocked: Boolean = false,
@@ -118,12 +138,13 @@ data class MovieEntity(
         }
 
     val mediaKind: MediaKind
-        get() = MediaFile.kind(filePath, genres, matched = metadataFetched && tmdbId != null, isEpisode = episodeInfo != null)
+        get() = MediaFile.kind(filePath, genres, matched = hasLocalMetadata || (metadataFetched && tmdbId != null), isEpisode = episodeInfo != null)
 
     val seriesKey: String?
         get() {
             val info = episodeInfo ?: return null
             return seriesTmdbId?.let { "tmdb:$it" }
+                ?: com.dineshdevkota.cinevault.plex.plexSeriesId(filePath)?.let { "plex:$sourceId:$it" }
                 ?: "local:${TitleMatcher.normalize(info.seriesTitle)}|${info.year ?: ""}"
         }
 

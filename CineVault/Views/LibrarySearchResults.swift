@@ -56,10 +56,11 @@ struct LibrarySearchResults {
     var shows: [ShowSearchResult] = []
     var episodes: [SearchEpisodeResult] = []
     var photos: [Movie] = []
-    var count: Int { titles.count + shows.count + episodes.count + photos.count }
+    var groupedTitles: [MovieVersionGroup] { MovieVersions.groups(titles) }
+    var count: Int { groupedTitles.count + shows.count + episodes.count + photos.count }
     var isEmpty: Bool { count == 0 }
     var focusIDs: Set<String> {
-        Set(titles.map { "title:\($0.id)" } + shows.map { "show:\($0.id)" } + episodes.map { "episode:\($0.id)" })
+        Set(groupedTitles.map { "title:\($0.representative.id)" } + shows.map { "show:\($0.id)" } + episodes.map { "episode:\($0.id)" })
     }
 
     func movieID(forFocusID id: String) -> UUID? {
@@ -69,7 +70,7 @@ struct LibrarySearchResults {
     }
 
     func focusID(containing movieID: UUID) -> String? {
-        if let title = titles.first(where: { $0.id == movieID }) { return "title:\(title.id)" }
+        if let group = groupedTitles.first(where: { $0.movies.contains { $0.id == movieID } }) { return "title:\(group.representative.id)" }
         if let episode = episodes.first(where: { $0.movie.id == movieID }) { return "episode:\(episode.id)" }
         return shows.first(where: { $0.show.episodes.contains { $0.id == movieID } }).map { "show:\($0.id)" }
     }
@@ -89,9 +90,10 @@ enum LibrarySearch {
 
     @MainActor
     static func isAvailable(_ movie: Movie) -> Bool {
+        guard HouseholdStore.shared.allows(movie) else { return false }
         guard !movie.isDeleted, !movie.isMissing, !movie.isHidden else { return false }
         guard let source = movie.source else { return true }
-        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath) &&
+        return !source.isDeleted && PhotoLocation.contains(path: movie.filePath, root: source.rootPath, caseSensitive: source.caseSensitivePaths) &&
             !source.isIgnored(filePath: movie.filePath)
     }
 

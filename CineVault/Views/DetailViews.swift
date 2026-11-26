@@ -21,9 +21,12 @@ struct MovieDetailView: View {
     @State private var preparationTask: Task<Void, Never>?
     @State private var preparationID = UUID()
     @State private var loadingError: String?
+    @State private var addingToCollection = false
+    @Query private var versionLibrary: [Movie]
 
     var body: some View {
-        if MediaFile.isPhoto(path: movie.filePath) { PhotoDestination(photo: movie) }
+        if !HouseholdStore.shared.allows(movie) { HouseholdUnavailableView() }
+        else if MediaFile.isPhoto(path: movie.filePath) { PhotoDestination(photo: movie) }
         else { movieContent }
     }
 
@@ -48,13 +51,13 @@ struct MovieDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
-                        .buttonStyle(.bordered)
+                        .detailBorderedAction()
                     Text("MEDIAVAULT  /  \(movie.mediaKind.label.uppercased())")
                         .font(.system(size: 18, weight: .semibold))
                         .tracking(3)
                         .foregroundStyle(CinemaTheme.accent)
                     Text(movie.title)
-                        .font(.system(size: 72, weight: .bold))
+                        .font(.system(size: CinemaTheme.detailTitleSize, weight: .bold))
                         .lineLimit(2)
                     if let episode = movie.episodeInfo {
                         Text("\(movie.seriesTitle ?? episode.seriesTitle) · Season \(movie.seasonNumber ?? episode.season) · Episode \(movie.episodeNumber ?? episode.episode)")
@@ -63,6 +66,10 @@ struct MovieDetailView: View {
                     Text(MoviePresentation.metadata(for: movie))
                         .font(.title3)
                         .foregroundStyle(CinemaTheme.secondaryText)
+                    if movie.localEdition != nil || versionLibrary.filter({ LibraryCollectionsStore.available($0) && MovieVersions.key($0) == MovieVersions.key(movie) }).count > 1 {
+                        Text(MovieVersions.label(movie)).font(.callout.bold())
+                        Text(movie.fileName).font(.caption).foregroundStyle(CinemaTheme.secondaryText)
+                    }
 
                     if let tagline = movie.tagline, !tagline.isEmpty {
                         Text(tagline)
@@ -84,7 +91,7 @@ struct MovieDetailView: View {
                     playbackControls
                         .padding(.top, 16)
                     if !movie.isMissing, movie.source?.isIgnored(filePath: movie.filePath) != true,
-                       PlaybackController.isNativeCandidate(movie), playbackServices.canResume(movie),
+                       PlaybackController.isPlaybackCandidate(movie), playbackServices.canResume(movie),
                        let remaining = PlaybackTimeSummary.remaining(duration: movie.duration,
                            runtimeMinutes: movie.runtimeMinutes, position: playbackServices.resumePosition(movie)) {
                         Text(remaining)
@@ -96,20 +103,26 @@ struct MovieDetailView: View {
                         NextEpisodeLink(episode: movie)
                     }
                     personalActions
+                    if versionLibrary.filter({ LibraryCollectionsStore.available($0) && MovieVersions.key($0) == MovieVersions.key(movie) }).count > 1 {
+                        NavigationLink { MovieVersionsView(groupKey: MovieVersions.key(movie)) } label: {
+                            Label("Choose another version", systemImage: "square.stack")
+                        }.detailBorderedAction().accessibilityIdentifier("detail-choose-version")
+                    }
                     fileDetails
                         .padding(.top, 24)
                 }
-                .padding(.horizontal, 90)
-                .padding(.top, 90)
+                .padding(.horizontal, CinemaTheme.detailInset)
+                .padding(.top, CinemaTheme.detailInset)
                 .padding(.bottom, 100)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .sheet(isPresented: $editing) { NavigationStack { EditMovieView(movie: movie) } }
+        .sheet(isPresented: $addingToCollection) { CollectionPickerSheet(movieIDs: [movie.id]) }
         .fullScreenCover(item: $playback) { controller in
             PlaybackScreen(controller: controller, services: playbackServices,
                            library: { (try? modelContext.fetch(FetchDescriptor<Movie>())) ?? [] })
-                .ignoresSafeArea()
+                .playbackScreenEdges()
         }
         .onDisappear { cancelPreparation() }
         .alert("Format not supported", isPresented: $unsupported) {
@@ -133,15 +146,15 @@ struct MovieDetailView: View {
     }
 
     private var playbackControls: some View {
-        HStack(spacing: 24) {
+        CinemaTheme.actionLayout {
             if movie.isMissing || movie.source?.isIgnored(filePath: movie.filePath) == true {
                 Text("File unavailable. Include it again and rescan before playing.")
                     .font(.callout).foregroundStyle(CinemaTheme.secondaryText)
-            } else if !PlaybackController.isNativeCandidate(movie) {
-                Button("Format information") { unsupported = true }.buttonStyle(.bordered)
+            } else if !PlaybackController.isPlaybackCandidate(movie) {
+                Button("Format information") { unsupported = true }.detailBorderedAction()
             } else if isPreparing {
                 ProgressView("Checking media…")
-                Button("Cancel loading") { cancelPreparation() }.buttonStyle(.bordered)
+                Button("Cancel loading") { cancelPreparation() }.detailBorderedAction()
             } else if playbackServices.canResume(movie) {
                 Button { play(resume: true) } label: {
                     Label("Resume \(format(playbackServices.resumePosition(movie)))", systemImage: "play.fill")
@@ -153,7 +166,7 @@ struct MovieDetailView: View {
                 Button { play(resume: false) } label: {
                     Label("Start Over", systemImage: "backward.end.fill")
                 }
-                .buttonStyle(.bordered)
+                .detailBorderedAction()
             } else {
                 Button { play(resume: false) } label: {
                     Label("Play", systemImage: "play.fill")
@@ -164,37 +177,39 @@ struct MovieDetailView: View {
             }
             Button {
                 if playbackServices.resetProgress(movie) {
-                    movie.isWatched.toggle()
+                    movie.householdWatched.toggle()
                 }
             } label: {
-                Label(movie.isWatched ? "Mark Unwatched" : "Mark Watched",
-                      systemImage: movie.isWatched ? "eye.slash" : "checkmark")
+                Label(movie.householdWatched ? "Mark Unwatched" : "Mark Watched",
+                      systemImage: movie.householdWatched ? "eye.slash" : "checkmark")
             }
-            .buttonStyle(.bordered)
-            Button { editing = true } label: {
+            .detailBorderedAction()
+            if HouseholdStore.shared.isAdmin { Button { editing = true } label: {
                 Label("Edit", systemImage: "pencil")
             }
-            .buttonStyle(.bordered)
+            .detailBorderedAction() }
         }
     }
 
     private var personalActions: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Button { addingToCollection = true } label: { Label("Add to collection", systemImage: "rectangle.stack.badge.plus") }
+                .detailBorderedAction().accessibilityIdentifier("detail-add-collection")
             Button {
-                let wasWatchlisted = movie.isWatchlisted
-                movie.isWatchlisted.toggle()
+                let wasWatchlisted = movie.householdWatchlisted
+                movie.householdWatchlisted.toggle()
                 do {
                     try movie.modelContext?.save()
                     watchlistError = nil
                 } catch {
-                    movie.isWatchlisted = wasWatchlisted
+                    movie.householdWatchlisted = wasWatchlisted
                     watchlistError = "Could not save the watchlist: \(error.localizedDescription)"
                 }
             } label: {
-                Label(movie.isWatchlisted ? "Remove from Watchlist" : "Add to Watchlist",
-                      systemImage: movie.isWatchlisted ? "bookmark.fill" : "bookmark")
+                Label(movie.householdWatchlisted ? "Remove from Watchlist" : "Add to Watchlist",
+                      systemImage: movie.householdWatchlisted ? "bookmark.fill" : "bookmark")
             }
-            .buttonStyle(.bordered)
+            .detailBorderedAction()
             if let watchlistError {
                 Text(watchlistError).font(.caption).foregroundStyle(.red)
             }
@@ -212,7 +227,7 @@ struct MovieDetailView: View {
                     Label(source.name, systemImage: "externaldrive")
                 }
                 Text(ByteCountFormatter.string(fromByteCount: movie.fileSize, countStyle: .file))
-                if movie.isWatched {
+                if movie.householdWatched {
                     Label("Watched", systemImage: "checkmark.circle.fill")
                 }
                 if movie.isHidden {
@@ -235,7 +250,7 @@ struct MovieDetailView: View {
     }
 
     private func play(resume: Bool) {
-        guard PlaybackController.isNativeCandidate(movie) else {
+        guard PlaybackController.isPlaybackCandidate(movie) else {
             unsupported = true
             return
         }
@@ -285,6 +300,18 @@ struct MovieDetailView: View {
 
 extension PlaybackController: Identifiable {}
 
+private extension View {
+    @ViewBuilder func detailBorderedAction() -> some View {
+        #if os(tvOS)
+        // tvOS fills unfocused bordered buttons with the accent color. An
+        // inherited accent foreground would hide their labels until focused.
+        self.buttonStyle(.bordered).foregroundStyle(.black)
+        #else
+        self.buttonStyle(.bordered)
+        #endif
+    }
+}
+
 private struct NextEpisodeLink: View {
     let episode: Movie
     @Query private var library: [Movie]
@@ -294,7 +321,7 @@ private struct NextEpisodeLink: View {
             NavigationLink(value: next.movie) {
                 Label(next.subtitle, systemImage: "forward.end")
             }
-            .buttonStyle(.bordered)
+            .detailBorderedAction()
             .accessibilityIdentifier("next-episode")
         }
     }
@@ -355,7 +382,7 @@ struct EditMovieView: View {
                 Toggle("Hidden from library", isOn: $movie.isHidden)
                 Button("Reset Progress") {
                     if playbackServices.resetProgress(movie) {
-                        movie.isWatched = false
+                        movie.householdWatched = false
                     }
                 }
                 #if CINEVAULT_COMMERCIAL
@@ -363,17 +390,19 @@ struct EditMovieView: View {
                     Text(error).foregroundStyle(.red)
                 }
                 #endif
-                Button("Reset to File Name") {
-                    MetadataService.shared.resetToFileName(movie)
-                    Task {
-                        do {
-                            if try MetadataService.shared.hasKey {
-                                try await MetadataService.shared.match(movie)
+                if movie.source?.isPlex != true {
+                    Button("Reset to File Name") {
+                        MetadataService.shared.resetToFileName(movie)
+                        Task {
+                            do {
+                                if try MetadataService.shared.hasKey {
+                                    try await MetadataService.shared.match(movie)
+                                }
+                                try movie.modelContext?.save()
+                                dismiss()
+                            } catch {
+                                message = "Could not reset the movie: \(error.localizedDescription)"
                             }
-                            try movie.modelContext?.save()
-                            dismiss()
-                        } catch {
-                            message = "Could not reset the movie: \(error.localizedDescription)"
                         }
                     }
                 }

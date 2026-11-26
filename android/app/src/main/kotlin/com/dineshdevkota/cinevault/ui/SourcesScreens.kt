@@ -1,10 +1,12 @@
-@file:OptIn(ExperimentalTvMaterial3Api::class)
+@file:OptIn(ExperimentalTvMaterial3Api::class, ExperimentalLayoutApi::class)
 
 package com.dineshdevkota.cinevault.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,11 +32,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.BuildConfig
+import com.dineshdevkota.cinevault.cloud.DROPBOX
 import com.dineshdevkota.cinevault.core.NasAddress
 import com.dineshdevkota.cinevault.data.MovieEntity
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
+import com.dineshdevkota.cinevault.nfs.NFS
+import com.dineshdevkota.cinevault.plex.PLEX
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,9 +49,10 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun SourcesTab(movies: List<MovieEntity>) {
+    if (!LocalContext.current.container.family.current.admin) { AdminRequired(); return }
     val context = LocalContext.current
     val container = context.container
-    val sources by remember { container.database.sources().observeAll() }.collectAsStateWithLifecycle(emptyList())
+    val sources by remember { container.library.observeSources() }.collectAsStateWithLifecycle(emptyList())
     val scanning by container.scanner.isScanning.collectAsStateWithLifecycle()
     val status by container.scanner.status.collectAsStateWithLifecycle()
     val counts = remember(movies) { movies.filter { !it.isMissing }.groupingBy { it.sourceId }.eachCount() }
@@ -53,13 +61,18 @@ fun SourcesTab(movies: List<MovieEntity>) {
         contentPadding = PaddingValues(start = ScreenPadding, end = ScreenPadding, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item { ScreenHeader("Sources", kicker = "YOUR NAS") }
+        item { ScreenHeader("Sources") }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Button(onClick = { NasSetupActivity.start(context) }) { Text("Add NAS Source") }
+                OutlinedButton(onClick = { JellyfinSetupActivity.start(context) }) { Text("Connect Jellyfin") }
+                OutlinedButton(onClick = { PlexSetupActivity.start(context) }) { Text("Connect Plex") }
+                OutlinedButton(onClick = { OneDriveSetupActivity.start(context) }) { Text("Connect OneDrive") }
+                OutlinedButton(onClick = { DropboxSetupActivity.start(context) }) { Text("Connect Dropbox") }
+                if (container.nfs != null) OutlinedButton(onClick = { NfsSetupActivity.start(context) }) { Text("Connect NFS") }
                 OutlinedButton(
                     onClick = { container.scope.launch { container.scanner.scanAll() } },
-                    enabled = !scanning && sources.isNotEmpty(),
+                    enabled = !scanning && sources.any { it.sourceType != NFS || container.nfs != null },
                 ) {
                     Text(if (scanning) "Scanning…" else "Rescan All")
                 }
@@ -75,48 +88,80 @@ fun SourcesTab(movies: List<MovieEntity>) {
             }
         }
         if (sources.isEmpty()) {
-            item { EmptyState("No NAS sources yet", "Find your NAS, sign in if needed, then choose your movie folder.") }
+            item { EmptyState("No sources yet", "Connect a source and choose a media folder or library.") }
         }
         items(sources, key = { it.id }) { source ->
             SourceRow(
                 source,
                 count = counts[source.id] ?: 0,
                 scanning = scanning,
+                available = source.sourceType != NFS || container.nfs != null,
                 onScan = { container.scope.launch { container.scanner.scan(source.id) } },
-                onEdit = { SourceEditorActivity.start(context, source.id) },
+                onEdit = {
+                    when (source.sourceType) {
+                        JELLYFIN -> JellyfinSetupActivity.start(context, source.id)
+                        PLEX -> PlexSetupActivity.start(context, source.id)
+                        ONEDRIVE -> OneDriveSetupActivity.start(context, source.id)
+                        DROPBOX -> DropboxSetupActivity.start(context, source.id)
+                        NFS -> NfsSetupActivity.start(context, source.id)
+                        else -> SourceEditorActivity.start(context, source.id)
+                    }
+                },
             )
         }
     }
 }
 
 @Composable
-private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, onScan: () -> Unit, onEdit: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(SurfaceColor).padding(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
+private fun SourceRow(source: SourceEntity, count: Int, scanning: Boolean, available: Boolean, onScan: () -> Unit, onEdit: () -> Unit) {
+    val details: @Composable (Modifier) -> Unit = { modifier ->
+        Column(modifier) {
             Text(source.name, style = MaterialTheme.typography.titleMedium)
             Text(sourceUrl(source), style = MaterialTheme.typography.bodyMedium, color = SecondaryText)
             Text(
-                "$count items · ${source.lastScanAt?.let { "Last scanned ${formatDate(it)}" } ?: "Ready for first scan"}",
+                if (available) "$count items · ${source.lastScanAt?.let { "Last scanned ${formatDate(it)}" } ?: "Ready for first scan"}"
+                else "Unavailable in this build",
                 style = MaterialTheme.typography.labelMedium,
                 color = SecondaryText,
             )
         }
-        OutlinedButton(onClick = onScan, enabled = !scanning) { Text("Scan") }
-        OutlinedButton(onClick = onEdit) { Text("Edit") }
+    }
+    val controls: @Composable () -> Unit = {
+        OutlinedButton(onClick = onScan, enabled = !scanning && available) { Text("Scan") }
+        OutlinedButton(onClick = onEdit, enabled = available) { Text("Edit") }
+    }
+    val card = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(SurfaceColor).padding(20.dp)
+    if (LocalTvLayout.current) Row(
+        card, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        details(Modifier.weight(1f))
+        controls()
+    } else Column(card, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        details(Modifier.fillMaxWidth())
+        AdaptiveActions(content = controls)
     }
 }
 
 fun sourceUrl(source: SourceEntity): String {
+    if (source.sourceType == DROPBOX) return "Dropbox / ${source.rootPath}"
+    if (source.sourceType == JELLYFIN || source.sourceType == PLEX) return source.host
+    if (source.sourceType == ONEDRIVE) return "OneDrive · ${source.username}"
+    if (source.sourceType == "webdav") return listOf(source.host, source.rootPath).filter(String::isNotEmpty).joinToString(" / ")
     val address = runCatching { NasAddress.parse(source.host, source.port) }.getOrNull() ?: return "Invalid NAS address"
+    if (source.sourceType == NFS) return "nfs://${address.authority}" +
+        if (source.rootPath.isEmpty()) source.share else "${source.share.trimEnd('/')}/${source.rootPath}"
     return "smb://" + listOf(address.authority, source.share, source.rootPath).filter { it.isNotEmpty() }.joinToString("/")
 }
 
 @Composable
 fun SettingsTab() {
+    if (!LocalContext.current.container.family.current.admin) {
+        Column(Modifier.padding(ScreenPadding), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            HouseholdButton()
+            Text("Shared settings are managed by Admin.", color = SecondaryText)
+        }
+        return
+    }
     val context = LocalContext.current
     val container = context.container
     val settings = container.settings
@@ -147,8 +192,9 @@ fun SettingsTab() {
     ) {
         item { ScreenHeader("Settings", kicker = "MEDIAVAULT",
             trailing = "Version ${BuildConfig.VERSION_NAME} · Build ${BuildConfig.VERSION_CODE}") }
+        item { HouseholdButton() }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            AdaptiveActions() {
                 OutlinedButton(onClick = { MediaGuideActivity.start(context) }) { Text("Media Guide & Help") }
                 OutlinedButton(onClick = { PlaybackSettingsActivity.start(context) }) { Text("Playback & Subtitles") }
             }
@@ -166,7 +212,7 @@ fun SettingsTab() {
             )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            AdaptiveActions() {
                 Button(enabled = keyLoaded && !saving, onClick = {
                     val newKey = apiKey
                     saving = true

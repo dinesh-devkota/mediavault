@@ -59,6 +59,7 @@ actor PhotoImageLoader {
     static let maximumDecodedPixels = 4_194_304
     static let maximumDecodedBytes = 32 * 1024 * 1024
     private let slots: PhotoLoadSlots
+    private let household: HouseholdStore
     private let fileSize: (SourceConfig, String) async throws -> Int64
     private let read: (SourceConfig, String, Int64, Int) async throws -> Data
     private var cache: [CacheKey: CachedImage] = [:]
@@ -67,14 +68,15 @@ actor PhotoImageLoader {
     private let cacheLimit = 64 * 1024 * 1024
 
     private struct CacheKey: Hashable {
+        let artworkTag: String?
         let config: SourceConfig
         let path: String
         let size: Int64
         let pixels: Int
         let revision: Date?
-        init(_ config: SourceConfig, _ path: String, _ size: Int64, _ pixels: Int, _ revision: Date?) {
+        init(_ config: SourceConfig, _ path: String, _ size: Int64, _ pixels: Int, _ revision: Date?, _ artworkTag: String?) {
             self.config = config; self.path = path; self.size = size; self.pixels = pixels
-            self.revision = revision
+            self.revision = revision; self.artworkTag = artworkTag
         }
     }
     private final class CachedImage {
@@ -86,7 +88,8 @@ actor PhotoImageLoader {
 
     init(fileSize: ((SourceConfig, String) async throws -> Int64)? = nil,
          read: ((SourceConfig, String, Int64, Int) async throws -> Data)? = nil,
-         onQueued: @escaping () -> Void = {}) {
+         onQueued: @escaping () -> Void = {}, household: HouseholdStore = .shared) {
+        self.household = household
         slots = PhotoLoadSlots(onQueued: onQueued)
         let service = SMBService(timeout: 15)
         self.fileSize = fileSize ?? { try await service.fileSize($0, path: $1) }
@@ -111,39 +114,56 @@ actor PhotoImageLoader {
         cache[key] = CachedImage(image, cost: cost); cacheOrder.append(key); cacheCost += cost
     }
 
-    func image(config: SourceConfig, path: String, knownSize: Int64, maxPixelSize: Int, revision: Date? = nil) async throws -> UIImage {
+    func image(config: SourceConfig, path: String, knownSize: Int64, maxPixelSize: Int, revision: Date? = nil, artworkTag: String? = nil) async throws -> UIImage {
+        let session = household.sessionToken
+        func checkAccess() throws {
+            guard household.sessionIsCurrent(session),
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths,
+                                       entireSourceOnly: config.isPlex) else { throw PhotoLoadingError.unavailable }
+        }
+        try checkAccess()
         try Task.checkCancellation()
-        guard MediaFile.isPhoto(path: path), MediaFile.shouldIndex(path: path, size: 1),
-              PhotoLocation.contains(path: path, root: config.rootPath), !config.excludesFile(path) else { throw PhotoLoadingError.unavailable }
+        let isArtwork = (config.isJellyfin || config.isPlex) && artworkTag?.isEmpty == false
+        guard isArtwork || MediaFile.isPhoto(path: path) && MediaFile.shouldIndex(path: path, size: 1),
+              PhotoLocation.contains(path: path, root: config.rootPath, caseSensitive: config.caseSensitivePaths), !config.excludesFile(path) else { throw PhotoLoadingError.unavailable }
         guard knownSize <= Self.maximumEncodedBytes else { throw PhotoLoadingError.tooLarge }
         let pixels = min(Self.viewingPixels, max(1, maxPixelSize))
-        let key = CacheKey(config, path, knownSize, pixels, revision)
+        let key = CacheKey(config, path, knownSize, pixels, revision, artworkTag)
         if let cached = cachedImage(for: key) { return cached }
         try await slots.acquire()
         do {
             try Task.checkCancellation()
+            try checkAccess()
             // Another waiting thumbnail may already have completed this request.
             if let cached = cachedImage(for: key) {
                 await slots.release(); return cached
             }
-            let size = try await fileSize(config, path)
-            try Task.checkCancellation()
-            guard size > 0 else { throw PhotoLoadingError.invalidImage }
-            guard size <= Self.maximumEncodedBytes else { throw PhotoLoadingError.tooLarge }
-            var bytes = Data()
-            bytes.reserveCapacity(Int(size))
-            var offset: Int64 = 0
-            while offset < size {
+            let bytes: Data
+            if config.isPlex {
+                let connection = try PlexSourceConnection(config: config)
+                let id = try PlexSourceConnection.itemID(for: path, photo: !isArtwork)
+                try await connection.client.verifyIdentity()
+                try checkAccess()
+                let item = try await connection.client.item(id: id, in: connection.sectionID)
+                try checkAccess()
+                guard isArtwork ? ["movie", "episode"].contains(item.type) && item.thumb == artworkTag : item.type == "photo" else {
+                    throw PhotoLoadingError.unavailable
+                }
+                bytes = try await connection.client.image(for: item)
+                try checkAccess()
+            } else if config.isJellyfin {
+                let connection = try JellyfinSourceConnection(config: config)
+                let id = try JellyfinSourceConnection.itemID(for: path)
+                bytes = try await connection.client.readPrimaryImage(itemID: id, tag: artworkTag, maxPixels: pixels, account: connection.account)
                 try Task.checkCancellation()
-                let length = Int(min(1024 * 1024, size - offset))
-                let chunk = try await read(config, path, offset, length)
-                try Task.checkCancellation()
-                guard !chunk.isEmpty, chunk.count <= length else { throw SMBError.unexpectedEndOfFile }
-                bytes.append(chunk); offset += Int64(chunk.count)
+                try checkAccess()
+            } else {
+                bytes = try await readNASImage(config: config, path: path, checkAccess: checkAccess)
             }
             let image = try Self.decode(bytes, maxPixelSize: pixels)
             try Task.checkCancellation()
             let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? pixels * pixels * 4
+            try checkAccess()
             store(image, for: key, cost: cost)
             await slots.release()
             return image
@@ -151,6 +171,27 @@ actor PhotoImageLoader {
             await slots.release()
             throw error
         }
+    }
+
+    private func readNASImage(config: SourceConfig, path: String, checkAccess: () throws -> Void) async throws -> Data {
+        let size = try await fileSize(config, path)
+        try Task.checkCancellation()
+        try checkAccess()
+        guard size > 0 else { throw PhotoLoadingError.invalidImage }
+        guard size <= Self.maximumEncodedBytes else { throw PhotoLoadingError.tooLarge }
+        var bytes = Data()
+        bytes.reserveCapacity(Int(size))
+        var offset: Int64 = 0
+        while offset < size {
+            try Task.checkCancellation()
+            let length = Int(min(1024 * 1024, size - offset))
+            let chunk = try await read(config, path, offset, length)
+            try Task.checkCancellation()
+            try checkAccess()
+            guard !chunk.isEmpty, chunk.count <= length else { throw SMBError.unexpectedEndOfFile }
+            bytes.append(chunk); offset += Int64(chunk.count)
+        }
+        return bytes
     }
 
     nonisolated static func decode(_ data: Data, maxPixelSize: Int) throws -> UIImage {
