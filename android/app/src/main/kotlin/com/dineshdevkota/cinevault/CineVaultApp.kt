@@ -4,6 +4,9 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import com.dineshdevkota.cinevault.cloud.AndroidOneDriveAccountStore
+import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
+import com.dineshdevkota.cinevault.cloud.GoogleDriveDocuments
+import com.dineshdevkota.cinevault.cloud.GoogleDriveSourceStore
 import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.cloud.OneDriveMedia
 import com.dineshdevkota.cinevault.data.CineVaultDatabase
@@ -47,8 +50,11 @@ class AppContainer(context: Context) {
     val database = CineVaultDatabase.create(context)
     val library = com.dineshdevkota.cinevault.family.FamilyLibrary(database, family)
     val collections = com.dineshdevkota.cinevault.library.MediaCollections(context, family, library)
+    internal val googleDriveDocuments = GoogleDriveDocuments(context)
+    internal val googleDriveSources = GoogleDriveSourceStore(
+        context, database, secrets, googleDriveDocuments)
     internal val oneDrive = OneDriveMedia(AndroidOneDriveAccountStore(context, secrets))
-    private val fileSources = mapOf(ONEDRIVE to oneDrive)
+    private val fileSources = mapOf(ONEDRIVE to oneDrive, GOOGLE_DRIVE_DOCUMENTS to googleDriveDocuments)
     val smb = SmbService(fileSources = fileSources)
     val photos = NasPhotoLoader(context, database, secrets, NasPhotoLoader.photoService(fileSources), family = family)
     val playbackProgress = PlaybackProgressWriter(scope)

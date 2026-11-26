@@ -327,6 +327,38 @@ application configured for personal Microsoft accounts and public client device
 flow with delegated Files.Read, plus a dedicated OneDrive test account. See
 `docs/TESTING.md` for the app setting and build property.
 
+## Google Drive on Android
+
+On Android devices that expose the Google Drive documents provider and Android's
+file picker, Sources can connect a user-selected Drive folder. If Drive cannot
+provide a tree grant on that device, select the media files and matching subtitle
+files together using the per-file option. The app saves read-only Android URI
+grants and never receives a Google password, refresh token, or client secret.
+Google Drive handles Google account authorization. Reconnect with the same
+selection to keep the source identity, viewer grants, and history. Add a new
+source for a different selection. MediaVault's household administrator grants
+each viewer access explicitly. The source picker opens outside MediaVault, so
+unlock Admin after returning when household controls are enabled. Folder listings
+validate each step against the selected tree and respect Drive's case-sensitive
+names. Drive media uses filename and online metadata matching. Local NFO and XML
+import remains available for SMB, WebDAV, and OneDrive.
+
+Google's TV OAuth flow permits the per-file `drive.file` scope and requires a
+client secret during token polling. Broad `drive.readonly` has restricted-scope
+qualification and review requirements. A registered web Picker companion using
+`drive.file` is the supported next route for Apple TV and Android TVs without
+the native Drive provider. It requires a Google Cloud project with Drive and
+Picker APIs, registered OAuth consent and client, a deployed HTTPS companion
+with the secret held server-side, and a dedicated test account. Choosing a
+folder via Picker should not be used to claim authorization for arbitrary
+unselected descendants. The Drive REST clients on the draft remain available
+for that integration.
+
+Google documentation
+[Android Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files)
+· [Limited-input device OAuth](https://developers.google.com/identity/protocols/oauth2/limited-input-device)
+· [Google Drive authorization scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
+
 ## Google Drive through Files on iPhone
 
 The iPhone branch uses Apple’s document picker. In Files, enable Google Drive

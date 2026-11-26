@@ -20,6 +20,7 @@ import com.dineshdevkota.cinevault.cloud.ONEDRIVE
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.family.*
 import com.dineshdevkota.cinevault.data.SourceEntity
+import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
 import com.dineshdevkota.cinevault.emby.EMBY
 import com.dineshdevkota.cinevault.jellyfin.JELLYFIN
 import com.dineshdevkota.cinevault.plex.PLEX
@@ -270,7 +271,9 @@ private fun ProfileEditor(original: HouseholdProfile, onClose: () -> Unit) {
                 }
             } }
             sources.forEach { source -> item(key = source.id) { PermissionFolderPicker(source) { folder ->
-                val grant = FolderAccess(source.id, folder, caseSensitive = source.sourceType in setOf("webdav", JELLYFIN, PLEX, ONEDRIVE, EMBY))
+                val grant = FolderAccess(source.id, folder,
+                    caseSensitive = source.sourceType in setOf("webdav", JELLYFIN, PLEX, ONEDRIVE, GOOGLE_DRIVE_DOCUMENTS, EMBY),
+                )
                 if (grant !in draft.folders) draft = draft.copy(folders = draft.folders + grant)
             } } }
             item { RatingSelector("US movies", FamilyPolicy.movieRatings, draft.movieLimit) { draft = draft.copy(movieLimit = it) } }
@@ -320,6 +323,10 @@ private fun RatingSelector(label: String, values: List<String>, selected: String
 
 @Composable
 private fun PermissionFolderPicker(source: SourceEntity, onSelect: (String) -> Unit) {
+    if (source.sourceType == GOOGLE_DRIVE_DOCUMENTS) {
+        OutlinedButton(onClick = { onSelect("") }) { Text("Allow Google Drive selection · ${source.name}") }
+        return
+    }
     if (source.sourceType in setOf(JELLYFIN, PLEX, EMBY)) {
         val provider = when (source.sourceType) {
             PLEX -> "Plex"
