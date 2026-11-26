@@ -298,8 +298,13 @@ contrast and waits on the hosted screenshot and simulator checks.
   hidden and the Done control is absent from a valid native hierarchy containing
   the same form field. The iPhone fixture checks real MKV pause and teardown
   after touch and allows WebDAV time to surface its configured transport error.
-  All 32 Vega harness checks and 23 package checks passed locally. Exact hosted
-  Fire OS, Android, Apple, and Vega validation is pending.
+  Local Node 22 validation passed 88 domain, 32 harness and 23 package tests.
+  Fire OS passed the API 22, 25 and 28 checks. Exact Vega run `45881504304`
+  built all three package architectures and passed production startup and nine
+  simulator stages, including real MP4 seeks to 11, 41, 31 and 21 seconds.
+  The SDK reported error 50004 on the separate MKV native seek attempt and
+  the player retained the confirmed checkpoint. Android retry and Apple gates
+  remain under the PR's checks.
 - Apple simulator reliability #31 now includes the merged iPhone sources at
   `b7920f5`. Its photo controls use the existing TV bordered style, making
   Previous, Next, and Back readable. The earlier exact `0ae7fdf` signed preview

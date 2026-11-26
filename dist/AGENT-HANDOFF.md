@@ -7,6 +7,26 @@ below retain their original names. Development work remains on
 `dinesh-devkota-sonepar-build-cinevault-tvos-app`; the workspace and private
 `CineVaultCommercial` repository retain their existing names.
 
+## Fire TV and Vega acceptance update — November 26, 2026
+
+PR #16 merged into development at `2dc56fd` after the exact Android and
+Apple device-emulation suites passed. PR #20 is at `db5334f` over that tested
+development revision. Fire OS passed its API 22, 25 and 28 checks. Vega's exact
+build packaged `armv7`, `aarch64` and `x86_64`. Production startup and every
+synthetic journey passed, including native keyboard dismissal, subtitle selection,
+continuous viewing and household PIN checks.
+[Vega acceptance run](https://github.com/dinesh-devkota/mediavault/actions/runs/45881504304)
+
+The hosted artifact confirms four actual MP4 transport commands reached 11,
+41, 31 and 21 seconds. The MKV seek attempt returned SDK error 50004 and the
+player preserved the confirmed position and checkpoint. An additional Node 22
+host benchmark used 10,000 synthetic items and asserted identical catalog
+results. Collection grouping median was 250 ms before and 30 ms after. Unchanged
+filtered Home derivation fell from 76 ms to below 0.01 ms. These measurements
+cover host-side data derivation. The exact PR still needs the Android retry and
+Apple simulator gates before merging.
+[Virtual-device evidence](https://github.com/dinesh-devkota/mediavault/actions/runs/45881504304/artifacts/15147464348)
+
 ## Active library/playback work — November 25, 2026
 
 Current public candidate: `d5a9ab6` on `codex/mediavault-library-playback`,
