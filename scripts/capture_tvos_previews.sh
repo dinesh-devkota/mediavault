@@ -42,7 +42,7 @@ xcrun simctl install "$DEVICE" "$APP"
 LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview)
 echo "$LAUNCH"
 PID="${LAUNCH##*: }"
-capture_when_ready "$RUNNER_TEMP/cinevault-home.png" "Welcome to MediaVault" "Continue Watching" "Next available" "S01E03"
+capture_when_ready "$RUNNER_TEMP/cinevault-home.png" "Welcome to MediaVault" "Continue Watching" "Next available" "S01E03" "See all"
 xcrun simctl terminate "$DEVICE" com.dineshdevkota.cinevault
 LAUNCH=$(xcrun simctl launch "$DEVICE" com.dineshdevkota.cinevault --ui-preview-detail)
 echo "$LAUNCH"

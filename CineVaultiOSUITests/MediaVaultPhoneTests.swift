@@ -236,6 +236,27 @@ final class MediaVaultPhoneTests: XCTestCase {
     }
 
     @MainActor
+    func testPrivacyPolicyIsReadableFromTheLockedProfilePicker() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview-household"]
+        app.launch()
+
+        let policy = app.buttons.matching(NSPredicate(format: "label == %@", "Privacy policy")).firstMatch
+        XCTAssertTrue(policy.waitForExistence(timeout: 15), app.debugDescription)
+        policy.tap()
+        let intro = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@",
+            "This policy applies to the official MediaVault app.")).firstMatch
+        XCTAssertTrue(intro.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.staticTexts["Restricted Feature"].exists)
+        XCTAssertFalse(app.tabBars.buttons["Profile"].exists)
+
+        let navigation = app.navigationBars["Privacy policy"]
+        XCTAssertTrue(navigation.waitForExistence(timeout: 10), app.debugDescription)
+        navigation.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["household-profile-Admin"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
     func testViewerOnlySeesAllowedTitlesOnPhone() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-preview-household"]
