@@ -92,7 +92,7 @@ internal class OneDriveClient(
             it.isSafeTls() && it.host in VERIFICATION_HOSTS
         } ?: throw CloudClientException("Microsoft returned an invalid verification address.")
         if (result.expiresIn !in 1..3600 || result.interval !in 1..3600 ||
-            result.deviceCode.isBlank() || result.userCode.isBlank()
+            result.deviceCode.isBlank() || !USER_CODE.matches(result.userCode)
         ) {
             throw CloudClientException("Microsoft returned an invalid sign-in challenge.")
         }
@@ -235,6 +235,7 @@ internal class OneDriveClient(
     private companion object {
         val GRAPH = "https://graph.microsoft.com/v1.0/me/drive".toHttpUrl()
         val OAUTH = "https://login.microsoftonline.com/consumers/oauth2/v2.0".toHttpUrl()
+        val USER_CODE = Regex("[A-Z0-9-]{4,32}")
         val ITEM_ID = Regex("[A-Za-z0-9!_-]{1,256}")
         val VERIFICATION_HOSTS = setOf("microsoft.com", "www.microsoft.com", "login.microsoftonline.com")
         const val SCOPE = "https://graph.microsoft.com/Files.Read offline_access"

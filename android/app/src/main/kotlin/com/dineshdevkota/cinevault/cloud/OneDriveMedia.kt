@@ -11,6 +11,7 @@ import com.dineshdevkota.cinevault.smb.ScanProgress
 import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.dineshdevkota.cinevault.smb.SubtitleDiscovery
 import com.dineshdevkota.cinevault.smb.SubtitleFile
+import com.dineshdevkota.cinevault.webdav.DavAddress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -24,8 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal const val ONEDRIVE = "onedrive"
 
 internal fun isOneDriveFileName(name: String): Boolean =
-    name.isNotBlank() && name != "." && name != ".." &&
-        name.none { it in "\\/:*<>?|" || it.isISOControl() }
+    name.isNotBlank() && DavAddress.safeComponent(name) &&
+        name.none { it in ":*<>?|" || it.isISOControl() }
 
 private fun String.oneDriveParts(): List<String> {
     if (isEmpty()) return emptyList()
@@ -103,7 +104,7 @@ internal class OneDriveMedia(
         if (!MediaFile.requiresContentCheck(path)) return true
         val opened = resolveFile(config, path)
         if (opened.size <= 0) return false
-        return MediaFile.isTransportStream(opened.read(0, minOf(opened.size, 1024L).toInt()))
+        return MediaFile.isPlayableTransportStream(opened.read(0, minOf(opened.size, 1024L).toInt()))
     }
 
     override fun open(config: SourceConfig, path: String): RemoteHandle = blocking {

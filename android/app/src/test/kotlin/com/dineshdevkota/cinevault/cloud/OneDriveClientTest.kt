@@ -157,6 +157,39 @@ class OneDriveClientTest {
         assertEquals(2, calls.get())
     }
 
+    @Test
+    fun scopedReadsRejectPathReplacementAndChangesInContentRangeSize() = runTest {
+        val scoped = OneDriveClient.ScopedFile("folder", listOf("Season 1", "Clip #1.mp4"), 16)
+        var graphItem = "replaced"
+        var total = 17
+        var downloads = 0
+        val client = OneDriveClient(APP_ID, OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            when (request.url.host) {
+                "graph.microsoft.com" -> {
+                    assertEquals(listOf("v1.0", "me", "drive", "items", "folder:", "Season 1", "Clip #1.mp4"), request.url.pathSegments)
+                    assertEquals("Bearer access", request.header("Authorization"))
+                    response(request, """{"id":"$graphItem","name":"Clip #1.mp4","@microsoft.graph.downloadUrl":"https://fixture.example/clip"}""")
+                }
+                "fixture.example" -> {
+                    downloads++
+                    assertNull(request.header("Authorization"))
+                    assertEquals("bytes=4-7", request.header("Range"))
+                    response(request, "clip", code = 206, range = "bytes 4-7/$total")
+                }
+                else -> error("Unexpected provider origin.")
+            }
+        }.build())
+        assertInvalid { client.read("original", 4, 4, "access", scoped) }
+        assertEquals("Replacement never reaches the download host", 0, downloads)
+
+        graphItem = "original"
+        assertInvalid { client.read("original", 4, 4, "access", scoped) }
+        total = 16
+        assertEquals("clip", client.read("original", 4, 4, "access", scoped).decodeToString())
+        assertEquals(2, downloads)
+    }
+
     private suspend fun assertInvalid(block: suspend () -> Unit) {
         try {
             block()
