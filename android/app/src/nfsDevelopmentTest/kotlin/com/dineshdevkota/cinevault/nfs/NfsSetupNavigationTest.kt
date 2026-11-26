@@ -27,7 +27,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.dineshdevkota.cinevault.MainActivity
 import com.dineshdevkota.cinevault.container
 import com.dineshdevkota.cinevault.playback.Media3FixturePlayback
-import com.dineshdevkota.cinevault.ui.NfsSetupActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -56,8 +55,9 @@ class NfsSetupNavigationTest {
         check(NfsDevelopment.available)
         val name = "Synthetic NFS fixture"
         try {
-            ActivityScenario.launch(MainActivity::class.java).use { home ->
-                home.onActivity { NfsSetupActivity.start(it) }
+            val source = ActivityScenario.launch(MainActivity::class.java).use {
+                press("Sources")
+                press("Connect NFS")
                 visible(hasText("Source name") and hasSetTextAction()).performTextReplacement(name)
                 visible(hasText("Server hostname or IP") and hasSetTextAction()).performTextReplacement("10.0.2.2")
                 visible(hasText("Export path (for example /media)") and hasSetTextAction()).performTextReplacement("/media")
@@ -66,7 +66,7 @@ class NfsSetupNavigationTest {
                 visible(hasText("Media folder · Library"))
                 press("Save Folder & Scan")
 
-                val source = withTimeout(20_000) {
+                withTimeout(20_000) {
                     var saved = sources.all().singleOrNull { it.name == name && it.lastScanAt != null }
                     while (saved == null) {
                         delay(100)
@@ -74,20 +74,25 @@ class NfsSetupNavigationTest {
                     }
                     requireNotNull(saved)
                 }
-                assertEquals(NFS, source.sourceType)
-                assertEquals("Library", source.rootPath)
-                assertTrue(source.encryptedPassword.isEmpty())
-                val movies = app.database.movies().forSource(source.id)
-                val video = "Library/Movie.mp4"
-                val image = "Library/Photos/01.jpg"
-                assertEquals(setOf(video, image), movies.map { it.filePath }.toSet())
-                val bitmap = app.photos.load(movies.single { it.filePath == image }.id, thumbnail = true)
-                assertTrue(bitmap.width > 0 && bitmap.height > 0)
-                val config = source.config(app.secrets)
-                assertEquals("Library/Movie.en.srt", app.smb.readSubtitleSidecars(config, video).files.single().match.path)
-                Media3FixturePlayback.verify(Uri.parse("nfs://fixture/Movie.mp4")) { app.smb.open(config, video) }
+            }
+            assertEquals(NFS, source.sourceType)
+            assertEquals("Library", source.rootPath)
+            assertTrue(source.encryptedPassword.isEmpty())
+            val movies = app.database.movies().forSource(source.id)
+            val video = "Library/Movie.mp4"
+            val image = "Library/Photos/01.jpg"
+            assertEquals(setOf(video, image), movies.map { it.filePath }.toSet())
+            val bitmap = app.photos.load(movies.single { it.filePath == image }.id, thumbnail = true)
+            assertTrue(bitmap.width > 0 && bitmap.height > 0)
+            val config = source.config(app.secrets)
+            assertEquals("Library/Movie.en.srt", app.smb.readSubtitleSidecars(config, video).files.single().match.path)
+            // The rendering helper owns its own MainActivity. Avoid overlapping activity scenarios.
+            Media3FixturePlayback.verify(Uri.parse("nfs://fixture/Movie.mp4")) { app.smb.open(config, video) }
 
-                home.onActivity { NfsSetupActivity.start(it, source.id) }
+            ActivityScenario.launch(MainActivity::class.java).use {
+                press("Sources")
+                visible(hasText(name))
+                press("Edit")
                 press("Reconnect and browse")
                 press("Open saved media folder")
                 visible(hasText("Media folder · Library"))
@@ -110,8 +115,13 @@ class NfsSetupNavigationTest {
     private fun visible(matcher: SemanticsMatcher): SemanticsNodeInteraction {
         compose.waitUntil(timeoutMillis = 15_000) {
             try {
-                compose.onNode(hasScrollToIndexAction()).performScrollToNode(matcher)
-                compose.onNode(matcher).assertIsDisplayed()
+                val node = compose.onNode(matcher)
+                try {
+                    node.assertIsDisplayed()
+                } catch (_: AssertionError) {
+                    compose.onNode(hasScrollToIndexAction()).performScrollToNode(matcher)
+                    node.assertIsDisplayed()
+                }
                 true
             } catch (_: AssertionError) { false }
         }

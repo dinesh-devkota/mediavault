@@ -144,9 +144,21 @@ jobs:
           if len(cases) != len(expected) or observed != expected or failed:
               raise SystemExit(f"Every Android TV NFS fixture must pass. Missing: {sorted(expected - observed)}")
           PYCODE
-          if rg "^NFS fixture protocol error:" "$RUNNER_TEMP/nfs-fixture.log" "$RUNNER_TEMP/nfs-media-fixture.log"; then
+          if grep -H "^NFS fixture protocol error:" "$RUNNER_TEMP/nfs-fixture.log" "$RUNNER_TEMP/nfs-media-fixture.log"; then
             exit 1
           fi
+      - name: Retain NFS fixture failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-tv-nfs-fixture-failure
+          retention-days: 5
+          if-no-files-found: ignore
+          path: |
+            android/app/build/outputs/androidTest-results
+            android/app/build/reports/androidTests/connected/debug
+            ${{ runner.temp }}/nfs-fixture.log
+            ${{ runner.temp }}/nfs-media-fixture.log
       - name: Stop the fixtures
         if: always()
         run: |
