@@ -83,6 +83,21 @@ actual overlap. This caption/fixture follow-up awaits hosted phone and TV checks
 Full TLS evidence is in `.artifacts/apple-phone-d6e2600-full`; the inspected
 metadata screenshot is in `.artifacts/apple-phone-d6e2600/iphone-test-screenshots`.
 
+At `7983719`, Apple TV passed 233/233 (`45733330571`), and iPhone passed
+222/223 plus unsigned release (`45733330589`). Both MKV journeys and the new
+caption-clearance assertions passed: reviewed Text bounds are phone bottom
+617.3 before title 649.3, and TV bottom 810 before title 842. The phone WebDAV
+authentication and scan now succeed. Its remaining test failure is a transient
+system Save Password offer appearing inside the Library tap: the synthesized
+event targets the real tab at (132.25, 822), but the recording shows that touch
+dismisses the offer and leaves Manage selected. Between-action sheet queries
+miss the entire interruption. The helper now registers XCTest's documented
+interruption monitor for this exact offer and permits another tab tap only if
+that handler actually declined it. The ten-second budget and actual scan,
+selected-tab and imported-poster assertions are retained. This test-only fix
+requires hosted iPhone verification. Evidence is in `.artifacts/apple-phone-7983719`,
+`.artifacts/apple-phone-7983719-full`, and `.artifacts/apple-tv-7983719`.
+
 Earlier actual defects are corrected: TCP send completion, VLC parser timeout
 units, pending-pause acknowledgement, synchronous stream revocation, nested
 version navigation, phone collection sizing, focused button contrast and the

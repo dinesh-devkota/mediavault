@@ -93,6 +93,20 @@ final class MediaVaultPhoneTests: XCTestCase {
         // window before its sheet becomes accessible or after the first tap.
         let deadline = Date().addingTimeInterval(10)
         var needsTap = true
+        var handledPasswordInterruption = false
+        // The password offer can appear and disappear entirely inside tap(),
+        // consuming that touch before our between-action queries can see it.
+        // Let XCTest provide the actual interrupting element, including a
+        // system-owned window, and only decline the known synthetic-login offer.
+        let monitor = addUIInterruptionMonitor(withDescription: "Decline fixture password saving") { element in
+            guard element.label == "Save Password?" || element.staticTexts["Save Password?"].exists,
+                  element.buttons["Not Now"].exists,
+                  element.buttons["Save"].exists else { return false }
+            element.buttons["Not Now"].tap()
+            handledPasswordInterruption = true
+            return true
+        }
+        defer { removeUIInterruptionMonitor(monitor) }
         func waitFor(_ predicate: NSPredicate, object: Any? = nil) -> Bool {
             // XCUI queries and taps wait for app quiescence themselves. The
             // preceding action may have completed while consuming the remaining
@@ -133,8 +147,11 @@ final class MediaVaultPhoneTests: XCTestCase {
             } else if library.isSelected {
                 return
             } else if needsTap && library.isHittable {
+                handledPasswordInterruption = false
                 library.tap()
-                needsTap = false
+                // Only an explicitly handled interruption permits another tap;
+                // a genuine navigation failure still uses the original budget.
+                needsTap = handledPasswordInterruption && !library.isSelected
             }
         }
     }
