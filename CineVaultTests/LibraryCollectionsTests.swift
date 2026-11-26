@@ -102,7 +102,8 @@ import XCTest
         item.filePath = "movies/Feature.mp4"
         XCTAssertFalse(LibraryCollectionsStore.available(item, household: household))
         item.filePath = "Movies/Feature.mp4"
-        source.ignoredFiles = [item.filePath]
+        // Ignore rules are relative to the selected Movies root, not the share.
+        source.ignoredFiles = ["Feature.mp4"]
         XCTAssertFalse(LibraryCollectionsStore.available(item, household: household))
     }
     func testLocalMetadataAndVersionHistoryPersistAcrossDatabaseReopen() throws {
