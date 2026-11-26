@@ -10,7 +10,8 @@ on Android, with remote controls on TVs and touch navigation on phones.
 Amazon Fire TV support is in development for both **Fire OS and Vega OS**.
 Fire OS uses the Android app; Vega uses a separate native app. See the
 [Fire TV guide](docs/FIRE-TV.md) for build checks, installation and remaining
-device validation. No Fire TV Appstore release has been published.
+device validation. See [deployment preparation](docs/DEPLOYMENT.md) for platform
+packages and store requirements. No Fire TV Appstore release has been published.
 
 The **1.5.0, build 7** feature branch adds local NFO/XML details and artwork,
 personal collections, automatic movie series, and grouped movie versions across
@@ -278,9 +279,12 @@ Fastlane builds, the same bundle and product IDs can be provided as environment 
 
 ## Publishing to the App Store
 
-1. First install the TestFlight build and verify connecting to your NAS, browsing, and playing a movie on a real Apple TV.
-2. In App Store Connect, open your app's **tvOS** version and complete its description, screenshots, age rating, pricing, availability, support and privacy information. The simulator screenshots in `docs/screenshots/` use a sample library.
-3. Add App Review notes explaining that the app needs an SMB share, and provide a safe way for reviewers to exercise the app. Do not put private NAS credentials in the repository.
+See the [Apple App Review handoff](docs/APPLE-APP-REVIEW.md) for current iPhone
+and Apple TV packaging, reviewer access, and release metadata.
+
+1. Verify setup and playback for each signed build on a physical iPhone or Apple TV, as applicable.
+2. For each App Store Connect platform version, complete the description, screenshots, age rating, pricing, availability, support and privacy information.
+3. Add App Review notes and provide reviewer access to a separate, read-only demo library.
 4. Select the processed build in the **Build** section, choose **Add for Review**, and then **Submit for Review**. After Apple approves it, release it according to the availability option you selected.
 
 ## Using the app

@@ -206,7 +206,7 @@ incomplete. Android phone and iPhone support have their own branches and
 touch-screen test requirements. Keep the Windows handoff as a verified Git
 bundle when the Windows checkout is unavailable.
 
-## Cloud implementation checkpoint, November 26, 2026
+## Earlier cloud implementation checkpoint, November 26, 2026
 
 The development branch includes WebDAV, Jellyfin, Plex, personal OneDrive,
 and Dropbox for Android TV, Android phone, and Apple TV. The combined library
@@ -265,36 +265,11 @@ The names visible in the apps are MediaVault. Renaming the existing GitHub
 repository requires a connection with Administration write permission.
 [Apple readiness #14](https://github.com/dinesh-devkota/mediavault/pull/14)
 
-## tvOS submission readiness
+## Apple submission readiness
 
-The development merge gate is the hosted device-emulation suites. App Store
-submission also needs a signed archive, physical Apple TV validation, active
-Apple Developer membership and current provider approvals. Apple makes the
-App Review decision. This work covers unsigned public builds and documented
-checks.
-
-- Give reviewers a reachable, dedicated test service with temporary least-
-  privilege credentials and synthetic media the project is authorized to
-  distribute. Include steps to add a source, test a bad sign-in, select a
-  library, scan, seek, open photos and switch household profiles. The owner's
-  NAS and credentials must stay private.
-- List the permissions, scopes and connection lifecycle for each provider in
-  App Review notes. When a user links an external provider, explain that
-  authentication grants access to their existing media. MediaVault household
-  profiles are local. Recheck guideline 4.8 if app-level account behavior changes.
-- Verify each provider's access, streaming, artwork and branding terms before
-  shipping. Save evidence of provider app registration, any required approval and
-  redistribution terms for bundled dependencies. Review the intended App Store
-  packaging against the NFS library's license before adding it to Apple builds.
-- Keep the bundled policy reachable in the app and set its public URL in App
-  Store Connect. Update the policy and App Store privacy details before each
-  connector ships. Cover token retention, sign-out, provider-visible playback reports,
-  library and artwork requests, and any new SDK. Validate the final signed
-  binary's privacy manifests and export-compliance declaration.
-
-[App Review guidelines](https://developer.apple.com/app-store/review/guidelines/)
-[App privacy details](https://developer.apple.com/app-store/app-privacy-details/)
-[Export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/)
+The [Apple App Review handoff](APPLE-APP-REVIEW.md) covers iPhone and Apple TV
+reviewer access, signing dependencies, privacy and release metadata. If Apple
+builds gain NFS, verify the libnfs distribution terms before packaging it.
 
 ## Android phone branch
 

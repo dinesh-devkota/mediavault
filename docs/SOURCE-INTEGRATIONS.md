@@ -1,12 +1,21 @@
 # Additional media sources
 
-The current development candidate includes SMB, HTTPS WebDAV, Jellyfin, Plex,
-personal OneDrive, and Dropbox source adapters. Dropbox setup is available on
-Apple TV, iPhone, and Android. iPhone can also read selected media from Apple Files providers,
-including Google Drive. Test coverage
-and remaining limits are recorded in [TESTING.md](TESTING.md) and the
-[handoff](../dist/AGENT-HANDOFF.md); a merged connector does not establish live-account
-or physical-device compatibility. See the [user guide](MEDIA-GUIDE.md) for setup.
+MediaVault's development branch includes these tested source connections on Android
+TV, Android phones, Apple TV, and iPhone.
+
+| Source | Setup and coverage |
+| --- | --- |
+| SMB and WebDAV | Connect to a NAS or WebDAV server and choose a folder. Import media, browse photos and load matching SRT or WebVTT files. |
+| Jellyfin and Emby | Connect to the server, choose a media library, and import movies or shows with server artwork, playback and subtitle tracks. |
+| Plex | Link an account and choose a server and library. Supported files use direct playback. |
+| Personal OneDrive and Dropbox | Authorize the provider and select a folder. |
+| Google Drive | Select files or a folder through iPhone Files or the Android document picker when the Drive provider offers it. Direct Apple TV linking needs a registered HTTPS Picker companion. |
+| NFS | Available as an opt-in, read-only Android Debug build. Apple app integration and distribution license review remain pending. |
+
+New sources require an explicit household viewer grant. For setup and connector
+options, see the [user guide](MEDIA-GUIDE.md). The [testing guide](TESTING.md) and
+[handoff](../dist/AGENT-HANDOFF.md) track simulator results and prerequisites for
+physical devices and live accounts.
 
 The estimates below preserve the original planning assessment. They are engineering
 effort, not delivery dates or a current list of missing connectors. They include

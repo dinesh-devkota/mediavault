@@ -28,6 +28,16 @@ A report includes the item, playback position, and player state, so the Jellyfin
 server may retain viewing data under its connected account. MediaVault keeps its
 own resume positions and Watchlist separate for each household profile.
 
+## Linked Emby libraries
+
+When you link an Emby library, MediaVault sends sign-in, catalog, artwork,
+subtitle, and playback requests to the HTTPS server you choose. It stores the
+server token in protected device storage. For Admin playback, MediaVault can
+report the item, position, and player state to the connected Emby server, which
+may retain that information under the linked account. Viewing history in
+MediaVault stays separate for each local household profile. The server can
+also keep its own connection logs.
+
 ## Linked Plex libraries
 
 Plex account linking sends a device identifier and link-code requests to Plex.
@@ -54,7 +64,10 @@ network address and handle account and file requests under their own privacy pol
 On iPhone, MediaVault uses Apple Files for read-only access to the folders or files
 you select. It stores security-scoped bookmarks in Keychain until you disconnect the
 source. Your Files provider, such as Google Drive, manages its own account, storage,
-and downloads.
+and downloads. On Android, MediaVault uses the system document picker when a Drive
+provider is available. Android retains the read-only grants for the files or folder
+you select until you disconnect. The Drive provider manages sign-in and downloads
+on that platform as well.
 
 You can remove a cloud source in MediaVault to clear its saved authorization. You
 can also manage the app’s access to your cloud files in the provider’s account settings.
@@ -123,8 +136,9 @@ embedded subtitles continue to work without connecting an online provider.
 
 ## Purchases
 
-Apple processes App Store purchases, billing, and subscription management. MediaVault
-uses Apple's StoreKit framework to check purchase entitlements and restore purchases.
+Apple processes App Store purchases, billing, and subscription management. The
+official commercial version uses Apple's StoreKit framework to check purchase
+entitlements and restore purchases.
 MediaVault does not receive or store your payment-card details. Apple may retain
 purchase history separately from the app's local library and usage data.
 See [Apple's privacy policy](https://www.apple.com/legal/privacy/).
