@@ -11,8 +11,8 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         waitLabel(app.staticTexts["fixture-alternative-ready"], "Playback advanced", app, timeout: 45)
         let play = app.buttons["alternative-play-pause"]
         waitLabel(app.staticTexts["fixture-alternative-state"], "Playing", app)
-        tapPlayingControl("alternative-play-pause", app)
-        waitLabel(app.staticTexts["fixture-alternative-state"], "Paused", app)
+        tapPlayingControl("alternative-play-pause", app, until: NSPredicate(format: "label == %@", "Paused"),
+                          on: app.staticTexts["fixture-alternative-state"])
         XCTAssertTrue(app.staticTexts["MKV playback controls"].exists,
                       "The dark playback overlay must include the current title.")
         // Inspect targets while paused; repeated accessibility snapshots can
@@ -64,17 +64,27 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         play.tap()
         waitLabel(app.staticTexts["fixture-alternative-state"], "Playing", app)
         wait(app, "Video continues after both sheets close") { self.seconds(app) > resumedFrom + 0.5 }
-        tapPlayingControl("playback-close", app)
-        XCTAssertTrue(app.staticTexts["fixture-alternative-closed"].waitForExistence(timeout: 10), app.debugDescription)
+        tapPlayingControl("playback-close", app, until: NSPredicate(format: "exists == true"),
+                          on: app.staticTexts["fixture-alternative-closed"])
     }
 
-    @MainActor private func tapPlayingControl(_ identifier: String, _ app: XCUIApplication) {
+    @MainActor private func tapPlayingControl(_ identifier: String, _ app: XCUIApplication,
+                                               until outcome: NSPredicate, on probe: XCUIElement) {
         let control = app.buttons[identifier]
-        // Refresh the real five-second visibility window and act immediately.
-        // Separate exists/enabled/hittable queries can consume that whole window
-        // on a busy simulator; tap performs its own target and hit-point checks.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
-        control.tap()
+        let ready = NSPredicate(format: "hittable == true AND enabled == true")
+        for timeout in [3.0, 10.0] {
+            if outcome.evaluate(with: probe) { return }
+            // Reveal controls via the same video-area touch a viewer uses. On
+            // a busy simulator the overlay can transition while routing a tap.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+            let actionable = XCTNSPredicateExpectation(predicate: ready, object: control)
+            guard XCTWaiter.wait(for: [actionable], timeout: 2) == .completed else { continue }
+            if outcome.evaluate(with: probe) { return }
+            control.tap()
+            let completed = XCTNSPredicateExpectation(predicate: outcome, object: probe)
+            if XCTWaiter.wait(for: [completed], timeout: timeout) == .completed { return }
+        }
+        XCTAssertTrue(outcome.evaluate(with: probe), "The \(identifier) touch did not change playback.\n" + app.debugDescription)
     }
     @MainActor private func seconds(_ app: XCUIApplication) -> Double {
         let item = app.staticTexts["fixture-alternative-seconds"]

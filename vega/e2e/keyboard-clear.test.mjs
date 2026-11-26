@@ -139,15 +139,22 @@ test('a timed-out direct visibility request does not block a later observation',
   }
 });
 
-test('native Silverstone Done lookup distinguishes timeout and invalid replies from true absence', {timeout: 5000}, async () => {
+test('native hierarchy distinguishes unknown Done state from proven absence in the same form', {timeout: 5000}, async () => {
+  const packageId = 'com.dineshdevkota.mediavault.vvdfixture';
+  const form = `<app appName="${packageId}"><window><child test_id="source-name"/></window></app>`;
+  const keyboard = '<app appName="com.amazon.silverstone"><window><child test_id="key_Done"/></window></app>';
+  const unrelated = '<app appName="com.example.other"><window><child test_id="key_Done"/></window></app>';
+  const closedPage = `<root>${form}${unrelated}</root>`;
   const responses = [
     null, // The service accepts the request but never answers this lookup.
-    {error: {code: -32603}, result: []},
-    {id: 'different', result: []},
+    {error: {code: -32603}, result: closedPage},
+    {id: 'different', result: closedPage},
     {result: null},
-    {result: [0]},
-    {result: [12884903353]},
-    {result: []},
+    {result: `<root>${form}`}, // Truncated snapshots cannot prove absence.
+    {result: `<root>${form.replace('source-name', 'another-field')}</root>`},
+    {result: `<root>${form.replace(packageId, 'com.example.other')}</root>`},
+    {result: `<root>${form}${keyboard}</root>`},
+    {result: closedPage},
   ];
   const server = createServer(async (request, response) => {
     assert.equal(request.url, '/jsonrpc');
@@ -155,8 +162,7 @@ test('native Silverstone Done lookup distinguishes timeout and invalid replies f
     const chunks = [];
     for await (const chunk of request) { chunks.push(chunk); }
     assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString()), {
-      jsonrpc: '2.0', id: '0', method: 'findObjects',
-      params: {selectorStrategy: 'xpath', args: {xpath: "//app[@appName='com.amazon.silverstone']//*[@test_id='key_Done']"}},
+      jsonrpc: '2.0', id: '0', method: 'getPageSource', params: {},
     });
     const answer = responses.shift();
     if (answer === null) { return; }
@@ -165,11 +171,16 @@ test('native Silverstone Done lookup distinguishes timeout and invalid replies f
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   try {
-    const isDonePresent = keyboardDonePresenceReader(simulatorKeyboardRpc(String(server.address().port)));
+    const outcomes = [];
+    const isDonePresent = keyboardDonePresenceReader(simulatorKeyboardRpc(String(server.address().port)), {
+      packageId, fieldId: 'source-name', onOutcome: outcome => outcomes.push(outcome),
+    });
     assert.equal(await isDonePresent(250), null);
-    for (let i = 0; i < 4; i++) { assert.equal(await isDonePresent(1000), null); }
+    for (let i = 0; i < 6; i++) { assert.equal(await isDonePresent(1000), null); }
     assert.equal(await isDonePresent(1000), true);
     assert.equal(await isDonePresent(1000), false);
+    assert.deepEqual(outcomes, ['timeout', ...Array(3).fill('invalid-native-response'),
+      ...Array(3).fill('unverified-hierarchy'), 'present', 'absent']);
     assert.equal(responses.length, 0);
   } finally {
     await new Promise(done => {

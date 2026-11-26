@@ -82,7 +82,6 @@ const keyboardRpc = keyboardRpcPort
   ? simulatorKeyboardRpc(keyboardRpcPort)
   : (method, params, timeoutMs) => call('POST', '/execute/sync', {script: `jsonrpc: ${method}`, args: [[params]]}, timeoutMs);
 const readKeyboardVisibility = keyboardVisibilityReader((id, timeoutMs) => keyboardRpc('visibilityOf', {id}, timeoutMs));
-const isKeyboardDonePresent = keyboardDonePresenceReader(keyboardRpc);
 const nativeDisplayed = async id => (await readKeyboardVisibility(id)).displayed;
 async function displayedKeyboardWindow() {
   if (!await exists(keyboardDone)) { return null; }
@@ -280,17 +279,24 @@ async function enter(id, value, previous = '') {
     await traceInputFocus('after-back', id, {code: 158, keyStartedAt, keyFinishedAt, activeKeyboardWindow});
   }
   const observations = [];
+  let doneOutcome = 'unobserved';
   try {
     await waitForKeyboardDismissal({
       windowId: activeKeyboardWindow,
       readVisibility: readKeyboardVisibility,
-      isDonePresent: isKeyboardDonePresent,
+      isDonePresent: keyboardDonePresenceReader(keyboardRpc, {
+        packageId, fieldId: id, onOutcome: outcome => { doneOutcome = outcome; },
+      }),
       onObservation: observation => {
         if (traceDismissal && observations.length < 8) { observations.push(observation); }
       },
     });
+  } catch (error) {
+    throw new Error(`${error.message} Field: ${id}. Native Done observation: ${doneOutcome}.`, {cause: error});
   } finally {
-    if (traceDismissal) { await traceInputFocus('keyboard-closure-observations', id, {activeKeyboardWindow, observations}); }
+    if (traceDismissal) {
+      await traceInputFocus('keyboard-closure-observations', id, {activeKeyboardWindow, observations, doneOutcome});
+    }
   }
   assert(await exists(byID(id)), `Dismissing the keyboard must keep the same form field: ${id}`);
   if (!/password|pin/.test(id)) {

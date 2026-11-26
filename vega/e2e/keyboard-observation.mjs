@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
 import {performance} from 'node:perf_hooks';
+import {fileURLToPath} from 'node:url';
 
 export const keyboardApp = "//app[@appName='com.amazon.silverstone']";
 export const keyboardDone = keyboardApp + "//*[@test_id='key_Done']";
 
 const rpcTimeoutMs = 2000;
 const pollDelayMs = 250;
+const keyboardPageInspector = fileURLToPath(new URL('./check-keyboard-page.py', import.meta.url));
 
 // The Kepler driver does not time out its upstream keyboard requests. A stuck
 // read otherwise keeps Appium's session queue occupied after the client aborts.
@@ -14,7 +17,7 @@ export function simulatorKeyboardRpc(port, request = fetch) {
     'The simulator keyboard RPC port must be a valid loopback port.');
   const endpoint = `http://127.0.0.1:${port}/jsonrpc`;
   return async (method, params, timeoutMs) => {
-    assert(method === 'visibilityOf' || method === 'findObjects', 'Only keyboard observations can use the direct RPC.');
+    assert(method === 'visibilityOf' || method === 'getPageSource', 'Only keyboard observations can use the direct RPC.');
     const response = await request(endpoint, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -28,18 +31,37 @@ export function simulatorKeyboardRpc(port, request = fetch) {
   };
 }
 
-// The pinned driver translates an XPath lookup into this native request.
-// Require a successful Silverstone result because its W3C wrapper can turn
-// native lookup errors into an empty list.
-export function keyboardDonePresenceReader(rpc) {
+function inspectKeyboardPage(xml, packageId, fieldId, timeoutMs) {
+  return new Promise(resolve => {
+    // Inspect only structural attributes. Never log or persist the raw page.
+    const inspector = spawn('python3', [keyboardPageInspector, packageId, fieldId], {
+      timeout: timeoutMs, stdio: ['pipe', 'ignore', 'ignore'],
+    });
+    inspector.stdin.on('error', () => {});
+    inspector.once('error', () => resolve(null));
+    inspector.once('close', code => resolve(code === 10 ? true : code === 0 ? false : null));
+    inspector.stdin.end(xml);
+  });
+}
+
+// The pinned driver's /source endpoint uses this same native method. Unlike an
+// empty XPath result, a complete page can independently confirm the form is
+// still present and the Silverstone Done control is absent after Back.
+export function keyboardDonePresenceReader(rpc, {packageId, fieldId, onOutcome = () => {}}) {
   return async timeoutMs => {
+    const deadline = performance.now() + timeoutMs;
     try {
-      const response = await rpc('findObjects', {selectorStrategy: 'xpath', args: {xpath: keyboardDone}}, timeoutMs);
-      const ids = response?.result;
-      if (response?.jsonrpc !== '2.0' || response.id !== '0' || response.error != null || !Array.isArray(ids)
-        || !ids.every(id => Number.isSafeInteger(id) && id > 0)) { return null; }
-      return ids.length > 0;
-    } catch {
+      const response = await rpc('getPageSource', {}, timeoutMs);
+      if (response?.jsonrpc !== '2.0' || response.id !== '0' || response.error != null || typeof response.result !== 'string') {
+        onOutcome('invalid-native-response');
+        return null;
+      }
+      const remaining = Math.floor(deadline - performance.now());
+      const present = remaining > 0 ? await inspectKeyboardPage(response.result, packageId, fieldId, remaining) : null;
+      onOutcome(present === null ? 'unverified-hierarchy' : present ? 'present' : 'absent');
+      return present;
+    } catch (error) {
+      onOutcome(error?.name === 'TimeoutError' ? 'timeout' : 'unavailable');
       return null;
     }
   };
@@ -77,7 +99,7 @@ export async function waitForKeyboardDismissal({windowId, readVisibility, isDone
     visibility = observation.outcome;
     done = 'unobserved';
     // Avoid extra network requests while visibility is indeterminate or the
-    // latched window is still visible. A missing Done control cannot pass.
+    // latched window is still visible. Require a verified Done observation.
     if (observation.displayed === false && now() < deadline) {
       try {
         const present = await isDonePresent(Math.max(1, Math.min(rpcTimeoutMs, Math.floor(deadline - now()))));
