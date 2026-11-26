@@ -162,6 +162,22 @@ content and bounds the handoff. Its full Android TV workflow passed
 
 ## Amazon Fire TV work — November 25, 2026
 
+Fire integration `4b87c31` includes public `96df268` and Plex's secure-storage test
+adaptations for API 22. Local checks passed 101 core and 146 app unit cases, with
+two pre-existing Jellyfin cases requiring their loopback fixture; instrumentation
+compilation and debug lint passed. The Fire matrix now requires 19 cases per API
+22/25/28: the original 13, three Plex transport/catalog/storage checks, and three
+metadata-rating/reset regressions. Hosted execution of that expanded matrix is pending.
+
+Vega run `45738633627` at `1dad04d` passed every package and native check, but
+notification suppression did not fix focus. Everyone, the scroll container, and
+Add source all stayed unfocused while Back retained focus. Paired screenshots
+alternated between stale Home and current Sources and still omitted rounded
+backgrounds. The next diagnostic compares the exact same verified production and
+fixture packages with the SDK's default graphics acceleration. No library journey
+has passed. Evidence is in `.artifacts/vega-ui-45738633627`; fixture credentials
+and runtime diagnostics do not establish physical-device secure storage.
+
 Latest verified checkpoint: Fire `5c88fe8` passed Android TV 110/110 (run
 `45735053621`). Android phone 7/7 and Fire compatibility 13/13 on each API
 22/25/28 passed at `7e207f2`; their code and dependencies are unchanged at `5c88fe8`.

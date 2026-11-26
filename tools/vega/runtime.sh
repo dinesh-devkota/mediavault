@@ -3,6 +3,12 @@ set -euo pipefail
 
 # This script must never attach to the owner's TV or reuse their library.
 [[ "${GITHUB_ACTIONS:-}" == true ]] || { echo 'Use the isolated GitHub Actions runner.' >&2; exit 2; }
+gl_accel="${MEDIA_VAULT_VVD_GL_ACCEL-0}"
+case "$gl_accel" in
+  0) graphics_args=(--no-gl-accel); graphics_enabled=false ;;
+  1) graphics_args=(); graphics_enabled=true ;; # Use the pinned SDK's default graphics acceleration.
+  *) echo 'MEDIA_VAULT_VVD_GL_ACCEL must be 0 or 1.' >&2; exit 2 ;;
+esac
 package="${1:?Pass the built x86_64 VPKG}"
 [[ -f "$package" && "$package" == *x86_64*.vpkg ]] || { echo 'An x86_64 package is required.' >&2; exit 2; }
 fixture_package="${2:?Pass the separate simulator-only VPKG}"
@@ -12,6 +18,7 @@ source "$HOME/vega/env"
 cd "$repo"
 evidence="$repo/.artifacts/vega-ui"
 mkdir -p "$evidence"
+printf '{"glAccelerationRequested":%s,"sdkDefaultGraphics":%s}\n' "$graphics_enabled" "$graphics_enabled" >"$evidence/graphics-mode.json"
 bash tools/vega/check-package.sh "$package" production x86_64 >"$evidence/production-package-validation.json"
 bash tools/vega/check-package.sh "$fixture_package" fixture x86_64 >"$evidence/fixture-package-validation.json"
 nas_pid=''; appium_pid=''; fixture_log_pid=''; virtual_device_verified=false
@@ -31,7 +38,7 @@ cleanup() {
   vega virtual-device stop >"$evidence/stop.log" 2>&1 || true
 }
 trap cleanup EXIT
-vega virtual-device start --no-gui --no-gl-accel --timeout 180 >"$evidence/boot.log" 2>&1
+vega virtual-device start --no-gui "${graphics_args[@]}" --timeout 180 >"$evidence/boot.log" 2>&1
 vega device info --device VirtualDevice >"$evidence/device.json"
 python3 - "$evidence/device.json" <<'PY'
 import json, sys

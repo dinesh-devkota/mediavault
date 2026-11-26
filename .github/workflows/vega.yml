@@ -7,16 +7,26 @@ on:
     branches: [main, dinesh-devkota-sonepar-build-cinevault-tvos-app]
     paths: ["vega/**", "tools/vega/**", ".github/workflows/vega.yml"]
   workflow_dispatch:
+    inputs:
+      reuse_run_id:
+        description: "Graphics comparison only: completed Vega run containing the exact packages (45738633627 for the first comparison). Leave empty for normal builds."
+        type: string
+        required: false
+      expected_sha:
+        description: "Required with reuse_run_id: full source commit SHA (1dad04df5fd8bda1132c09aba7464604bb19f362 for the first comparison)."
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: vega-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.reuse_run_id != '' && 'vega-graphics' || 'vega' }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   native-tests:
+    if: github.event_name != 'workflow_dispatch' || inputs.reuse_run_id == ''
     name: Native source and stream regressions
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -51,6 +61,7 @@ jobs:
             .artifacts/native-host-tests/fixture/nas.log
             .artifacts/native-host-tests/fixture/http-audit.jsonl
   package:
+    if: github.event_name != 'workflow_dispatch' || inputs.reuse_run_id == ''
     name: Vega package (${{ matrix.target }})
     runs-on: ubuntu-24.04
     timeout-minutes: 70
@@ -86,6 +97,7 @@ jobs:
             vega/native/CMakeLists.txt
           if-no-files-found: warn
   fixture-package:
+    if: github.event_name != 'workflow_dispatch' || inputs.reuse_run_id == ''
     name: Simulator-only synthetic-data package
     runs-on: ubuntu-24.04
     timeout-minutes: 70
@@ -160,4 +172,185 @@ jobs:
         with:
           name: vega-virtual-device-evidence
           path: .artifacts/vega-ui/
+          if-no-files-found: warn
+  graphics-comparison:
+    name: Compare identical packages with SDK graphics acceleration
+    if: github.event_name == 'workflow_dispatch' && inputs.reuse_run_id != '' && github.repository == 'dinesh-devkota/mediavault'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.5"
+      - name: Verify source run and download digest-checked packages
+        id: source
+        env:
+          SOURCE_RUN_ID: ${{ inputs.reuse_run_id }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, stat, urllib.error, urllib.parse, urllib.request, zipfile
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          run_id = os.environ['SOURCE_RUN_ID']
+          sha = os.environ['EXPECTED_SOURCE_SHA']
+          if repo != 'dinesh-devkota/mediavault' or not re.fullmatch(r'[1-9][0-9]{0,19}', run_id) or not re.fullmatch(r'[0-9a-f]{40}', sha):
+              raise SystemExit('A valid same-repository run ID and full lowercase source SHA are required.')
+          base = f'https://api.github.com/repos/{repo}/actions/'
+          headers = {'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'MediaVault-package-comparison'}
+
+          def api(path):
+              with urllib.request.urlopen(urllib.request.Request(base + path, headers=headers), timeout=30) as response:
+                  body = response.read(4 * 1024 * 1024 + 1)
+                  if len(body) > 4 * 1024 * 1024:
+                      raise SystemExit('GitHub metadata exceeded its bounded size.')
+                  return json.loads(body)
+
+          workflow = api('workflows/vega.yml')
+          run = api('runs/' + run_id)
+          if (run['status'] != 'completed' or run['head_sha'] != sha or run['workflow_id'] != workflow['id']
+                  or run.get('path') != '.github/workflows/vega.yml'
+                  or run['repository']['full_name'] != repo or (run.get('head_repository') or {}).get('full_name') != repo):
+              raise SystemExit('The source run does not match the completed same-repository Vega workflow and expected SHA.')
+          jobs = api('runs/' + run_id + '/jobs?filter=latest&per_page=100')
+          required_jobs = {'Vega package (x86_64)', 'Simulator-only synthetic-data package'}
+          if jobs['total_count'] > 100 or not required_jobs.issubset({j['name'] for j in jobs['jobs'] if j['conclusion'] == 'success'}):
+              raise SystemExit('Both source package jobs must have passed.')
+          artifacts = api('runs/' + run_id + '/artifacts?per_page=100')
+          if artifacts['total_count'] > 100:
+              raise SystemExit('Unexpected number of source artifacts.')
+          output = pathlib.Path('.artifacts/vega-graphics-comparison')
+          output.mkdir(parents=True, exist_ok=True)
+          archives = []
+          records = []
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, message, response_headers, new_url):
+                  return None
+
+          for name, directory in [('vega-x86_64', 'production'), ('vega-SIMULATOR-ONLY-x86_64', 'fixture')]:
+              matching = [a for a in artifacts['artifacts'] if a['name'] == name and not a['expired']]
+              if len(matching) != 1:
+                  raise SystemExit('Exactly one unexpired source artifact is required: ' + name)
+              artifact = matching[0]
+              digest = artifact.get('digest', '')
+              if (not re.fullmatch(r'sha256:[0-9a-f]{64}', digest) or not 0 < artifact['size_in_bytes'] <= 256 * 1024 * 1024
+                      or artifact['workflow_run']['id'] != int(run_id) or artifact['workflow_run']['head_sha'] != sha):
+                  raise SystemExit('Artifact provenance or SHA-256 is missing or invalid.')
+              request = urllib.request.Request(base + f"artifacts/{int(artifact['id'])}/zip", headers=headers)
+              try:
+                  urllib.request.build_opener(NoRedirect).open(request, timeout=30)
+                  raise SystemExit('Expected a temporary GitHub artifact redirect.')
+              except urllib.error.HTTPError as error:
+                  if error.code != 302:
+                      raise
+                  url = error.headers['Location']
+              parsed = urllib.parse.urlsplit(url)
+              if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+                  raise SystemExit('Invalid artifact download redirect.')
+              archive = output / (directory + '.zip')
+              checksum = hashlib.sha256()
+              total = 0
+              # A fresh request deliberately sends no GitHub token to blob storage.
+              with urllib.request.urlopen(url, timeout=60) as response, archive.open('xb') as target:
+                  while block := response.read(1024 * 1024):
+                      total += len(block)
+                      if total > 256 * 1024 * 1024:
+                          raise SystemExit('Artifact download exceeded its bound.')
+                      checksum.update(block)
+                      target.write(block)
+              if total != artifact['size_in_bytes'] or checksum.hexdigest() != digest.split(':', 1)[1]:
+                  raise SystemExit('Artifact SHA-256 or byte count did not match GitHub metadata.')
+              archives.append((archive, output / directory))
+              records.append({'name': name, 'id': artifact['id'], 'sha256': checksum.hexdigest(), 'bytes': total})
+
+          # Check both ZIP digests before extracting anything, and never restore links or escaping paths.
+          for archive, target in archives:
+              with zipfile.ZipFile(archive) as package:
+                  entries = package.infolist()
+                  if len(entries) > 10000 or sum(entry.file_size for entry in entries) > 512 * 1024 * 1024:
+                      raise SystemExit('Artifact contents exceeded their extraction bounds.')
+                  for entry in entries:
+                      path = pathlib.PurePosixPath(entry.filename)
+                      mode = entry.external_attr >> 16
+                      if (path.is_absolute() or '..' in path.parts or '\\' in entry.filename or ':' in entry.filename
+                              or stat.S_ISLNK(mode) or (stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR))):
+                          raise SystemExit('Unsafe artifact archive path or file type.')
+                  package.extractall(target)
+          provenance = {'sourceRepository': repo, 'sourceRunId': int(run_id), 'sourceSHA': sha, 'workflowId': workflow['id'], 'artifacts': records}
+          (output / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('source_sha=' + sha + '\n')
+          print('Both package archives verified against the exact source run and SHA-256 digests.')
+          PY
+      - name: Check out the verified original fixtures and journeys
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.source_sha }}
+          path: .comparison-source
+          persist-credentials: false
+      - name: Apply only the runtime graphics switch
+        run: cp tools/vega/runtime.sh .comparison-source/tools/vega/runtime.sh
+      - name: Install native Linux virtual-device dependencies
+        working-directory: .comparison-source
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl tar jq build-essential ffmpeg openssl unzip xz-utils lz4 xvfb libgtk-3-0 libgbm1 libnss3 libxkbcommon0 libpulse0 libsdl2-2.0-0 mesa-utils libgl1-mesa-dri libegl-mesa0
+          python -m pip install -r scripts/nas-test-requirements.txt
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle --timeout=30
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Install the original pinned SDK including the virtual device
+        working-directory: .comparison-source
+        env:
+          SKIP_VVD_INSTALL: "false"
+        run: bash tools/vega/install-sdk.sh
+      - name: Install the same automation driver
+        run: |
+          npm install -g appium@2.2.2
+          appium driver install --source=npm @amazon-devices/appium-kepler-driver@3.30.0
+      - name: Record host graphics and exercise unchanged journeys
+        env:
+          MEDIA_VAULT_VVD_GL_ACCEL: "1"
+        run: |
+          mapfile -t packages < <(find .artifacts/vega-graphics-comparison/production -type f -name '*x86_64*.vpkg')
+          mapfile -t fixtures < <(find .artifacts/vega-graphics-comparison/fixture -type f -name '*.vpkg')
+          test "${#packages[@]}" -eq 1 && test "${#fixtures[@]}" -eq 1
+          export COMPARISON_PACKAGE="$(realpath "${packages[0]}")"
+          export COMPARISON_FIXTURE="$(realpath "${fixtures[0]}")"
+          export COMPARISON_EVIDENCE="$PWD/.artifacts/vega-graphics-comparison"
+          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' bash -euo pipefail <<'SH'
+          set +e
+          timeout --kill-after=2s 20s glxinfo -B >"$COMPARISON_EVIDENCE/host-glx.txt" 2>&1
+          glx_status=$?
+          timeout --kill-after=2s 20s eglinfo -B >"$COMPARISON_EVIDENCE/host-egl.txt" 2>&1
+          egl_status=$?
+          set -e
+          printf '{"glxProbeExit":%d,"eglProbeExit":%d,"softwareMesaAllowed":true,"glAccelerationRequested":true}\n' "$glx_status" "$egl_status" >"$COMPARISON_EVIDENCE/host-graphics.json"
+          # EGL may report unsupported Wayland/GBM platforms under Xvfb; retain all output.
+          # A working GLX context is required. Never silently retry with --no-gl-accel.
+          [[ "$glx_status" == 0 ]] || { echo 'The comparison host could not create an OpenGL context.' >&2; exit 1; }
+          bash .comparison-source/tools/vega/runtime.sh "$COMPARISON_PACKAGE" "$COMPARISON_FIXTURE"
+          SH
+      - name: Retain graphics comparison evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vega-same-package-graphics-comparison
+          path: |
+            .artifacts/vega-graphics-comparison/*.json
+            .artifacts/vega-graphics-comparison/*.txt
+            .comparison-source/.artifacts/vega-ui/
           if-no-files-found: warn
