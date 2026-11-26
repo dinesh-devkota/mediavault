@@ -96,6 +96,28 @@ content and bounds the handoff. Its full Android TV workflow passed
 
 ## Amazon Fire TV work — November 25, 2026
 
+Run `45730914333` at `96073fa` passed all packages, native checks and the production
+startup probe. Fixture journey 01 still failed before Add source focused. The
+warning detector incorrectly queried an XML-only `<text>` node without an object
+ID; it now queries the owning text control. Focus acknowledgement also retries
+within its existing 25-second overall budget when initial screen focus arrives
+late, and records non-sensitive RPC results for diagnosis. Actual runtime remains
+pending; no complete library journey has passed. Logs now retain installed app
+diagnostics correctly. Evidence: `.artifacts/vega-ui-45730914333`.
+
+The owner confirmed **no Vega device is available**. Do not ask again; production
+credential persistence and physical playback remain unverified. The owner also
+explicitly approved build-only commercial run `45727288957`. GitHub still showed
+it waiting, so that exact approval was submitted through the API. Its private
+package tests and unsigned tvOS build passed; licensed simulator tests are running.
+TestFlight upload remains disabled.
+
+The current Fire branch also includes base `26078e3`, a narrow Android phone test
+wait correction for a confirmed activity-transition race, and `db8cb1e`, which
+makes collection posters open their titles while home bulk selection stays active.
+The latter extends journey 03 through title details and Back to the same collection.
+Typecheck, all 42 app tests and test-script syntax pass; new runtime remains required.
+
 Vega `e40bd26` run `45728952472` again passed all package/native jobs and the
 actual production startup probe. Fixture journey 01 reached Sources, then the
 Debug SDK LogBox took focus before Add source. Exact screenshot/XML is under

@@ -44,18 +44,18 @@ source access. The native SMB/HTTP/credential bridge compiles against Amazon's
 real SDK. TypeScript checking, 42 app/contract tests and 74 native host regression
 tests pass. The host suite exercises real SMB/HTTPS fixtures, including rejected
 credentials, cancellation, certificate verification and Jellyfin access boundaries.
-The first complete aarch64 debug VPKG also passes Amazon's manifest
-and binary-interface validation, with its Hermes interface bundle and both
-native libraries present. Runtime validation is still in progress; do not describe
-Vega as released or device-verified yet. Host tests do not exercise the device keystore.
+All three production release architectures (armv7, aarch64 and x86_64) pass
+Amazon's manifest and binary-interface validation, with their Hermes interface
+bundle and both native libraries present. The latest package checks passed at
+`96073fa` in run `45730914333`. Runtime validation is still in progress; do not
+describe Vega as released or device-verified yet. Host tests do not exercise the
+device keystore.
 
 The SMB sign-in stall found by the negative-credential tests is fixed. Connection
 negotiation and authentication have a ten-second deadline and support cancellation;
-upstream system DNS resolution can still take longer. All three release architectures
-passed the hosted package checks in run `45718538147`. The build selects the final
-VPKG explicitly instead of counting the SDK's staging copy twice. The later run
-`45723078157` passed all three release packages and 57 production native tests.
-On the real virtual device, production startup reports `MV06:not-supported` from
+upstream system DNS resolution can still take longer. The build selects the final
+VPKG explicitly instead of counting the SDK's staging copy twice.
+On the virtual device, production startup reports `MV06:not-supported` from
 the native keystore. Amazon explicitly documents that its
 [Crypto API is unsupported in the simulator](https://developer.amazon.com/docs/vega-api/2.0/README.amazon-devices_keplercrypto).
 Production keeps the library closed when protected storage is unavailable.
@@ -71,18 +71,19 @@ The 74 host checks include 17 fixture-policy/build-guard tests. Another 20 tests
 verify staging and packaged identities, and seven validate the startup probe.
 None of these replace physical-device secure-storage and restart testing.
 
-Run `45726677998` passed all three production packages, the isolated fixture
-package and native checks. Its real-device production probe confirmed the exact
-unsupported-storage state, hidden library and enabled Retry. The fixture app
-opened NAS setup and accepted text; the harness incorrectly queried the input's
-focus wrapper. The follow-up targets the editable child and navigates with the
-remote. No complete library journey has passed yet.
+Production startup probes in runs `45726677998` and `45728952472` confirmed the
+exact unsupported-storage state, hidden library and enabled Retry. The fixture
+app opened NAS setup and accepted text. Test automation now reads the real input
+editor, navigates with the remote, and dismisses only the observed SDK Debug
+warning overlay. No complete library journey has passed yet.
 
-The next checkpoint also waits for the native video surface before opening a
+The player waits for the native video surface before opening a
 stream, reads real player state when optional events are absent, and explicitly
 permits the internal `127.0.0.1` HTTP media relay. Other HTTP destinations remain
 disallowed. Confirmed malformed local metadata now clears uncertain age ratings
 even when another sidecar is temporarily unavailable, matching the Apple policy.
+Valid subtitles survive malformed or oversized neighboring subtitle files.
+Collection posters open normally even when home bulk selection remains active.
 
 The initial Vega app still lacks the existing Android/Apple apps' TMDB settings,
 SubDL downloads, automatic NAS discovery and editing an existing household profile.

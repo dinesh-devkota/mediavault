@@ -49,7 +49,9 @@ async function click(id) { await clickXPath(byID(id)); }
 async function dismissFixtureWarning() {
   if (!fixtureBuild || await exists(byID('key_Done'))) { return false; }
   const app = `//app[@appName=${literal(packageId)}]`;
-  const message = app + "//text[.='Open debugger to view warnings.']";
+  // findObjects returns UI object IDs. The nested <text> XML node has no ID;
+  // match its owning text control rather than the serialization-only node.
+  const message = app + "//*[@role='text' and text='Open debugger to view warnings.']";
   const dismiss = app + "//*[@clickable='true' and .//text='Dismiss']";
   if (!await exists(message) || !await exists(dismiss)) { return false; }
   // The Debug-only SDK LogBox steals focus asynchronously. Dismiss only its
@@ -74,12 +76,17 @@ async function focusVisible(xpath) {
       const rect = await call('GET', `/element/${id}/rect`);
       const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
       if (rect.width > 0 && rect.height > 0 && x >= window.x && x < window.x + window.width && y >= window.y && y < window.y + window.height) {
-        await call('POST', '/execute/sync', {script: 'jsonrpc: setFocus', args: [[{id: Number(id)}]]});
+        const result = await call('POST', '/execute/sync', {script: 'jsonrpc: setFocus', args: [[{id: Number(id)}]]});
         try {
-          await waitFor(() => exists(xpath + '[@focused="true"]'), `The remote could not focus the target control: ${xpath}`, 3000);
+          await waitFor(() => exists(xpath + '[@focused="true"]'), `The remote could not focus the target control: ${xpath}`, 1000);
         } catch (error) {
           if (await dismissFixtureWarning()) { continue; }
-          throw error;
+          // A screen transition may assign its initial focus after setFocus.
+          // Retry within the same overall deadline, then use real D-pad input
+          // so an unresponsive focus target still fails the bounded journey.
+          console.log('[Vega journey] Focus not acknowledged', JSON.stringify({xpath, result}));
+          await key(direction); await sleep(100);
+          continue;
         }
         return element(xpath);
       }
