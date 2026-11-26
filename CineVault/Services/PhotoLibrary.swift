@@ -49,7 +49,7 @@ enum PhotoLibrary {
                 return order == .orderedSame ? $0.filePath < $1.filePath : order == .orderedAscending
             }
             let folderName = id.folder.split(separator: "/").last.map(String.init)
-            let albumName = source.isJellyfin ? source.name : (folderName ?? (source.isWebDAV ? source.name : source.share))
+            let albumName = (source.isJellyfin || source.isPlex) ? source.name : (folderName ?? (source.isWebDAV ? source.name : source.share))
             return PhotoAlbum(id: id, title: albumName,
                 sourceName: source.name, folder: id.folder, photos: sorted)
         }.sorted {
