@@ -15,6 +15,7 @@ on:
       - Packages/**
       - android/**
       - scripts/**
+      - "docs/PRIVACY.md"
       - project*.yml
   workflow_dispatch:
 

@@ -10,6 +10,7 @@ on:
       - "CineVaultTests/**"
       - "CineVaultiOSUITests/**"
       - "Packages/**"
+      - "docs/PRIVACY.md"
       - "project.ios.yml"
       - "scripts/**"
   pull_request:
@@ -20,6 +21,7 @@ on:
       - "CineVaultTests/**"
       - "CineVaultiOSUITests/**"
       - "Packages/**"
+      - "docs/PRIVACY.md"
       - "project.ios.yml"
       - "scripts/**"
   workflow_dispatch:
@@ -237,6 +239,15 @@ jobs:
           APP="$RUNNER_TEMP/cinevault-phone-release/Build/Products/Release-iphoneos/CineVault.app"
           plutil -lint "$APP/PrivacyInfo.xcprivacy"
           cmp docs/PRIVACY.md "$APP/PRIVACY.md"
+      - name: Stage unsigned iPhone release package
+        run: bash scripts/stage_unsigned_apple_app.sh ios "$RUNNER_TEMP/cinevault-phone-release/Build/Products/Release-iphoneos/CineVault.app" "$RUNNER_TEMP/ios-release-package"
+      - name: Retain unsigned iPhone release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediavault-ios-community-unsigned
+          path: ${{ runner.temp }}/ios-release-package/
+          if-no-files-found: error
+          retention-days: 7
       - name: Report release compiler errors
         if: failure()
         run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/iphone-release.log" || true

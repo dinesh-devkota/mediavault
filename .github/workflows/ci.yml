@@ -63,6 +63,15 @@ jobs:
           APP="$RUNNER_TEMP/cinevault-tv-release/Build/Products/Release-appletvos/CineVault.app"
           plutil -lint "$APP/PrivacyInfo.xcprivacy"
           cmp docs/PRIVACY.md "$APP/PRIVACY.md"
+      - name: Stage unsigned Apple TV release package
+        run: bash scripts/stage_unsigned_apple_app.sh tvos "$RUNNER_TEMP/cinevault-tv-release/Build/Products/Release-appletvos/CineVault.app" "$RUNNER_TEMP/tvos-release-package"
+      - name: Retain unsigned Apple TV release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediavault-tvos-community-unsigned
+          path: ${{ runner.temp }}/tvos-release-package/
+          if-no-files-found: error
+          retention-days: 7
       - name: Report release compiler errors
         if: failure()
         run: grep -n -A 5 -B 2 'error:' "$RUNNER_TEMP/tvos-release.log" || true
