@@ -763,9 +763,20 @@ try {
     await waitFor(async () => (await call('GET', '/source')).includes('That PIN did not match'), 'An incorrect PIN must be rejected.');
     await assertLibraryHidden('Failed PIN entry must not reveal the library.');
     await enter('field-profile-pin', '482619', '000000'); await click('action-continue');
-    await element(byID(feature));
-    await element(byID('action-sources'));
-    // Capture only after the app has cleared the PIN field and restored the library.
+    await waitFor(async () => await homePresent() && await exists(byID('action-everyone'))
+      && await exists(byID('action-sources')) && !await exists(byID('field-profile-pin')),
+      'The correct PIN must clear the editor and reopen the Everyone administrator library.');
+
+    // The unlocked poster grid may initially publish only other sources' cards.
+    const featureTitle = 'Library Feature';
+    await click('library-search');
+    await enter('field-search-your-library', featureTitle);
+    await click('action-show-results');
+    await click(feature);
+    await clickXPath('//*[starts-with(@test_id,"item-open-") and contains(@test_id,"Directors Cut.mp4")]');
+    assert.equal(await text('detail-title'), featureTitle, 'The unlocked library search must open the exact fixture movie.');
+    await element(byID('action-play'));
+    // The journey capture now shows the playable detail after the PIN editor closed.
   });
   if (!fixtureBuild) { await step('10-keystore-and-source-persistence', async () => {
     await call('POST', '/appium/device/terminate_app', {appId: packageId});
