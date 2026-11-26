@@ -11,8 +11,7 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         waitLabel(app.staticTexts["fixture-alternative-ready"], "Playback advanced", app, timeout: 45)
         let play = app.buttons["alternative-play-pause"]
         waitLabel(app.staticTexts["fixture-alternative-state"], "Playing", app)
-        reveal(app)
-        play.tap()
+        tapPlayingControl("alternative-play-pause", app)
         waitLabel(app.staticTexts["fixture-alternative-state"], "Paused", app)
         // Inspect targets while paused; repeated accessibility snapshots can
         // legitimately outlast the five-second playing-controls timeout.
@@ -60,19 +59,17 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         play.tap()
         waitLabel(app.staticTexts["fixture-alternative-state"], "Playing", app)
         wait(app, "Video continues after both sheets close") { self.seconds(app) > resumedFrom + 0.5 }
-        reveal(app)
-        app.buttons["playback-close"].tap()
+        tapPlayingControl("playback-close", app)
         XCTAssertTrue(app.staticTexts["fixture-alternative-closed"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    @MainActor private func reveal(_ app: XCUIApplication) {
-        // Refresh the real five-second visibility window even if it has only a
-        // fraction of a second left. Accessibility snapshots are not user input.
+    @MainActor private func tapPlayingControl(_ identifier: String, _ app: XCUIApplication) {
+        let control = app.buttons[identifier]
+        // Refresh the real five-second visibility window and act immediately.
+        // Separate exists/enabled/hittable queries can consume that whole window
+        // on a busy simulator; tap performs its own target and hit-point checks.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
-        wait(app, "Transport controls are tappable") {
-            let button = app.buttons["alternative-play-pause"]
-            return button.exists && button.isEnabled && button.isHittable
-        }
+        control.tap()
     }
     @MainActor private func seconds(_ app: XCUIApplication) -> Double {
         let item = app.staticTexts["fixture-alternative-seconds"]
