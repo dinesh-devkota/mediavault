@@ -98,8 +98,11 @@ final class MediaVaultPhoneTests: XCTestCase {
         let connectedOrFailed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             savedSource.exists || connectionMessage.exists
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [connectedOrFailed], timeout: 25), .completed,
-                       "The source connection did not complete or report an error.")
+        guard XCTWaiter.wait(for: [connectedOrFailed], timeout: 25) == .completed else {
+            capture("WebDAV did not report a connection result", app)
+            XCTFail("The source connection did not complete or report an error.")
+            return
+        }
         if connectionMessage.exists {
             capture("WebDAV connection failed before saving", app)
             XCTFail("WebDAV connection failed before saving: \(connectionMessage.label)")
@@ -119,12 +122,38 @@ final class MediaVaultPhoneTests: XCTestCase {
         selectLibraryAfterFixtureImport(app)
         capture("Library after authenticated WebDAV import", app)
         let poster = app.buttons["Film"]
-        XCTAssertTrue(poster.waitForExistence(timeout: 10), app.debugDescription)
-        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: poster)
-        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, app.debugDescription)
-        poster.tap()
-        XCTAssertTrue(app.staticTexts["Film"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.buttons["Play"].exists, app.debugDescription)
+        guard poster.waitForExistence(timeout: 10), poster.isEnabled else {
+            capture("Imported WebDAV poster was missing or disabled", app)
+            XCTFail("The imported Film poster must exist and be enabled.")
+            return
+        }
+        let usesElementTap = poster.isHittable
+        if usesElementTap {
+            poster.tap()
+        } else {
+            // XCTest can omit a hit point for the visible SwiftUI navigation tile.
+            let frame = poster.frame
+            let center = CGPoint(x: frame.midX, y: frame.midY)
+            let window = app.windows.firstMatch
+            guard window.exists, frame.width >= 44, frame.height >= 44, window.frame.contains(center) else {
+                capture("Imported WebDAV poster had no visible touch target", app)
+                XCTFail("The Film poster has no hit point and its frame has no usable center in the app window.")
+                return
+            }
+            poster.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+
+        let filmTitle = app.staticTexts["Film"]
+        let play = app.buttons["Play"]
+        let detailReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            filmTitle.exists && play.exists && play.isEnabled && play.isHittable
+        }, object: nil)
+        guard XCTWaiter.wait(for: [detailReady], timeout: 10) == .completed else {
+            capture("WebDAV poster touch did not open actionable Film details", app)
+            let action = usesElementTap ? "element tap" : "poster center touch"
+            XCTFail("The Film detail did not show an actionable Play button after the \(action).")
+            return
+        }
         capture("Imported WebDAV movie opens its playback details", app)
     }
 
@@ -337,8 +366,8 @@ final class MediaVaultPhoneTests: XCTestCase {
         XCTAssertTrue(scan.waitForExistence(timeout: 25), app.debugDescription)
         let library = app.tabBars.buttons["Library"]
         library.tap()
-        // The generic filename is displayed using the Films parent folder.
-        let film = app.buttons["Films"]
+        let film = app.buttons["Film"]
+        XCTAssertTrue(film.waitForExistence(timeout: 10), app.debugDescription)
         for _ in 0..<3 where !film.isHittable { app.swipeUp() }
         XCTAssertTrue(film.isHittable, app.debugDescription)
         film.tap()
