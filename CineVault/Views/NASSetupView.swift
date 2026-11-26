@@ -81,6 +81,11 @@ struct NASSetupView: View {
 
     @ViewBuilder private var deviceSections: some View {
         Section {
+            #if os(iOS)
+            NavigationLink("Connect Google Drive via Files") {
+                AppleFilesSourceEditor(source: nil, onSaved: { dismiss() })
+            }
+            #endif
             NavigationLink("Connect Jellyfin") {
                 JellyfinSourceEditor(source: nil, onSaved: { dismiss() })
             }

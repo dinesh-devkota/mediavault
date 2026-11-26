@@ -25,7 +25,7 @@ struct PhotoAlbum: Identifiable {
 enum PhotoLibrary {
     static func isAvailable(_ photo: Movie) -> Bool {
         HouseholdStore.shared.allows(photo) && MediaFile.isPhoto(path: photo.filePath) && !photo.isDeleted && !photo.isHidden && !photo.isMissing &&
-            photo.source.map { !$0.isDeleted && PhotoLocation.contains(path: photo.filePath, root: $0.rootPath, caseSensitive: $0.isWebDAV || $0.isJellyfin) &&
+            photo.source.map { !$0.isDeleted && PhotoLocation.contains(path: photo.filePath, root: $0.rootPath, caseSensitive: $0.caseSensitivePaths) &&
                 !$0.isIgnored(filePath: photo.filePath) } == true
     }
 
@@ -49,7 +49,7 @@ enum PhotoLibrary {
                 return order == .orderedSame ? $0.filePath < $1.filePath : order == .orderedAscending
             }
             let folderName = id.folder.split(separator: "/").last.map(String.init)
-            let albumName = source.isJellyfin ? source.name : (folderName ?? (source.isWebDAV ? source.name : source.share))
+            let albumName = source.isJellyfin ? source.name : (folderName ?? (source.caseSensitivePaths ? source.name : source.share))
             return PhotoAlbum(id: id, title: albumName,
                 sourceName: source.name, folder: id.folder, photos: sorted)
         }.sorted {

@@ -58,13 +58,28 @@ struct SourcesView: View {
         .sheet(isPresented: $adding) { NASSetupView() }
         .sheet(item: $editing) { source in
             NavigationStack {
-                if source.isJellyfin { JellyfinSourceEditor(source: source) }
-                else { SourceEditorView(source: source) }
+                editor(for: source)
             }
         }
     }
 
+    @ViewBuilder
+    private func editor(for source: MediaSource) -> some View {
+        if source.isJellyfin {
+            JellyfinSourceEditor(source: source)
+        } else if source.cloudFileProvider == .appleFiles {
+            #if os(iOS)
+            AppleFilesSourceEditor(source: source)
+            #else
+            Text("Manage this Files source on iPhone.")
+            #endif
+        } else {
+            SourceEditorView(source: source)
+        }
+    }
+
     private func location(of source: MediaSource) -> String {
+        if source.cloudFileProvider == .appleFiles { return "Files on this iPhone" }
         if source.isJellyfin { return source.host }
         if source.isWebDAV { return [source.host, source.rootPath].filter { !$0.isEmpty }.joined(separator: " / ") }
         let address = (try? NASAddress.parse(source.host, port: source.port))?.authority ?? "NAS"

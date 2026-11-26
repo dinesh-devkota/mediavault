@@ -122,6 +122,9 @@ jobs:
               tests = set(passed(json.load(source)["testNodes"]))
           required = {
               "testConnectAndImportWebDAVFromSources",
+              "testGoogleDriveFilesSetupOffersScopedPicker",
+              "testFilesFolderImportsCaptionsAndPlaysAfterSeek",
+              "testFilesNeverReadsAnUnselectedSiblingAndHandlesRevokedBookmarks",
               "testNativePlaybackAndSubtitleControls",
               "testViewerOnlySeesAllowedTitlesOnPhone",
               "testPlaybackAndSeekStreamTheScannedMovie",
