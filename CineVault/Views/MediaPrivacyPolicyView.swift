@@ -12,16 +12,24 @@ struct MediaPrivacyPolicyView: View {
         Form {
             if paragraphs.isEmpty {
                 Text("The bundled policy is unavailable. Visit github.com/dinesh-devkota/mediavault and open docs/PRIVACY.md.")
+                    #if os(tvOS)
                     .focusable()
+                    #endif
             }
             ForEach(paragraphs.indices, id: \.self) { index in
                 let paragraph = paragraphs[index]
                 if paragraph.hasPrefix("## ") {
                     Text(String(paragraph.dropFirst(3)))
-                        .font(.headline).accessibilityAddTraits(.isHeader).focusable()
+                        .font(.headline).accessibilityAddTraits(.isHeader)
+                        #if os(tvOS)
+                        .focusable()
+                        #endif
                 } else {
                     Text(formatted(paragraph))
-                        .foregroundStyle(.secondary).focusable()
+                        .foregroundStyle(.secondary)
+                        #if os(tvOS)
+                        .focusable()
+                        #endif
                 }
             }
         }

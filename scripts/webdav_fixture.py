@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import ssl
 import subprocess
+import time
 from urllib.parse import quote, urlsplit
 from xml.etree import ElementTree as ET
 
@@ -16,17 +17,17 @@ AUTHORIZATION = "Basic " + base64.b64encode(b"cinevault:fixture-only").decode("a
 SAMPLE_DIR = Path(__file__).resolve().parents[1] / "CineVaultTests" / "Fixtures"
 
 
-def create_certificate(directory):
+def create_certificate(directory, provider="WebDAV"):
     directory.mkdir(parents=True, exist_ok=True)
     config = directory / "openssl.cnf"
-    config.write_text("""
+    config.write_text(f"""
 [req]
 distinguished_name = subject
 prompt = no
 x509_extensions = extensions
 
 [subject]
-CN = Disposable MediaVault WebDAV
+CN = Disposable MediaVault {provider}
 
 [extensions]
 basicConstraints = critical,CA:TRUE
@@ -129,6 +130,55 @@ class Handler(BaseHTTPRequestHandler):
         )
 
 
+class TLSFixtureServer(ThreadingHTTPServer):
+    """Keep speculative/idle connections out of the listener's accept loop."""
+
+    def __init__(self, address, handler, *, ssl_context, connection_timeout=5, handshake_timeout=20):
+        self.ssl_context = ssl_context
+        self.connection_timeout = connection_timeout
+        self.handshake_timeout = handshake_timeout
+        super().__init__(address, handler)
+
+    def get_request(self):
+        connection, address = super().get_request()
+        try:
+            # A busy simulator can spend several seconds completing platform
+            # trust evaluation. Match its bounded request allowance for TLS,
+            # then restore the shorter HTTP idle timeout after the handshake.
+            connection.settimeout(self.handshake_timeout)
+            # Handshake explicitly on the worker below, not synchronously in
+            # SSLSocket.accept(). Browsers/URLSession may preconnect without yet
+            # sending a ClientHello; that must not stall every other client.
+            secured = self.ssl_context.wrap_socket(
+                connection, server_side=True, do_handshake_on_connect=False,
+            )
+            return secured, address
+        except Exception:
+            connection.close()
+            raise
+
+    def log_handshake(self, address, *, elapsed, protocol=None, error=None):
+        # Only transport state is logged: never HTTP headers or credentials.
+        outcome = "complete" if error is None else "failed"
+        detail = f"protocol={protocol}" if error is None else f"error_type={type(error).__name__}"
+        print(f"[webdav-tls] peer={address[0]}:{address[1]} stage=handshake "
+              f"result={outcome} elapsed_s={elapsed:.3f} {detail}", flush=True)
+
+    def process_request_thread(self, request, client_address):
+        started = time.monotonic()
+        try:
+            request.do_handshake()
+        except (OSError, ValueError) as error:
+            self.log_handshake(client_address, elapsed=time.monotonic() - started, error=error)
+            self.shutdown_request(request)
+            return
+        self.log_handshake(client_address, elapsed=time.monotonic() - started, protocol=request.version())
+        request.settimeout(self.connection_timeout)
+        # A later "Request timed out" now unambiguously means HTTP I/O, while
+        # a handshake timeout is identified above. Both phases remain bounded.
+        super().process_request_thread(request, client_address)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("directory", type=Path)
@@ -136,8 +186,7 @@ def main():
     certificate, key = create_certificate(arguments.directory)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certificate, key)
-    with ThreadingHTTPServer(("127.0.0.1", 15443), Handler) as server:
-        server.socket = context.wrap_socket(server.socket, server_side=True)
+    with TLSFixtureServer(("127.0.0.1", 15443), Handler, ssl_context=context) as server:
         server.serve_forever()
 
 

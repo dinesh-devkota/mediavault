@@ -118,13 +118,14 @@ actor PhotoImageLoader {
         let session = household.sessionToken
         func checkAccess() throws {
             guard household.sessionIsCurrent(session),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.isWebDAV || config.isJellyfin) else { throw PhotoLoadingError.unavailable }
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths,
+                                       entireSourceOnly: config.isPlex) else { throw PhotoLoadingError.unavailable }
         }
         try checkAccess()
         try Task.checkCancellation()
-        let isArtwork = config.isJellyfin && artworkTag?.isEmpty == false
+        let isArtwork = (config.isJellyfin || config.isPlex) && artworkTag?.isEmpty == false
         guard isArtwork || MediaFile.isPhoto(path: path) && MediaFile.shouldIndex(path: path, size: 1),
-              PhotoLocation.contains(path: path, root: config.rootPath, caseSensitive: config.isWebDAV || config.isJellyfin), !config.excludesFile(path) else { throw PhotoLoadingError.unavailable }
+              PhotoLocation.contains(path: path, root: config.rootPath, caseSensitive: config.caseSensitivePaths), !config.excludesFile(path) else { throw PhotoLoadingError.unavailable }
         guard knownSize <= Self.maximumEncodedBytes else { throw PhotoLoadingError.tooLarge }
         let pixels = min(Self.viewingPixels, max(1, maxPixelSize))
         let key = CacheKey(config, path, knownSize, pixels, revision, artworkTag)
@@ -138,7 +139,19 @@ actor PhotoImageLoader {
                 await slots.release(); return cached
             }
             let bytes: Data
-            if config.isJellyfin {
+            if config.isPlex {
+                let connection = try PlexSourceConnection(config: config)
+                let id = try PlexSourceConnection.itemID(for: path, photo: !isArtwork)
+                try await connection.client.verifyIdentity()
+                try checkAccess()
+                let item = try await connection.client.item(id: id, in: connection.sectionID)
+                try checkAccess()
+                guard isArtwork ? ["movie", "episode"].contains(item.type) && item.thumb == artworkTag : item.type == "photo" else {
+                    throw PhotoLoadingError.unavailable
+                }
+                bytes = try await connection.client.image(for: item)
+                try checkAccess()
+            } else if config.isJellyfin {
                 let connection = try JellyfinSourceConnection(config: config)
                 let id = try JellyfinSourceConnection.itemID(for: path)
                 bytes = try await connection.client.readPrimaryImage(itemID: id, tag: artworkTag, maxPixels: pixels, account: connection.account)
@@ -150,6 +163,7 @@ actor PhotoImageLoader {
             let image = try Self.decode(bytes, maxPixelSize: pixels)
             try Task.checkCancellation()
             let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? pixels * pixels * 4
+            try checkAccess()
             store(image, for: key, cost: cost)
             await slots.release()
             return image

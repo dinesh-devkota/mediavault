@@ -11,14 +11,19 @@ SCRIPT = Path(__file__).resolve().parents[1] / "report_xcresult.py"
 
 
 class XCTestReportTests(unittest.TestCase):
-    def run_report(self, content):
+    def run_report(self, content, suite=None):
         with tempfile.TemporaryDirectory() as directory:
             result_file = Path(directory) / "summary.json"
             output_file = Path(directory) / "step-summary.md"
             if content is not None:
                 result_file.write_text(content, encoding="utf-8")
+            call = [sys.executable, str(SCRIPT), str(result_file)]
+            if suite is not None:
+                cases_file = Path(directory) / "cases.json"
+                cases_file.write_text(json.dumps(suite), encoding="utf-8")
+                call.extend(["--require-suite", str(cases_file), "PlexFixtureTests"])
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), str(result_file)], capture_output=True,
+                call, capture_output=True,
                 text=True, check=False, env={**os.environ, "GITHUB_STEP_SUMMARY": str(output_file)},
             )
             return result, output_file.read_text(encoding="utf-8") if output_file.exists() else ""
@@ -69,6 +74,20 @@ class XCTestReportTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('"skippedTests": 1', output)
         self.assertIn("requires every test to run", result.stdout)
+
+    def test_required_suite_needs_actual_passing_cases(self):
+        summary = json.dumps(self.summary())
+        for suite_name, outcome, expected in (
+            ("PlexFixtureTests", "Passed", 0),
+            ("UnrelatedTests", "Passed", 1),
+            ("PlexFixtureTests", "Skipped", 1),
+        ):
+            with self.subTest(suite=suite_name, outcome=outcome):
+                report = {"testNodes": [{"children": [{"name": suite_name, "children": [
+                    {"nodeType": "Test Case", "name": "testConnectAndPlay()", "result": outcome},
+                ]}]}]}
+                result, _ = self.run_report(summary, report)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

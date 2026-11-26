@@ -25,6 +25,7 @@ object FilenameParser {
     private val separators = Regex("[._()]")
     private val genericPart = Regex("""(cd|disc|part|pt)\s*\d+""")
     private val genericTitles = setOf("movie", "video", "film", "main", "feature")
+    private val libraryFolders = setOf("movies", "films", "videos", "media", "tv", "tv shows", "shows", "documentaries", "music", "photos")
 
     fun parse(path: String): ParsedMovieName {
         val components = path.split('/').filter { it.isNotEmpty() }
@@ -33,7 +34,8 @@ object FilenameParser {
         // "Movie (2010)/movie.mkv" or "Movie (2010)/CD1.avi": fall back to the folder name.
         if (components.size >= 2) {
             val folder = parseName(components[components.size - 2])
-            if (parsed.year == null && (folder.year != null || parsed.title.isEmpty() || isGeneric(parsed.title))) {
+            val specificFolder = folder.title.lowercase() !in libraryFolders || folder.year != null || folder.tmdbId != null
+            if (specificFolder && parsed.year == null && (folder.year != null || parsed.title.isEmpty() || isGeneric(parsed.title))) {
                 parsed = ParsedMovieName(folder.title, folder.year, parsed.tmdbId ?: folder.tmdbId)
             } else if (parsed.tmdbId == null) {
                 // An explicit movie-folder tag still applies when the file has its own year.

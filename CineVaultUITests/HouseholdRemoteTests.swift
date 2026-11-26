@@ -2,6 +2,23 @@ import XCTest
 
 final class HouseholdRemoteTests: XCTestCase {
     @MainActor
+    func testPrivacyPolicyIsReadableFromTheLockedProfilePicker() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-preview-household"]
+        app.launch()
+
+        select(app.buttons["household-privacy-policy"], app)
+        let intro = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@",
+            "This policy applies to the official MediaVault app.")).firstMatch
+        XCTAssertTrue(intro.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.staticTexts["Restricted Feature"].exists)
+
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.buttons["household-profile-Admin"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
     func testRemoteProfileSwitchHidesRestrictedTitlesAndBackgroundLocks() {
         continueAfterFailure = false
         let app = XCUIApplication(); app.launchArguments = ["--ui-preview-household"]; app.launch()
@@ -66,6 +83,26 @@ final class HouseholdRemoteTests: XCTestCase {
         capture("Admin viewer folder and rating permissions", app)
         XCUIRemote.shared.press(.menu)
         XCTAssertTrue(app.buttons["household-add-viewer"].waitForExistence(timeout: 10), app.debugDescription)
+    }
+
+    @MainActor
+    func testOwnerReachesPlexLinkSetupAndCanBackOut() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["--ui-preview-household", "--ui-preview-plex-entry"]; app.launch()
+        select(app.buttons["household-profile-Admin"], app)
+        let field = app.secureTextFields["household-unlock-pin"]
+        select(field, app)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        field.typeText("328614")
+        XCUIRemote.shared.press(.menu)
+        select(app.buttons["household-unlock"], app)
+        XCTAssertTrue(app.buttons["household-switch"].waitForExistence(timeout: 15), app.debugDescription)
+        select(app.buttons["Sources"], app)
+        select(app.buttons["source-add-plex"], app)
+        XCTAssertTrue(app.buttons["plex-link-start"].waitForExistence(timeout: 10), app.debugDescription)
+        capture("Plex linking entry is reachable by remote", app)
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(app.buttons["source-add-plex"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
     @MainActor

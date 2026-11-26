@@ -148,31 +148,27 @@ Both ran the respective HTTPS WebDAV playback and seek test.
 · [Android TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662322559)
 · [Apple TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662323021)
 
-- Jellyfin merged into development at
-  `942b1f289715d4b66650acc7dda8da038a5794a4` after both TV suites passed on
-  `5e4890c7be62328bd7f00c2192e5a25ba275e0bc`. It includes HTTPS setup,
-  password and Quick Connect, protected credentials, selectable libraries,
-  profile-scoped imports, server photos and artwork, direct playback, HLS
-  fallback and seeking, text subtitle streams, and optional SubDL searches
-  by movie or parent-series identity. Android TV passed 98 cases and Apple TV
-  passed 206, with zero failures or skips. The Android phone regression suite
-  also passed.
-  [Merged Jellyfin PR](https://github.com/dinesh-devkota/mediavault/pull/15)
-  · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45672958713)
-  · [Apple TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45676870744)
-- Emby has TV setup and secure storage, household-scoped catalog import,
-  direct-play range reads, photos and artwork, and provider text captions.
-  Android TV passed the photos and captions checkpoint. The unsigned Apple
-  build passed on Xcode 26 after restoring the required household core.
-  The full Apple TV simulator gate is open. Authenticated Android HLS passed
-  rendering and seek on its isolated branch. Apple TV transcoding is open.
+- Jellyfin has TV setup with password or Quick Connect, encrypted provider
+  credentials, selectable libraries, protected catalog import, server photos,
+  artwork and captions, and separate local profile history. Hosted tests
+  played and sought the direct stream on both platforms. The Android setup
+  and artwork checkpoint passed 97 emulator tests. tvOS HLS and optional
+  SubDL search using imported provider IDs have independent draft checkpoints.
+  [Jellyfin](https://github.com/dinesh-devkota/mediavault/pull/2)
+  · [Android TV run](https://github.com/dinesh-devkota/mediavault/actions/runs/45662973340)
+  · [Apple TV direct playback run](https://github.com/dinesh-devkota/mediavault/actions/runs/45660978470)
+  · [Apple TV HLS](https://github.com/dinesh-devkota/mediavault/pull/10)
+- Emby has client fixtures for both platforms and Android app wiring for source
+  setup, library import and protected direct playback. Apple app integration,
+  HLS, and other provider media types still need work.
   [Emby](https://github.com/dinesh-devkota/mediavault/pull/3)
-  · [Android TV](https://github.com/dinesh-devkota/mediavault/actions/runs/45673892183)
-  · [Apple build](https://github.com/dinesh-devkota/mediavault/actions/runs/45678384113)
-  · [Android HLS](https://github.com/dinesh-devkota/mediavault/actions/runs/45677454484)
-- Plex has protected account PIN, server discovery, catalog, and byte reads
-  in provider clients. Full TV setup, protected player wiring and a signed-in
-  QA account are still needed.
+- The Android Plex draft connects an owner’s Plex account by PIN, then stores
+  only the selected HTTPS server credential encrypted for each local library.
+  Android TV and phone share the setup, catalog, and player. Imports support
+  movies, episode grouping and photos. Reading video, artwork and text subtitles
+  rechecks the household session. Playback supports single-file direct streams.
+  Hosted emulator checks use a disposable HTTPS fixture. Signed-in QA on a real
+  Plex server and provider transcoding remain open.
   [Plex](https://github.com/dinesh-devkota/mediavault/pull/5)
 - NFS has loopback tests and an opt-in Android debug bridge for four ABIs.
   The app source, both TV playback journeys, tvOS packaging and distribution
@@ -192,27 +188,17 @@ Both ran the respective HTTPS WebDAV playback and seek test.
 The user authorized provider merges to development after the exact source
 branch passes both hosted emulator/simulator suites, including its named
 provider tests. Retain draft status while implementation or coverage remains
-incomplete. The Windows checkout was unavailable from cloud. The verified
-Git bundle contains development and the separate provider and platform refs.
-
-## Subtitle files and downloads
-
-For SMB and WebDAV, place an SRT or WebVTT file next to its video with the same
-base name. Use names such as `Movie.en.srt` and `Movie.es.vtt`. For Jellyfin,
-MediaVault can play text tracks that the server publishes. Optional SubDL
-downloads use the key linked in Settings and require matched metadata. The app
-prefers available local or server tracks and caches downloads in the player.
-Automated SubDL verification used synthetic search and download responses.
+incomplete. Android phone and iPhone support have their own branches and
+touch-screen test requirements. Keep the Windows handoff as a verified Git
+bundle when the Windows checkout is unavailable.
 
 ## tvOS submission readiness
 
 The development merge gate is the hosted device-emulation suites. App Store
-submission also needs a signed archive built with Apple's current SDK,
-physical-device validation, active Apple Developer membership and current
-provider approvals. Apple decides approval. The public tvOS release checkpoint
-passed on the current SDK and verified the bundled privacy manifest and policy.
-[Apple release build](https://github.com/dinesh-devkota/mediavault/actions/runs/45671952006/job/139409305009)
-· [Privacy and release readiness PR](https://github.com/dinesh-devkota/mediavault/pull/14)
+submission also needs a signed archive, physical Apple TV validation, active
+Apple Developer membership and current provider approvals. Apple makes the
+App Review decision. This work covers unsigned public builds and documented
+checks.
 
 - Give reviewers a reachable, dedicated test service with temporary least-
   privilege credentials and synthetic media the project is authorized to
@@ -235,7 +221,6 @@ passed on the current SDK and verified the bundled privacy manifest and policy.
 
 [App Review guidelines](https://developer.apple.com/app-store/review/guidelines/)
 [App privacy details](https://developer.apple.com/app-store/app-privacy-details/)
-[App Store SDK requirements](https://developer.apple.com/news/upcoming-requirements/)
 [Export compliance](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/)
 
 ## Android phone branch
@@ -244,25 +229,89 @@ passed on the current SDK and verified the bundled privacy manifest and policy.
 
 The separate Android phone workflow runs a clean API 36 phone emulator against the synthetic SMB fixture. It verifies launcher discovery, touch source-form validation, credential entry, folder selection and scan, opening the imported movie and seeking through native playback controls. Phone WebDAV reuses the shared implementation and source editor. This phone smoke covers SMB; WebDAV transport has its existing Android TV fixture. Physical phone testing and app distribution remain separate.
 
-
-The phone branch merged at `97478bae735f6822789d7d8922fdf0d70a053ad3` after
-two Pixel 6 touch journeys and 94 Android TV emulator tests passed. The
-merged Jellyfin branch also passed the phone regression suite.
-[Phone PR](https://github.com/dinesh-devkota/mediavault/pull/12)
-· [Phone emulator run](https://github.com/dinesh-devkota/mediavault/actions/runs/45667689612)
-
 ## iPhone
 
-The iPhone draft has an iOS target sharing the existing source and playback
-services, with touch navigation, native AVPlayer controls and household
-authorization. The unsigned iOS 26.5 build passed. The previous simulator
-checkpoint passed 188 of 189, including native playback and seeking, household
-access and the underlying HTTPS WebDAV transport. The WebDAV touch journey is
-being verified again against the current library accessibility fixes. Keep the
-branch in draft through the current iPhone and Apple TV regression checks.
-[Draft iPhone PR](https://github.com/dinesh-devkota/mediavault/pull/11)
+The iPhone integration candidate is on `codex/mediavault-ios-integration`.
+It shares the public app’s SMB, HTTPS WebDAV, Jellyfin, and Plex setup, household
+rules, database, and native playback code. The iPhone target uses iOS 17 and
+later, with touch navigation for administrative settings and
+subtitle controls. The app treats each device’s household and library as local.
+It does not sync profiles or progress across devices.
 
-## Repository display name
+Generate the iPhone Xcode project with `xcodegen generate --spec project.ios.yml`.
+The `CineVaultPhone` scheme builds the app and runs shared tests and iPhone UI
+tests. The hosted `iPhone simulator` workflow builds an unsigned release with iOS SDK 26 or later and runs
+simulator setup and playback tests against temporary SMB, WebDAV, Jellyfin, and Plex fixtures.
+This app branch needs a green simulator run before merge. Physical iPhone testing,
+signing, export-compliance confirmation, App Store Connect setup, and App Review
+are separate release steps.
 
-The app displays MediaVault. GitHub rejected the case-only repository rename
-because the integration lacks Administration write permission.
+[Original iPhone draft pull request](https://github.com/dinesh-devkota/mediavault/pull/11)
+
+## Dropbox on Android and Apple TV
+
+Development includes Dropbox setup and playback on Android TV, Android phones, and Apple TV through [PR #30](https://github.com/dinesh-devkota/mediavault/pull/30). The owner enters
+a public Dropbox app key and approves with a one-time code using Dropbox's
+documented PKCE flow. The phone can open the approval in its browser. A QR code
+lets TV owners approve from a second device. The app stores the refresh
+credential with Android Keystore encryption and keeps access credentials in
+memory. A reconnect keeps the original app key, Dropbox account, and folder.
+Sign-out removes local credentials and requests revocation at Dropbox.
+
+The iPhone setup flow is tracked separately in [PR #27](https://github.com/dinesh-devkota/mediavault/pull/27).
+
+The Android app scans the selected folder and its subfolders into the local
+library. The existing player, photo loader, and subtitle selector use bounded
+HTTPS reads. File metadata and the response range must match before data is
+returned. Household viewers need an explicit grant and cannot use a buffered
+read after a session locks. Each source keeps the existing local history and
+Watchlist behavior. Dropbox filenames match case-insensitively on Android.
+
+The Android TV and phone workflows require the Dropbox fixture to exercise
+one-time code exchange, refreshed credentials, paginated import, photo decode,
+matching captions, playback with a rendered seek, and household access. The TV
+suite also requires the remote-control approval screen test. Only the synthetic
+test client trusts the fixture certificate. The QR code uses the Apache-2.0
+licensed ZXing Core dependency.
+
+Real-account validation needs a registered Dropbox app and eligible test
+account. No account credentials or app secret are included in the project.
+Apple app review and Dropbox production access are separate steps.
+[Dropbox OAuth](https://developers.dropbox.com/oauth-guide) ·
+[Dropbox HTTP API](https://www.dropbox.com/developers/documentation/http/documentation) ·
+[ZXing license](https://github.com/zxing/zxing/blob/master/LICENSE)
+
+## Plex on Apple TV
+
+The isolated `codex/mediavault-plex-tvos` branch starts at development commit `942b1f2`.
+An owner can link using the code shown in Sources, choose an advertised Plex Media Server and choose one movie, TV, or photo library. Reconnect preserves the server and library identity. The source stores its server token in Keychain. Removing the source clears its local catalog and credential. Household profiles need an explicit whole-library grant and keep their local watched, resume and Watchlist records separate from the Plex account.
+
+The implementation supports protected Plex artwork, photo thumbnails, native MP4/M4V/MOV direct play with byte-range seeking, and matching external SRT or WebVTT tracks. A disposable HTTPS fixture covers Plex linking, discovery, catalog groups, paging, media ranges, restricted artwork, and caption playback. The branch also adds a remote navigation test for the owner's setup entry. Local cloud checks use Python transport tests and Swift source parsing. The Apple TV hosted jobs are the compile and runtime gate.
+
+Before shipping, validate a real Plex server and account against Apple TV hardware. Plex transcoding, Relay-only connections, and full-size original Plex photos are pending. Apple simulator and unsigned release checks require no distribution credentials. App Store submission and approval require the owner's separate Apple process.
+
+### Android OneDrive application checkpoint
+
+[Android OneDrive PR #4](https://github.com/dinesh-devkota/mediavault/pull/4)
+and [Apple OneDrive PR #22](https://github.com/dinesh-devkota/mediavault/pull/22)
+track their platform runtime checks independently.
+
+The Android OneDrive feature branch integrates a personal account through Microsoft's
+device authorization, a public client ID, and a read-only Graph connection.
+Admin selects the drive root or an explicit folder before saving. The app stages
+credentials in memory until approval and folder selection complete. Android
+Keystore seals the device refresh record under the local source UUID. Reconnect
+checks that the Microsoft drive still matches. Disconnect clears local credentials,
+invalidates open handles, and removes the source and its indexed history.
+
+Android TV and phone share the existing scanner, photo viewer, playback,
+subtitle and household paths. OneDrive uses exact relative names inside the
+selected folder. Each media range resolves the current path to the expected
+Graph item ID before following a fresh download grant without the Graph bearer.
+The household UI can grant selected subfolders. New sources require explicit
+viewer grants. The scanner keeps the existing Android file-path history behavior.
+
+Hosted fixtures are synthetic. Live testing still requires an Entra public
+application configured for personal Microsoft accounts and public client device
+flow with delegated Files.Read, plus a dedicated OneDrive test account. See
+`docs/TESTING.md` for the app setting and build property.

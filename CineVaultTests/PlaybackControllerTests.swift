@@ -8,7 +8,7 @@ final class PlaybackControllerTests: XCTestCase {
         let movie = makeMovieWithHistory()
         do {
             _ = try await PlaybackController.prepare(movie: movie, resume: false, services: PlaybackServices(),
-                                                     loadPlayable: { _ in false })
+                                                     loadPlayable: { _ in false }, allowAlternative: false)
             XCTFail("An unplayable asset must not create a playback controller")
         } catch PlaybackPreparationError.unsupportedFormat {
             assertOriginalHistory(movie)

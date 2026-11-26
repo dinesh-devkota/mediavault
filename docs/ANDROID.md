@@ -1,8 +1,10 @@
-# Android TV
+# Android TV and phones
 
-MediaVault reads media directly from SMB shares without a media server or
-transcoding. The development build includes library browsing, search, sources,
-movie details, TMDB metadata, playback, photo albums, and library editing.
+MediaVault connects to SMB, HTTPS WebDAV, and Jellyfin libraries. The same APK
+supports TV remotes and phone touch navigation. The 1.5.0 build 7 feature branch
+adds local NFO/XML details and artwork, personal collections, automatic movie
+series, and movie-version grouping alongside browsing, search, playback and photos.
+Local metadata works without an online key. See the [organization guide](MEDIA-GUIDE.md#use-local-artwork-and-details).
 
 Optional **Household profiles** in Settings add an Admin PIN, allowed folders,
 US movie/series rating limits and separate viewing history for each person.
@@ -24,7 +26,7 @@ The APK is `android/app/build/outputs/apk/debug/app-debug.apk`, relative to the
 repository root. Alternatively, download and unzip the
 `cinevault-androidtv-debug` artifact from the **Android TV** GitHub Actions workflow.
 
-Connect an Android TV device or TV emulator running Android 8.0/API 26 or later.
+Connect an Android phone, Android TV, or emulator running Android 8.0/API 26 or later.
 Enable debugging and accept the connection prompt. With Android SDK
 Platform-Tools available, run from the repository root:
 
@@ -34,7 +36,7 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
 For a downloaded artifact, replace the APK path with its extracted location.
-Open MediaVault from the TV launcher. The device or emulator must be able to reach
+Open MediaVault from the phone or TV launcher. The device or emulator must be able to reach
 the NAS; enter its hostname or LAN address, not `localhost`.
 
 ## Connect a NAS

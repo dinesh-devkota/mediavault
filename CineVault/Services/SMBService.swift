@@ -61,14 +61,25 @@ actor SMBService {
 
     private let timeout: TimeInterval?
     private let connect: (SMB2Manager, String) async throws -> Void
+    private let cloudHousehold: HouseholdStore
+    private let makeCloud: (CloudFileProvider, SourceConfig) throws -> CloudFileTransport
     private var managers: [SourceConfig: SMB2Manager] = [:]
     private var generations: [UUID: UInt64] = [:]
 
     init(timeout: TimeInterval? = nil,
+         cloudHousehold: HouseholdStore = .shared,
+         cloudTransport: @escaping (CloudFileProvider, SourceConfig) throws -> CloudFileTransport = { provider, config in
+             switch provider {
+             case .oneDrive: return try OneDriveFileSource.transport(config)
+             case .dropbox: return try DropboxFileSource.transport(config)
+             }
+         },
          connect: @escaping (SMB2Manager, String) async throws -> Void = { manager, share in
              try await manager.connectShare(name: share)
          }) {
         self.timeout = timeout
+        self.cloudHousehold = cloudHousehold
+        self.makeCloud = cloudTransport
         self.connect = connect
     }
 
@@ -140,7 +151,7 @@ actor SMBService {
 
     func testConnection(_ config: SourceConfig) async throws {
         await reset(config)
-        if config.isWebDAV { _ = try await listEntries(config); return }
+        if config.isWebDAV || config.cloudFileProvider != nil { _ = try await listEntries(config); return }
         _ = try await withManager(config) { try await $0.contentsOfDirectory(atPath: config.rootPath) }
     }
 
@@ -160,7 +171,9 @@ actor SMBService {
 
     /// Lists direct child directories for setup without recursively scanning media.
     func listFolders(_ config: SourceConfig) async throws -> [String] {
-        if config.isWebDAV { return try await listEntries(config).filter(\.isDirectory).map(\.name) }
+        if config.isWebDAV || config.cloudFileProvider != nil {
+            return try await listEntries(config).filter(\.isDirectory).map(\.name)
+        }
         return try await withManager(config) { manager in
             let entries = try await manager.contentsOfDirectory(atPath: config.rootPath)
             return entries.compactMap { entry -> String? in
@@ -174,8 +187,8 @@ actor SMBService {
 
     /// Read-only entries for the source folder and exclusion pickers.
     func listEntries(_ config: SourceConfig, directory: String? = nil) async throws -> [NASDirectoryEntry] {
-        if config.isWebDAV {
-            let entries = try await webDAVEntries(config, path: directory ?? config.rootPath)
+        if config.isWebDAV || config.cloudFileProvider != nil {
+            let entries = try await exactPathEntries(config, path: directory ?? config.rootPath)
             return entries.map { NASDirectoryEntry(name: String($0.path.split(separator: "/").last ?? ""), isDirectory: $0.isDirectory) }
         }
         let path: String
@@ -199,8 +212,8 @@ actor SMBService {
 
     /// Recursively lists indexable video files below the source's root folder.
     func scanVideos(_ config: SourceConfig) async throws -> [RemoteFile] {
-        if config.isWebDAV {
-            return try await scanWebDAV(config, videosOnly: true) { _ in }
+        if config.isWebDAV || config.cloudFileProvider != nil {
+            return try await scanExactPaths(config, videosOnly: true) { _ in }
         }
         return try await withManager(config) { manager in
             var results: [RemoteFile] = []
@@ -234,7 +247,7 @@ actor SMBService {
 
     /// Reports each directory/batch so large libraries become usable before traversal finishes.
     func scanMedia(_ config: SourceConfig, onProgress: MediaScanReporter) async throws -> [RemoteFile] {
-        if config.isWebDAV { return try await scanWebDAV(config, onProgress: onProgress) }
+        if config.isWebDAV || config.cloudFileProvider != nil { return try await scanExactPaths(config, onProgress: onProgress) }
         return try await withManager(config) { manager in
             var results: [RemoteFile] = []
             var pending = [config.rootPath]
@@ -278,6 +291,14 @@ actor SMBService {
             throw SMBError.invalidByteRange
         }
         guard length > 0 else { return Data() }
+        if let provider = config.cloudFileProvider {
+            guard !config.excludesFile(path), WebDAVAddress.contains(path, within: config.rootPath) else {
+                throw CloudFileError.invalidPath
+            }
+            return try await withCloud(config, provider: provider, path: path) { transport, check in
+                try await transport.read(path, offset: offset, length: length, check: check)
+            }
+        }
         if config.isWebDAV {
             guard WebDAVAddress.contains(path, within: config.rootPath), !config.excludesFile(path) else { throw WebDAVError.invalidPath }
             return try await withWebDAV(config) { try await $0.read(path, offset: offset, length: length) }
@@ -289,6 +310,14 @@ actor SMBService {
     }
 
     func fileSize(_ config: SourceConfig, path: String) async throws -> Int64 {
+        if let provider = config.cloudFileProvider {
+            guard !config.excludesFile(path), WebDAVAddress.contains(path, within: config.rootPath) else {
+                throw CloudFileError.invalidPath
+            }
+            return try await withCloud(config, provider: provider, path: path) { transport, check in
+                try await transport.fileSize(path, check: check)
+            }
+        }
         if config.isWebDAV {
             guard WebDAVAddress.contains(path, within: config.rootPath), !config.excludesFile(path) else { throw WebDAVError.invalidPath }
             return try await withWebDAV(config) { try await $0.fileSize(path) }
@@ -312,21 +341,64 @@ actor SMBService {
         return result
     }
 
-    private func webDAVEntries(_ config: SourceConfig, path: String) async throws -> [WebDAVEntry] {
+    private func exactPathEntries(_ config: SourceConfig, path: String) async throws -> [RemoteDirectoryEntry] {
         guard WebDAVAddress.contains(path, within: config.rootPath, allowRoot: true),
-              !config.excludesDirectory(path) else { throw WebDAVError.invalidPath }
+              !config.excludesDirectory(path) else {
+            if config.cloudFileProvider != nil { throw CloudFileError.invalidPath }
+            throw WebDAVError.invalidPath
+        }
+        if let provider = config.cloudFileProvider {
+            return try await withCloud(config, provider: provider, path: path, allowFolderRoot: true) { transport, check in
+                try await transport.list(path, check: check)
+            }
+        }
         return try await withWebDAV(config) { try await $0.list(path) }
     }
 
-    private func scanWebDAV(_ config: SourceConfig, videosOnly: Bool = false, onProgress: MediaScanReporter) async throws -> [RemoteFile] {
+    private func withCloud<T>(_ config: SourceConfig, provider: CloudFileProvider, path: String, allowFolderRoot: Bool = false,
+                              operation: (CloudFileTransport, @escaping CloudFileTransport.Permission) async throws -> T) async throws -> T {
         let generation = generations[config.id, default: 0]
+        let household = cloudHousehold
+        let session = household.sessionToken
+        let check: CloudFileTransport.Permission = {
+            try Task.checkCancellation()
+            guard household.sessionIsCurrent(session),
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: true, allowFolderRoot: allowFolderRoot) else {
+                throw HouseholdError.denied
+            }
+        }
+        try check()
+        let transport = try makeCloud(provider, config)
+        let result = try await operation(transport, check)
+        try check()
+        guard generations[config.id, default: 0] == generation else { throw SMBError.sourceChanged }
+        return result
+    }
+
+    private func scanExactPaths(_ config: SourceConfig, videosOnly: Bool = false, onProgress: MediaScanReporter) async throws -> [RemoteFile] {
+        let generation = generations[config.id, default: 0]
+        let isCloud = config.cloudFileProvider != nil
+        let household = cloudHousehold
+        let session = household.sessionToken
+        func check() throws {
+            try Task.checkCancellation()
+            guard generations[config.id, default: 0] == generation else { throw SMBError.sourceChanged }
+            if isCloud {
+                guard household.sessionIsCurrent(session), household.isAdmin else { throw HouseholdError.denied }
+            }
+        }
         var pending = [config.rootPath]
         var results: [RemoteFile] = []
         var folders = 0
+        var entryCount = 0
         while let directory = pending.popLast() {
-            try Task.checkCancellation()
-            guard generations[config.id, default: 0] == generation else { throw SMBError.sourceChanged }
-            let entries = try await webDAVEntries(config, path: directory)
+            try check()
+            let entries = try await exactPathEntries(config, path: directory)
+            try check()
+            if isCloud {
+                guard folders < 20_000, entries.count <= 200_000 - entryCount else { throw CloudFileError.invalidListing }
+                entryCount += entries.count
+            }
             var batch: [RemoteFile] = []
             folders += 1
             for entry in entries {
@@ -348,13 +420,15 @@ actor SMBService {
                 results.append(file)
                 batch.append(file)
                 if batch.count == 100 {
+                    try check()
                     try await onProgress(ScanProgress(files: batch, found: results.count, folders: folders))
                     batch.removeAll()
                 }
             }
+            try check()
             try await onProgress(ScanProgress(files: batch, found: results.count, folders: folders))
         }
-        guard generations[config.id, default: 0] == generation else { throw SMBError.sourceChanged }
+        try check()
         return results
     }
 
