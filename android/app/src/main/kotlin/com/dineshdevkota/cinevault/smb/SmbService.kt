@@ -4,6 +4,7 @@ import com.dineshdevkota.cinevault.cloud.CloudClientException
 import com.dineshdevkota.cinevault.cloud.DriveDocumentPath
 import com.dineshdevkota.cinevault.cloud.GOOGLE_DRIVE_DOCUMENTS
 import com.dineshdevkota.cinevault.cloud.ONEDRIVE
+import com.dineshdevkota.cinevault.nfs.NFS
 import com.dineshdevkota.cinevault.cloud.DROPBOX
 import com.dineshdevkota.cinevault.cloud.DropboxMedia
 import com.dineshdevkota.cinevault.core.SubtitleSidecars
@@ -51,11 +52,15 @@ data class SourceConfig(
     val sourceType: String = "smb",
     val allowInsecureHttp: Boolean = false,
 ) {
-    init { require(sourceType in setOf("smb", "webdav", ONEDRIVE, DROPBOX, GOOGLE_DRIVE_DOCUMENTS)) { "Unsupported source type." } }
+    init {
+        require(sourceType in setOf("smb", "webdav", ONEDRIVE, DROPBOX, GOOGLE_DRIVE_DOCUMENTS, NFS)) {
+            "Unsupported source type."
+        }
+    }
     val isWebDav: Boolean get() = sourceType == "webdav"
     val isGoogleDrive: Boolean get() = sourceType == GOOGLE_DRIVE_DOCUMENTS
     internal val isDropbox: Boolean get() = sourceType == DROPBOX
-    val caseSensitivePaths: Boolean get() = isWebDav || sourceType == ONEDRIVE || isGoogleDrive
+    val caseSensitivePaths: Boolean get() = isWebDav || sourceType == ONEDRIVE || isGoogleDrive || sourceType == NFS
     override fun toString(): String = "SourceConfig(id=$id, host=${runCatching { NasAddress.parse(host, port).host }.getOrDefault("invalid")}, share=$share)"
 }
 
@@ -120,6 +125,7 @@ class SmbService(
     )
 
     private fun connect(config: SourceConfig): Connected {
+        if (config.sourceType == NFS) throw SmbException("This source is unavailable.")
         val address = NasAddress.parse(config.host, config.port)
         val connection = client.connect(address.host, address.port ?: SMBClient.DEFAULT_PORT)
         val contexts = if (config.username.isEmpty()) {
@@ -338,6 +344,7 @@ class SmbService(
     /** Checks legacy playback candidates with the same bounded probe used while scanning. */
     suspend fun hasPlayableContent(config: SourceConfig, path: String): Boolean {
         if (!MediaFile.isPlayable(path)) return false
+        if (config.sourceType == NFS) return fileSources[NFS]?.hasPlayableContent(config, path) ?: false
         if (!MediaFile.requiresContentCheck(path)) return true
         fileSource(config)?.let { return it.hasPlayableContent(config, path) }
         if (config.isWebDav) return webdav.accepts(config, path, playback = true)

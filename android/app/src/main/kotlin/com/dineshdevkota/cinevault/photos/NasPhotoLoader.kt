@@ -32,6 +32,7 @@ import com.dineshdevkota.cinevault.smb.SourceConfig
 import com.hierynomus.security.bc.BCSecurityProvider
 import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.SmbConfig
+import com.dineshdevkota.cinevault.nfs.NFS
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -106,7 +107,8 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
             validateItem(photo)
             // Source changes and completed rescans invalidate decoded content.
             val key = CacheKey(photo.id, remotePath, source, photo.fileSize, edge, artwork)
-            cache.get(key)?.let {
+            val cached = if (source.sourceType == NFS) null else cache.get(key)
+            cached?.let {
                 authorize(photo)
                 return@withPermit it
             }
@@ -179,12 +181,16 @@ class NasPhotoLoader(context: Context, private val database: CineVaultDatabase,
                     throw PhotoLoadException("The image source changed. Open it again.")
                 }
                 validateItem(currentPhoto)
+                if (source.sourceType == NFS && !session.admin &&
+                    database.profileHistory().get(session.historyId, currentPhoto.id)?.hidden == true) {
+                    throw PhotoLoadException("This image is unavailable for this profile.")
+                }
                 authorize(currentPhoto)
                 val bitmap = requireNotNull(decoded)
                 if (bitmap.allocationByteCount > PhotoDecodePolicy.MAX_DECODED_PIXELS * 4) {
                     throw PhotoLoadException("This photo needs more memory than this viewer allows.")
                 }
-                cache.put(key, bitmap)
+                if (source.sourceType != NFS) cache.put(key, bitmap)
                 decoded = null // The cache and visible composables now own this bitmap.
                 bitmap
             } catch (error: OutOfMemoryError) {

@@ -8,6 +8,8 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val nfsDevelopmentLibraries = providers.gradleProperty("cinevault.nfsDevelopmentLibs").orNull
+
 val oneDriveClientId = providers.gradleProperty("mediavault.oneDriveClientId").orElse("").get().also {
     require(it.isEmpty() || it.matches(Regex("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"))) {
         "mediavault.oneDriveClientId must be a public Microsoft Entra application UUID."
@@ -31,6 +33,7 @@ android {
         minSdk = 22
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("boolean", "NFS_DEVELOPMENT_ENABLED", "false")
         buildConfigField("String", "ONEDRIVE_CLIENT_ID", "\"$oneDriveClientId\"")
         versionCode = providers.gradleProperty("cinevault.versionCode").orNull?.toInt() ?: 7
         versionName = providers.gradleProperty("cinevault.versionName").orNull ?: "1.5.0"
@@ -38,6 +41,13 @@ android {
 
     sourceSets.named("androidTest") {
         assets.srcDir("../../CineVaultTests/Fixtures")
+    }
+
+    nfsDevelopmentLibraries?.let { path ->
+        val libraries = file(path)
+        require(libraries.isDirectory) { "Provide the jniLibs directory from build_android_nfs.py." }
+        sourceSets.named("debug") { jniLibs.srcDir(libraries) }
+        sourceSets.named("androidTest") { java.srcDir("src/nfsDevelopmentTest/kotlin") }
     }
 
     if (releaseSigningEnabled) {
@@ -65,6 +75,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (nfsDevelopmentLibraries != null) buildConfigField("boolean", "NFS_DEVELOPMENT_ENABLED", "true")
+        }
         release {
             // smbj pulls in BouncyCastle/Kerberos classes that R8 cannot shrink safely.
             isMinifyEnabled = false

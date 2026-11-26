@@ -25,11 +25,11 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         }
         let first = seconds(app)
         app.buttons["alternative-forward"].tap()
-        wait(app, "Forward seeks the real decoder") { self.seconds(app) >= first + 8 }
-        let slider = app.sliders["alternative-seek"]
-        XCTAssertTrue(slider.isHittable)
-        slider.adjust(toNormalizedSliderPosition: 0.35)
-        wait(app, "Touch scrubber seeks to the chosen part of the movie") { (15...28).contains(self.seconds(app)) }
+        wait(app, "Forward seeks the real decoder") {
+            guard let seek = self.seekEvidence(app) else { return false }
+            return seek.sequence == 1 && seek.submitted && seek.decoder >= first + 8 && abs(seek.decoder - seek.target) <= 2
+        }
+        verifyTouchScrubber(app)
 
         app.buttons["playback-subtitles"].tap()
         let local = app.buttons["subtitle-Controls.en.srt"]
@@ -86,6 +86,50 @@ final class AlternativePlaybackPhoneTests: XCTestCase {
         }
         XCTAssertTrue(outcome.evaluate(with: probe), "The \(identifier) touch did not change playback.\n" + app.debugDescription)
     }
+    private struct SeekEvidence: CustomStringConvertible {
+        let sequence: Int
+        let target: Double
+        let submitted: Bool
+        let decoder: Double
+
+        var description: String { "sequence=\(sequence), target=\(target), submitted=\(submitted), decoder=\(decoder)" }
+    }
+
+    @MainActor private func seekEvidence(_ app: XCUIApplication) -> SeekEvidence? {
+        let probe = app.staticTexts["fixture-alternative-seek-evidence"]
+        guard probe.exists else { return nil }
+        let fields = probe.label.split(separator: "|")
+        guard fields.count == 4, let sequence = Int(fields[0]), let target = Double(fields[1]),
+              let submitted = Bool(String(fields[2])), let decoder = Double(fields[3]) else { return nil }
+        return SeekEvidence(sequence: sequence, target: target, submitted: submitted, decoder: decoder)
+    }
+
+    @MainActor private func verifyTouchScrubber(_ app: XCUIApplication) {
+        let slider = app.sliders["alternative-seek"]
+        XCTAssertTrue(slider.isHittable)
+        guard let before = seekEvidence(app) else {
+            XCTFail("Expected the native seek evidence before touching the slider.")
+            return
+        }
+        slider.adjust(toNormalizedSliderPosition: 0.35)
+        let targetWindow = 15.0...28.0
+        var observed: SeekEvidence?
+        let landed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard let seek = self.seekEvidence(app) else { return false }
+            observed = seek
+            return seek.sequence == before.sequence + 1 && seek.submitted && targetWindow.contains(seek.target)
+                && targetWindow.contains(seek.decoder) && abs(seek.decoder - seek.target) <= 2
+        }, object: nil)
+        let result = XCTWaiter.wait(for: [landed], timeout: 10)
+        let after = seekEvidence(app) ?? observed
+        let evidence = "Normalized slider request: 0.35\nBefore: \(before)\nAfter: \(after?.description ?? "unavailable")"
+        let attachment = XCTAttachment(string: evidence)
+        attachment.name = "MKV slider request and native decoder clock"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertEqual(result, .completed, "Touch scrubber must submit one target in the expected part of the movie and land on the native clock.\n" + evidence)
+    }
+
     @MainActor private func seconds(_ app: XCUIApplication) -> Double {
         let item = app.staticTexts["fixture-alternative-seconds"]
         return item.exists ? Double(item.label) ?? -1 : -1

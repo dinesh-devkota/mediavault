@@ -272,10 +272,14 @@ struct PhotoViewer: View {
                 }
                 HStack(spacing: 24) {
                     Button { move(-1) } label: { Label("Previous", systemImage: "chevron.left") }
+                        .tvOSBorderedAction()
                         .focused($focus, equals: .previous).disabled((index ?? 0) <= 0)
                     Button { move(1) } label: { Label("Next", systemImage: "chevron.right") }
+                        .tvOSBorderedAction()
                         .focused($focus, equals: .next).disabled(index.map { $0 + 1 >= available.count } ?? true)
-                    Button { dismiss() } label: { Label("Back", systemImage: "xmark") }.focused($focus, equals: .back)
+                    Button { dismiss() } label: { Label("Back", systemImage: "xmark") }
+                        .tvOSBorderedAction()
+                        .focused($focus, equals: .back)
                 }
             }
             #if os(iOS)
