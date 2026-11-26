@@ -69,6 +69,7 @@ actor SMBService {
          cloudTransport: @escaping (CloudFileProvider, SourceConfig) throws -> CloudFileTransport = { provider, config in
              switch provider {
              case .oneDrive: return try OneDriveFileSource.transport(config)
+             case .dropbox: return try DropboxFileSource.transport(config)
              }
          },
          connect: @escaping (SMB2Manager, String) async throws -> Void = { manager, share in
