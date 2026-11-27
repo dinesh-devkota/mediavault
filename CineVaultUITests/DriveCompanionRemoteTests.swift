@@ -14,7 +14,7 @@ final class DriveCompanionRemoteTests: XCTestCase {
         select(app.buttons["source-add-google-drive-companion"], in: app)
         select(app.buttons["drive-companion-start"], in: app)
         assertPairing(endpoint, in: app)
-        assertOneSelectedFile(in: app)
+        assertTwoSelectedFiles(in: app)
         let save = app.buttons["drive-companion-save"]
         XCTAssertEqual(save.label, "Save and scan")
         select(save, in: app)
@@ -28,7 +28,7 @@ final class DriveCompanionRemoteTests: XCTestCase {
 
         select(app.buttons["drive-companion-reconnect"], in: app)
         assertPairing(endpoint, in: app)
-        assertOneSelectedFile(in: app)
+        assertTwoSelectedFiles(in: app)
         XCTAssertEqual(save.label, "Reconnect and scan")
         select(save, in: app)
         XCTAssertTrue(edits.firstMatch.waitForExistence(timeout: 20), app.debugDescription)
@@ -43,15 +43,15 @@ final class DriveCompanionRemoteTests: XCTestCase {
         XCTAssertTrue(code.waitForExistence(timeout: 12), app.debugDescription, line: line)
         XCTAssertEqual(code.label, "AB23-CD45", app.debugDescription, line: line)
         let address = app.staticTexts["drive-companion-verification-url"]
-        XCTAssertTrue(address.label.hasPrefix(endpoint + "/"), app.debugDescription, line: line)
+        XCTAssertEqual(address.label, endpoint + "/pair", app.debugDescription, line: line)
         XCTAssertTrue(app.buttons["drive-companion-cancel"].exists, app.debugDescription, line: line)
     }
 
     @MainActor
-    private func assertOneSelectedFile(in app: XCUIApplication, line: UInt = #line) {
+    private func assertTwoSelectedFiles(in app: XCUIApplication, line: UInt = #line) {
         let count = app.staticTexts["drive-companion-selected-count"]
         XCTAssertTrue(count.waitForExistence(timeout: 15), app.debugDescription, line: line)
-        XCTAssertEqual(count.label, "1 file selected in Google Drive", app.debugDescription, line: line)
+        XCTAssertEqual(count.label, "2 files selected in Google Drive", app.debugDescription, line: line)
     }
 
     @MainActor
