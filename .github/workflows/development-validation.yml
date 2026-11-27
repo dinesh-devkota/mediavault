@@ -153,6 +153,7 @@ jobs:
           grep -F "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek]' passed" "$RUNNER_TEMP/tvos-test-output.log"
           grep -F "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot]' passed" "$RUNNER_TEMP/tvos-test-output.log"
           grep -F "testOwnerPairsSavesAndReconnectsGoogleDrive]' passed" "$RUNNER_TEMP/tvos-test-output.log"
+          grep -F "testReconnectedDriveSelectionLoadsNativeAssetThroughHTTPS]' passed" "$RUNNER_TEMP/tvos-test-output.log"
           grep -F "testRemoteOpensEmbySetupAndRequiresAServerBeforeSignIn]' passed" "$RUNNER_TEMP/tvos-test-output.log"
           grep -F "testPlayerRangeReturnsBytesAndSuppressesAResponseAfterAccessChanges]' passed" "$RUNNER_TEMP/tvos-test-output.log"
           grep -F "testRelayHidesUpstreamReferencesAndStopsDeliveringAfterRevocation]' passed" "$RUNNER_TEMP/tvos-test-output.log"

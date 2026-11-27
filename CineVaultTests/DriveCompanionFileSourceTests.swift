@@ -50,7 +50,10 @@ final class DriveCompanionFileSourceTests: XCTestCase {
         let initial = try await approvedFixtureSelection(client)
         addTeardownBlock { try? await client.disconnect(token: initial.token) }
 
-        let household = HouseholdStore.shared
+        let suite = "MediaVault.DriveCompanionPlayback.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let household = HouseholdStore(defaults: defaults, read: { nil })
         let session = household.sessionToken
         let authorize = {
             guard household.isAdmin, household.sessionIsCurrent(session) else { throw HouseholdError.denied }
@@ -62,7 +65,7 @@ final class DriveCompanionFileSourceTests: XCTestCase {
             connection: initial, context: context, authorize: authorize)
         let sourceID = source.id
         defer { _ = try? DriveCompanionFileSource.remove(sourceID) {} }
-        let scanner = LibraryScanner()
+        let scanner = LibraryScanner(fetchMetadata: { _ in nil })
         await scanner.scan(source, context: context)
         XCTAssertEqual(source.movies.map(\.filePath), ["Drive Fixture Clip.mp4"], scanner.status ?? "")
         let movie = try XCTUnwrap(source.movies.first)
@@ -73,13 +76,13 @@ final class DriveCompanionFileSourceTests: XCTestCase {
         try await DriveCompanionSourceStore.reconnect(source: source, endpoint: endpoint,
             connection: renewed, context: context, authorize: authorize)
 
-        let loader = SMBResourceLoader(config: try source.config(), path: movie.filePath)
+        let loader = SMBResourceLoader(config: try source.config(), path: movie.filePath, household: household)
         var signature = Data()
         try await loader.streamBytes(from: 4, to: 8) { signature.append($0) }
         XCTAssertEqual(signature, Data("ftyp".utf8), "The playback loader must return the requested MP4 bytes over the renewed grant.")
 
         let prepared = try await PlaybackController.prepare(movie: movie, resume: false,
-            services: PlaybackServices(), allowAlternative: false)
+            services: PlaybackServices(), defaults: defaults, allowAlternative: false, household: household)
         let controller = try XCTUnwrap(prepared)
         defer { controller.stop() }
         let asset = try XCTUnwrap(controller.player.currentItem?.asset as? AVURLAsset)

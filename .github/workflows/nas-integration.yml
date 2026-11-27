@@ -167,6 +167,7 @@ jobs:
               required |= {"testCommonContainersDecodeAndSeekOverGuardedSMB",
                            "testLocalSidecarsArtworkVersionsAndFranchiseWithoutOnlineKey",
                            "testDropboxApprovalScanCaptionsPhotoAndPlaybackSeek",
+                           "testReconnectedDriveSelectionLoadsNativeAssetThroughHTTPS",
                            "testCloudViewerFindsSidecarsAtTheExactGrantedFolderRoot",
                            "testPlayerRangeReturnsBytesAndSuppressesAResponseAfterAccessChanges",
                            "testRelayHidesUpstreamReferencesAndStopsDeliveringAfterRevocation",
