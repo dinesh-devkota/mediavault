@@ -2,12 +2,12 @@
 
 ## Resume the work
 
-This branch contains the Google Drive for Apple TV implementation and this handoff. The
-feature is open as a draft. The tested source revision is
-`45eaf54ac8bfb02f9981b63af1deb94c8110db84`. Its base is
-`dinesh-devkota-sonepar-build-cinevault-tvos-app` at
-`1c1635701cae9ee3886f48eed89141296b25c420`.
-[Draft pull request #33](https://github.com/dinesh-devkota/mediavault/pull/33)
+Google Drive for Apple TV merged into the development branch
+`dinesh-devkota-sonepar-build-cinevault-tvos-app` at `8f8a693fab5e68ac1af0ca48f92ca1c2ff9da5c4`.
+The merge has the same source tree as the tested pull request head
+`45eaf54ac8bfb02f9981b63af1deb94c8110db84`. This handoff branch adds this document to
+that source snapshot.
+[Merged pull request #33](https://github.com/dinesh-devkota/mediavault/pull/33)
 
 Clone the handoff branch from any machine with Git.
 
@@ -24,8 +24,8 @@ git fetch origin codex/mediavault-google-drive-tvos-handoff
 git switch --detach FETCH_HEAD
 ```
 
-Use the feature branch `codex/mediavault-google-drive-tvos` for changes intended for PR #33.
-Use the handoff branch to retrieve this document together with the exact tested source.
+Start future implementation branches from `dinesh-devkota-sonepar-build-cinevault-tvos-app`.
+Use the handoff branch when you need this document and the tested source snapshot.
 
 ## What is implemented
 
