@@ -1,0 +1,31 @@
+name: Google Drive companion
+
+on:
+  pull_request:
+    paths:
+      - "services/drive-companion/**"
+      - ".github/workflows/google-drive-companion.yml"
+  push:
+    branches: [main, dinesh-devkota-sonepar-build-cinevault-tvos-app]
+    paths:
+      - "services/drive-companion/**"
+      - ".github/workflows/google-drive-companion.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-oauth:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: services/drive-companion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Test pairing, selected-file authorization and revocation with synthetic Google
+        run: npm test
