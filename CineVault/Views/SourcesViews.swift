@@ -13,6 +13,9 @@ struct SourcesView: View {
     @State private var adding = false
     @State private var addingPlex = false
     @State private var addingEmby = false
+    #if os(tvOS)
+    @State private var addingGoogleDrive = false
+    #endif
     @ObservedObject private var household = HouseholdStore.shared
 
     var body: some View {
@@ -24,6 +27,12 @@ struct SourcesView: View {
                         .accessibilityIdentifier("source-add-plex")
                     Button { addingEmby = true } label: { Label("Add Emby Library", systemImage: "play.rectangle") }
                         .accessibilityIdentifier("add-emby-source")
+                    #if os(tvOS)
+                    if DriveCompanionClient.configuredEndpoint != nil {
+                        Button { addingGoogleDrive = true } label: { Label("Connect Google Drive", systemImage: "externaldrive.badge.icloud") }
+                            .accessibilityIdentifier("source-add-google-drive-companion")
+                    }
+                    #endif
                 }
                 if sources.isEmpty {
                     Text("Connect a NAS, choose your media folder, and MediaVault will add its movies, shows, music and photos.")
@@ -43,6 +52,7 @@ struct SourcesView: View {
                             let itemCount = source.movies.filter { !$0.isMissing }.count
                             Text("\(itemCount) \(itemCount == 1 ? "item" : "items") · Scanned \(lastScan.formatted(date: .abbreviated, time: .shortened))")
                                 .font(.caption2).foregroundStyle(.secondary)
+                                .accessibilityIdentifier(source.cloudFileProvider == .googleDrive ? "drive-companion-scan-result" : "")
                         } else {
                             Text("Ready for its first scan").font(.caption2).foregroundStyle(.secondary)
                         }
@@ -51,6 +61,7 @@ struct SourcesView: View {
                         Button { Task { await scanner.scan(source, context: context) } } label: { Label("Scan", systemImage: "arrow.clockwise") }
                             .disabled(scanner.isScanning)
                         Button { editing = source } label: { Label("Edit", systemImage: "slider.horizontal.3") }
+                            .accessibilityIdentifier(source.cloudFileProvider == .googleDrive ? "drive-companion-edit" : "")
                     }
                     #if os(iOS)
                     .buttonStyle(.bordered)
@@ -67,6 +78,13 @@ struct SourcesView: View {
         .sheet(isPresented: $adding) { NASSetupView() }
         .sheet(isPresented: $addingPlex) { NavigationStack { PlexSourceEditor(source: nil) } }
         .sheet(isPresented: $addingEmby) { NavigationStack { EmbySourceEditor(source: nil) } }
+        #if os(tvOS)
+        .sheet(isPresented: $addingGoogleDrive) {
+            if household.isAdmin, let endpoint = DriveCompanionClient.configuredEndpoint {
+                NavigationStack { DriveCompanionSourceEditor(source: nil, endpoint: endpoint) }
+            }
+        }
+        #endif
         .sheet(item: $editing) { source in
             NavigationStack {
                 editor(for: source)
@@ -82,6 +100,12 @@ struct SourcesView: View {
             OneDriveSourceEditor(source: source)
         } else if source.cloudFileProvider == .dropbox {
             DropboxSourceEditor(source: source)
+        } else if source.cloudFileProvider == .googleDrive {
+            #if os(tvOS)
+            DriveCompanionSourceEditor(source: source, endpoint: DriveCompanionClient.configuredEndpoint)
+            #else
+            Text("Manage this Google Drive source on Apple TV.")
+            #endif
         } else if source.cloudFileProvider == .appleFiles {
             #if os(iOS)
             AppleFilesSourceEditor(source: source)
