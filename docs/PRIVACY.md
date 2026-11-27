@@ -69,6 +69,14 @@ provider is available. Android retains the read-only grants for the files or fol
 you select until you disconnect. The Drive provider manages sign-in and downloads
 on that platform as well.
 
+On an Apple TV configured for direct Google Drive access, sign-in and file
+selection take place in a browser with Google. The configured companion service
+keeps the Google authorization used to renew access in encrypted storage and
+records metadata for the files you select. It relays requested media bytes
+from Google Drive to your Apple TV. Apple TV stores its connection credential
+in Keychain. The companion and Google handle these requests and can see their
+connection and file request details.
+
 You can remove a cloud source in MediaVault to clear its saved authorization. You
 can also manage the app’s access to your cloud files in the provider’s account settings.
 

@@ -113,11 +113,8 @@ provided the original comparison point; use the current status above for impleme
   Drive in Apple Files, and choose a folder or individual media files in MediaVault’s
   **Connect Google Drive via Files** setup. The Files provider manages your account
   and media downloads.
-- **Direct Google Drive access.** Enable the Drive API in a Google Cloud project and register
-  OAuth clients for the chosen authorization flow. The listed TV device flow
-  supports `drive.file` and `drive.appdata`. Broad access to existing files needs
-  a different approved flow, and `drive.readonly` is restricted. Design per-file
-  authorization or an approved companion flow for the intended library access.
-  Keep any required confidential client secret outside the TV binary.
-  [Google limited-input OAuth](https://developers.google.com/identity/protocols/oauth2/limited-input-device)
-  [Drive scope classifications](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
+- **Google Drive on Apple TV.** A configured HTTPS companion uses Google Picker to
+  approve individual files with `drive.file`. Select media and matching captions
+  together in the browser. Its synthetic fixture can run without a Google account.
+  Live use needs a registered Google Cloud project, eligible account, and hosted
+  service. [Apple TV Google Drive operator guide](GOOGLE-DRIVE-COMPANION.md)
