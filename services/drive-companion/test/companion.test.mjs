@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { loadConfig } from '../config.mjs';
 import { DRIVE_SCOPE, validateMetadata } from '../google.mjs';
@@ -336,14 +337,73 @@ test('rejects unauthorized, unsafe, and partial selections before granting any f
   assert.equal((await select(h, stage, [{ id: 'photoID' }])).status, 200);
 
   const file = metadata('same', 'Sample.mp4', 'video/mp4', movie);
+  for (const name of [
+    '../Sample.mp4', '..', 'folder\\clip.mp4', 'x\u0085.mp4', 'é'.repeat(128),
+    'Trip%2Fcopy.mp4', 'Trip%2ecopy.mp4', 'Trip%5Ccopy.mp4', 'Trip%00copy.mp4',
+  ]) {
+    assert.throws(() => validateMetadata({ ...file, name }, { id: 'same' }), { code: 'invalid_filename' });
+  }
   for (const overrides of [
-    { name: '../Sample.mp4' }, { name: '..' }, { name: 'folder\\clip.mp4' }, { name: 'x\u0085.mp4' },
-    { name: 'é'.repeat(128) }, { id: 'SAME' }, { parents: ['one', 'two'] }, { parents: ['../other'] },
+    { id: 'SAME' }, { parents: ['one', 'two'] }, { parents: ['../other'] },
     { resourceKey: 'bad/key' }, { resourceKey: 'different' }, { trashed: true },
-    { mimeType: 'application/vnd.google-apps.shortcut' }, { mimeType: 'audio/mpeg' }, { size: '9007199254740992' },
+    { size: '9007199254740992' },
   ]) {
     assert.throws(() => validateMetadata({ ...file, ...overrides }, { id: 'same', resourceKey: 'picker-key' }), {
       code: 'selection_unavailable',
+    });
+  }
+});
+
+test('rejects duplicate exact filenames before approval and preserves case-distinct names', async t => {
+  const h = await harness(t);
+  const pairing = await pair(h);
+  const stage = await phone(h, pairing);
+  h.google.files.set('duplicateID', [metadata('duplicateID', 'Trip.jpg', 'image/jpeg', photo, {
+    parents: ['otherFolder'],
+  }), photo]);
+  h.google.files.set('caseID', [metadata('caseID', 'trip.jpg', 'image/jpeg', photo), photo]);
+  const duplicate = await select(h, stage, [{ id: 'photoID' }, { id: 'duplicateID' }]);
+  assert.equal(duplicate.status, 422);
+  assert.deepEqual(await duplicate.json(), { error: 'name_collision' });
+  assert.deepEqual(await (await poll(h, pairing)).json(), { status: 'pending' });
+
+  h.google.files.set('encodedID', [metadata('encodedID', 'Trip%2Fcopy.jpg', 'image/jpeg', photo), photo]);
+  const unsafe = await select(h, stage, [{ id: 'encodedID' }]);
+  assert.equal(unsafe.status, 422);
+  assert.deepEqual(await unsafe.json(), { error: 'invalid_filename' });
+  assert.deepEqual(await (await poll(h, pairing)).json(), { status: 'pending' });
+
+  assert.equal((await select(h, stage, [{ id: 'photoID' }, { id: 'caseID' }])).status, 200);
+  const { connection } = await (await poll(h, pairing)).json();
+  assert.deepEqual(connection.files.map(file => file.name).sort(), ['Trip.jpg', 'trip.jpg']);
+});
+
+test('rejects files the Apple library cannot import or display before browser confirmation succeeds', async t => {
+  const h = await harness(t);
+  const pairing = await pair(h);
+  const stage = await phone(h, pairing);
+  h.google.files.set('gifID', [metadata('gifID', 'Animation.gif', 'image/gif', photo), photo]);
+  h.google.files.set('nativeID', [metadata('nativeID', 'Document.jpg', 'application/vnd.google-apps.document', photo), photo]);
+  h.google.files.set('blobID', [metadata('blobID', 'Unlabeled Movie.MKV', 'application/octet-stream', movie), movie]);
+
+  for (const id of ['gifID', 'nativeID']) {
+    const unavailable = await select(h, stage, [{ id }]);
+    assert.equal(unavailable.status, 422);
+    assert.deepEqual(await unavailable.json(), { error: 'unsupported_media' });
+    assert.deepEqual(await (await poll(h, pairing)).json(), { status: 'pending' });
+  }
+  assert.equal((await select(h, stage, [{ id: 'blobID' }, { id: 'captionID' }])).status, 200);
+  const { connection } = await (await poll(h, pairing)).json();
+  assert.deepEqual(connection.files.map(file => file.id), ['blobID', 'captionID']);
+
+  for (const [name, mime, maximum] of [
+    ['Poster.HEIC', 'application/octet-stream', 64 * 1024 * 1024],
+    ['Film.en.SRT', 'application/octet-stream', 2 * 1024 * 1024],
+  ]) {
+    const file = metadata('sized', name, mime, photo);
+    assert.equal(validateMetadata({ ...file, size: String(maximum) }, { id: 'sized' }).size, maximum);
+    assert.throws(() => validateMetadata({ ...file, size: String(maximum + 1) }, { id: 'sized' }), {
+      code: 'unsupported_media',
     });
   }
 });
@@ -392,6 +452,7 @@ test('persists grants across restart, encrypts stored credentials, refreshes onc
   }
 
   const headers = authorization(connection.token);
+  assert.equal((await h.request('/v1/connection', { headers })).status, 200);
   h.advance(3700);
   const [catalog1, catalog2] = await Promise.all([
     h.request('/v1/connection', { headers }), h.request('/v1/connection', { headers }),
@@ -411,6 +472,31 @@ test('persists grants across restart, encrypts stored credentials, refreshes onc
   assert.equal((await h.request('/v1/connection', { headers })).status, 401);
   assert.equal((await h.request('/v1/files/photoID', { headers })).status, 401);
   assert.equal((await h.request('/v1/connection', { method: 'DELETE', headers })).status, 401);
+});
+
+test('expires an unsaved review even after TV polling and keeps a confirmed catalog', async t => {
+  const h = await harness(t);
+  const { pairing, connection } = await grant(h);
+  assert.deepEqual(await (await poll(h, pairing)).json(), { status: 'approved', connection });
+  const draftHeaders = authorization(connection.token);
+  h.advance(601);
+  assert.equal((await h.request('/v1/connection', { headers: draftHeaders })).status, 401);
+  assert.equal((await h.request('/v1/files/photoID', { headers: draftHeaders })).status, 401);
+  await pair(h);
+
+  const database = new DatabaseSync(h.config.dbPath, { readOnly: true });
+  t.after(() => database.close());
+  const count = () => database.prepare('SELECT count(*) AS count FROM connections').get().count;
+  assert.equal(count(), 0, 'expired review credentials and allowlist were deleted');
+
+  const saved = await grant(h);
+  const savedHeaders = authorization(saved.connection.token);
+  assert.equal((await h.request('/v1/connection', { headers: savedHeaders })).status, 200);
+  h.advance(601);
+  await pair(h);
+  assert.equal(count(), 1);
+  assert.equal((await poll(h, saved.pairing)).status, 404);
+  assert.equal((await h.request('/v1/connection', { headers: savedHeaders })).status, 200);
 });
 
 test('rejects canceled and expired pairing, and a stale exchange cannot replace a newer authorization', async t => {

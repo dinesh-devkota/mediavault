@@ -157,6 +157,9 @@ function googleError(error) {
     case 'authorization_expired':
     case 'invalid_grant':
       return cancellationError();
+    case 'invalid_filename':
+    case 'unsupported_media':
+      return new HttpError(422, error.code);
     case 'selection_unavailable':
       return new HttpError(422, 'selection_unavailable');
     case 'temporarily_unavailable':
@@ -205,7 +208,7 @@ export function createCompanion(config, {
   }
 
   async function currentCredentials(key, rejectedAccessToken) {
-    const previous = store.credentials(key);
+    const previous = store.credentials(key, now());
     if (!previous) throw cancellationError();
     if (previous.accessExpiresAt > now() + 30 && previous.accessToken !== rejectedAccessToken) return previous;
     const current = refreshes.get(key);
@@ -241,7 +244,7 @@ export function createCompanion(config, {
   function requireConnection(req) {
     const token = bearer(req);
     const key = token && digest(token);
-    if (!key || !store.credentials(key)) throw cancellationError();
+    if (!key || !store.credentials(key, now())) throw cancellationError();
     return key;
   }
 
@@ -285,7 +288,7 @@ export function createCompanion(config, {
           (encoding && encoding !== 'identity')) reject(502, 'provider_response_error');
 
       client.signal.throwIfAborted();
-      if (!store.file(key, fileId)) throw cancellationError();
+      if (!store.credentials(key, now())) throw cancellationError();
       const headers = {
         'Accept-Ranges': 'bytes',
         'Content-Type': file.mimeType,
@@ -364,8 +367,9 @@ export function createCompanion(config, {
         return res.writeHead(204).end();
       }
       await currentCredentials(key);
-      if (!store.credentials(key)) throw cancellationError();
-      return json(res, 200, { files: store.catalog(key) });
+      const files = store.claimCatalog(key, now());
+      if (!files) throw cancellationError();
+      return json(res, 200, { files });
     }
     if (method === 'GET' && media) return streamFile(req, res, media[1]);
 
@@ -434,6 +438,8 @@ export function createCompanion(config, {
           throw googleError(error);
         }
       }
+      // Apple TV uses a flat, exact-name catalog, so ambiguous display paths cannot be granted.
+      if (new Set(files.map(file => file.name)).size !== files.length) reject(422, 'name_collision');
       if (!store.approve(token, files, now())) throw cancellationError();
       res.setHeader('Set-Cookie', cookie(STAGE));
       return json(res, 200, { ok: true });

@@ -7,8 +7,13 @@ const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const FILE_URL = 'https://www.googleapis.com/drive/v3/files/';
 const FILE_FIELDS = 'id,name,size,mimeType,parents,resourceKey,trashed,capabilities(canDownload)';
-const SUBTITLE_EXT = /\.(srt|vtt)$/i;
-const MEDIA_EXT = /\.(mp4|m4v|mkv|mov|avi|webm|mpg|mpeg|m2ts|ts|wmv|flv|3gp|jpg|jpeg|png|webp|gif|heic|heif|avif|bmp|tiff?)$/i;
+// Keep these aligned with Apple VideoFile, MediaFile and the photo/subtitle loaders.
+const VIDEO_EXTENSIONS = new Set(['mp4', 'm4v', 'mov', 'mkv', 'avi', 'wmv', 'ts', 'm2ts', 'webm', 'flv', 'mpg', 'mpeg', 'iso']);
+const PHOTO_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']);
+const SUBTITLE_EXTENSIONS = new Set(['srt', 'vtt']);
+const VIDEO_APPLICATION_TYPES = new Set(['application/mp4', 'application/x-matroska', 'application/x-iso9660-image']);
+const PHOTO_MAX_BYTES = 64 * 1024 * 1024;
+const SUBTITLE_MAX_BYTES = 2 * 1024 * 1024;
 
 export class GoogleFailure extends Error {
   constructor(code) {
@@ -62,27 +67,37 @@ function fileUrl(fileId) {
   return new URL(FILE_URL + fileId);
 }
 
-function supportedFile(name, mime) {
-  if (mime.startsWith('video/') || mime.startsWith('image/')) return true;
-  if (mime === 'application/octet-stream') return MEDIA_EXT.test(name) || SUBTITLE_EXT.test(name);
-  return SUBTITLE_EXT.test(name) && (
-    mime.startsWith('text/') || mime === 'application/x-subrip'
-  );
+function supportedFile(name, mime, size) {
+  if (mime.startsWith('application/vnd.google-apps.')) return false;
+  const dot = name.lastIndexOf('.');
+  if (dot < 1) return false;
+  const extension = name.slice(dot + 1).toLowerCase();
+  const generic = mime === 'application/octet-stream';
+  if (VIDEO_EXTENSIONS.has(extension)) {
+    return generic || mime.startsWith('video/') || VIDEO_APPLICATION_TYPES.has(mime);
+  }
+  if (PHOTO_EXTENSIONS.has(extension)) return size <= PHOTO_MAX_BYTES && (generic || mime.startsWith('image/'));
+  return SUBTITLE_EXTENSIONS.has(extension) && size <= SUBTITLE_MAX_BYTES &&
+    (generic || mime.startsWith('text/') || mime === 'application/x-subrip' || mime === 'application/vtt');
 }
 
 export function validateMetadata(body, selection) {
   if (!body || body.id !== selection.id || !isFileId(body.id) || body.trashed !== false ||
-      body.capabilities?.canDownload !== true || typeof body.name !== 'string' ||
-      body.name.length < 1 || Buffer.byteLength(body.name, 'utf8') > 255 || body.name === '.' || body.name === '..' ||
-      /[\/\\\p{Cc}\p{Cf}\p{Cs}]/u.test(body.name) ||
+      body.capabilities?.canDownload !== true ||
       typeof body.mimeType !== 'string' || body.mimeType.length > 127 ||
-      !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(body.mimeType) ||
-      !supportedFile(body.name, body.mimeType) || typeof body.size !== 'string' ||
+      !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(body.mimeType) || typeof body.size !== 'string' ||
       !/^[1-9][0-9]{0,15}$/.test(body.size)) {
     throw new GoogleFailure('selection_unavailable');
   }
+  // Keep the exact flat paths resolvable by the TV's shared path validator.
+  if (typeof body.name !== 'string' || !body.name || Buffer.byteLength(body.name, 'utf8') > 255 ||
+      body.name === '.' || body.name === '..' || /[\/\\\p{Cc}\p{Cf}\p{Cs}]/u.test(body.name) ||
+      /%(?:2e|2f|5c|00)/i.test(body.name)) {
+    throw new GoogleFailure('invalid_filename');
+  }
   const size = Number(body.size);
   if (!Number.isSafeInteger(size)) throw new GoogleFailure('selection_unavailable');
+  if (!supportedFile(body.name, body.mimeType, size)) throw new GoogleFailure('unsupported_media');
 
   const reportedKey = body.resourceKey === '' ? undefined : (body.resourceKey ?? undefined);
   const resourceKey = reportedKey ?? selection.resourceKey;

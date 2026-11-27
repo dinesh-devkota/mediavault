@@ -84,6 +84,12 @@ if (pickerPage) {
     switch (error) {
       case "invalid_selection":
         return "Choose individual videos, photos, or subtitle files and try again.";
+      case "unsupported_media":
+        return "Choose supported videos, JPEG, PNG, WebP, HEIC or HEIF photos up to 64 MiB, or SRT/VTT subtitles up to 2 MiB.";
+      case "invalid_filename":
+        return "One file has a name MediaVault can’t use. Rename it in Google Drive or leave it out.";
+      case "name_collision":
+        return "Two selected files have the same name. Rename one in Google Drive or select only one of them.";
       case "selection_unavailable":
         return "One or more files couldn’t be opened. Check their download permissions in Google Drive or choose other files.";
       case "authorization_expired":

@@ -100,8 +100,8 @@ xcodebuild -project CineVault.xcodeproj -scheme CineVault \
 ```
 
 Inspect that the built bundle's Info.plist contains the intended HTTPS origin. The app stores
-and uses the connection only for that origin. Changing it requires reconnecting through the
-new service.
+and uses the connection only for that origin. If the companion moves to another origin,
+add it as a new source and grant viewer access again.
 
 ## Validate and disconnect
 

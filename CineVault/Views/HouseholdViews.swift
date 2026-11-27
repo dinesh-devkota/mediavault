@@ -341,12 +341,15 @@ private struct HouseholdFolderChooser: View {
                 if source.isEmby {
                     Text("Allow access to the selected Emby library. This viewer’s rating limits still apply.").font(.caption)
                     Button("Allow library: \(source.name)") { add("") }
+                } else if source.cloudFileProvider == .googleDrive {
+                    Text("Allow access to the files selected for this Google Drive source. This viewer’s rating limits still apply.").font(.caption)
+                    Button("Allow selected files: \(source.name)") { add("") }
                 } else {
                     Text(source.isPlex ? "Allow this Plex library. The viewer’s rating limits still apply."
                          : "Allow all current and future folders in this source, or browse to choose a smaller folder.").font(.caption)
                     Button("Allow entire source: \(source.name)") { add(source.rootPath) }
                 }
-                if let configuration, !source.isJellyfin && !source.isPlex && !source.isEmby {
+                if let configuration, !source.isJellyfin && !source.requiresEntireSourceGrant {
                     NavigationLink("Browse folders") {
                         NASPathPicker(configuration: configuration, mode: .household) { path, _ in add(path) }
                     }
@@ -357,7 +360,7 @@ private struct HouseholdFolderChooser: View {
         }.navigationTitle(source.name)
             .onAppear {
                 guard HouseholdStore.shared.isAdmin else { dismiss(); return }
-                guard !source.isEmby else { return }
+                guard !source.isEmby, source.cloudFileProvider != .googleDrive else { return }
                 do { configuration = try source.config() } catch { self.error = error.localizedDescription }
             }
     }

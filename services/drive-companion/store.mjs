@@ -102,7 +102,7 @@ export class Store {
 
   sweep(now) {
     return this.transaction(() => {
-      // Approved links whose TV never polled are abandoned when the pairing expires.
+      // Approval only creates a draft until the TV confirms its catalog.
       const abandoned = this.db.prepare(
         'SELECT connection_key FROM pairings WHERE expires <= ? AND connection_key IS NOT NULL AND claimed = 0',
       ).all(now).map(row => row.connection_key);
@@ -136,7 +136,6 @@ export class Store {
       if (row.expires <= now) return { status: 410 };
       if (!row.connection_key) return { status: 200, body: { status: 'pending' } };
       const token = this.open('delivery:' + id, row.delivery);
-      if (!row.claimed) this.db.prepare('UPDATE pairings SET claimed = 1 WHERE id = ?').run(id);
       const files = this.catalog(row.connection_key);
       return { status: 200, body: { status: 'approved', connection: { token, files } } };
     });
@@ -254,9 +253,21 @@ export class Store {
     return file;
   }
 
-  credentials(key) {
-    const row = this.db.prepare('SELECT credentials FROM connections WHERE key = ?').get(key);
+  credentials(key, now) {
+    const row = this.db.prepare(`
+      SELECT c.credentials FROM connections AS c
+      LEFT JOIN pairings AS p ON p.connection_key = c.key
+      WHERE c.key = ? AND (p.expires IS NULL OR p.claimed = 1 OR p.expires > ?)
+    `).get(key, now);
     if (row) return this.open('credentials:' + key, row.credentials);
+  }
+
+  claimCatalog(key, now) {
+    return this.transaction(() => {
+      if (!this.credentials(key, now)) return;
+      this.db.prepare('UPDATE pairings SET claimed = 1 WHERE connection_key = ? AND claimed = 0').run(key);
+      return this.catalog(key);
+    });
   }
 
   updateCredentials(key, credentials) {

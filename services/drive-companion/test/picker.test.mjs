@@ -31,6 +31,7 @@ test('Picker review confirms exact file IDs and safely handles optional resource
   const provided = {};
   let callback;
   let visible;
+  const selectionErrors = ['name_collision', 'invalid_filename', 'unsupported_media'];
 
   class DocsView {
     setIncludeFolders(value) { assert.equal(value, false); return this; }
@@ -65,6 +66,10 @@ test('Picker review confirms exact file IDs and safely handles optional resource
     document: { getElementById: id => elements[id] ?? null, createElement: tag => ({ tag }) },
     async fetch(path, options) {
       requests.push([path, options]);
+      if (path === '/browser/selection' && selectionErrors.length) {
+        const error = selectionErrors.shift();
+        return { ok: false, json: async () => ({ error }) };
+      }
       const json = path === '/browser/session'
         ? { accessToken: 'temporary-token', googleAppId: '12345', pickerApiKey: 'public-key' }
         : { ok: true };
@@ -104,6 +109,20 @@ test('Picker review confirms exact file IDs and safely handles optional resource
   assert.equal(elements['review-title'].focused, true);
   assert.equal(review.hidden, false);
   assert.equal(requests.some(([path]) => path === '/browser/selection'), false);
+
+  await elements['confirm-selection'].click();
+  assert.match(elements['picker-status'].textContent, /same name.*Rename one/);
+  assert.deepEqual(redirects, []);
+  assert.equal(open.disabled, false);
+  assert.equal(review.hidden, false);
+
+  await elements['confirm-selection'].click();
+  assert.match(elements['picker-status'].textContent, /name MediaVault can’t use.*Rename it/);
+  assert.deepEqual(redirects, []);
+
+  await elements['confirm-selection'].click();
+  assert.match(elements['picker-status'].textContent, /Choose supported videos.*SRT\/VTT/);
+  assert.deepEqual(redirects, []);
 
   await elements['confirm-selection'].click();
   const [path, request] = requests.at(-1);

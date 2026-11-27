@@ -22,6 +22,7 @@ final class DriveCompanionRemoteTests: XCTestCase {
         let scanned = app.staticTexts.matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@",
             "drive-companion-scan-result", "1 item · Scanned")).firstMatch
         XCTAssertTrue(scanned.waitForExistence(timeout: 30), app.debugDescription)
+        let firstScan = scanned.label
         let edits = app.buttons.matching(identifier: "drive-companion-edit")
         XCTAssertEqual(edits.count, 1, app.debugDescription)
         select(edits.firstMatch, in: app)
@@ -34,7 +35,10 @@ final class DriveCompanionRemoteTests: XCTestCase {
         XCTAssertTrue(edits.firstMatch.waitForExistence(timeout: 20), app.debugDescription)
         XCTAssertFalse(save.exists, app.debugDescription)
         XCTAssertEqual(edits.count, 1, app.debugDescription)
-        XCTAssertTrue(scanned.waitForExistence(timeout: 30), app.debugDescription)
+        let refreshedScan = app.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ AND label BEGINSWITH %@ AND label != %@",
+            "drive-companion-scan-result", "1 item · Scanned", firstScan)).firstMatch
+        XCTAssertTrue(refreshedScan.waitForExistence(timeout: 30), app.debugDescription)
     }
 
     @MainActor

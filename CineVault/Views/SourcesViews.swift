@@ -50,7 +50,8 @@ struct SourcesView: View {
                         Text(location(of: source)).font(.caption).foregroundStyle(.secondary)
                         if let lastScan = source.lastScanDate {
                             let itemCount = source.movies.filter { !$0.isMissing }.count
-                            Text("\(itemCount) \(itemCount == 1 ? "item" : "items") · Scanned \(lastScan.formatted(date: .abbreviated, time: .shortened))")
+                            let scanTime: Date.FormatStyle.TimeStyle = source.cloudFileProvider == .googleDrive ? .standard : .shortened
+                            Text("\(itemCount) \(itemCount == 1 ? "item" : "items") · Scanned \(lastScan.formatted(date: .abbreviated, time: scanTime))")
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .accessibilityIdentifier(source.cloudFileProvider == .googleDrive ? "drive-companion-scan-result" : "")
                         } else {

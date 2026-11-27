@@ -92,6 +92,15 @@ final class DriveCompanionFileSourceTests: XCTestCase {
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         XCTAssertEqual(duration.seconds, 12, accuracy: 0.1)
         XCTAssertEqual(videoTracks.count, 1)
+
+        let seekComplete = expectation(description: "Seek on the reconnected Drive source")
+        let target = CMTime(seconds: 8, preferredTimescale: 600)
+        controller.player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { completed in
+            XCTAssertTrue(completed)
+            seekComplete.fulfill()
+        }
+        await fulfillment(of: [seekComplete], timeout: 25)
+        XCTAssertEqual(controller.player.currentTime().seconds, target.seconds, accuracy: 0.1)
     }
 
     private func approvedFixtureSelection(_ client: DriveCompanionClient) async throws -> DriveCompanionConnection {
