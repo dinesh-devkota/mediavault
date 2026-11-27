@@ -34,7 +34,7 @@ test('Picker review confirms exact file IDs and safely handles optional resource
   const selectionErrors = ['name_collision', 'invalid_filename', 'unsupported_media'];
 
   class DocsView {
-    setIncludeFolders(value) { assert.equal(value, false); return this; }
+    setIncludeFolders(value) { assert.equal(value, true); return this; }
     setSelectFolderEnabled(value) { assert.equal(value, false); return this; }
     setMode(value) { assert.equal(value, 'list'); return this; }
   }

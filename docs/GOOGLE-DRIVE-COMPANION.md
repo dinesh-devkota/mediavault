@@ -6,8 +6,8 @@ computer. Enter the code from the TV, sign in on Google's website, and use Googl
 choose the files. The pairing code expires after ten minutes. Return to the TV to review the
 selection and save and scan the source.
 
-Choose each supported media file and any matching SRT or WebVTT files you want to use. A
-source imports up to 100 individually approved files. To match a selected sidecar,
+Browse your Drive folders in Picker and choose each supported media file and any matching
+SRT or WebVTT files you want to use. A source imports up to 100 individually approved files. To match a selected sidecar,
 select its video from the same Google Drive folder. Reconnect with the original set of files to
 retain the existing source and household grants. Create a separate source for a different
 selection. A source added by Admin grants viewers no access until Admin explicitly grants it.

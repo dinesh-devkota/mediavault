@@ -188,7 +188,7 @@ if (pickerPage) {
         throw new Error("authorization_expired");
       }
       const files = new picker.DocsView(picker.ViewId.DOCS)
-        .setIncludeFolders(false)
+        .setIncludeFolders(true)
         .setSelectFolderEnabled(false)
         .setMode(picker.DocsViewMode.LIST);
       activePicker = new picker.PickerBuilder()
