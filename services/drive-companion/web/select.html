@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Choose Drive files | MediaVault</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/picker.js" defer></script>
+</head>
+<body>
+  <main class="card" id="picker-page">
+    <p class="brand">MediaVault</p>
+    <h1>Choose files for your TV</h1>
+    <p>Choose up to 100 individual videos, photos, and matching subtitle files. Select the video and its subtitles together.</p>
+    <button id="open-picker" type="button">Open Google Drive</button>
+    <p id="picker-status" class="status" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+
+    <section id="selection-review" aria-labelledby="review-title" hidden>
+      <h2 id="review-title" tabindex="-1">Review your selection</h2>
+      <ul id="selected-files" class="selection"></ul>
+      <button id="confirm-selection" type="button">Send files to the TV</button>
+    </section>
+
+    <p class="foot"><a href="/pair">Use a different TV code</a></p>
+    <noscript><p>Enable JavaScript to open Google’s file picker.</p></noscript>
+  </main>
+</body>
+</html>

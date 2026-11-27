@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pair Google Drive | MediaVault</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/picker.js" defer></script>
+</head>
+<body>
+  <main class="card">
+    <p class="brand">MediaVault</p>
+    <h1>Pair Google Drive</h1>
+    <p>Enter the code shown on your TV. Then sign in on Google’s website and choose the files you want to add.</p>
+    <form action="/pair/start" method="post">
+      <label for="pair-code">Code from your TV</label>
+      <input class="code" id="pair-code" name="code" type="text" maxlength="8" minlength="8"
+             pattern="[A-Z0-9]{8}" autocomplete="off" autocapitalize="characters" spellcheck="false"
+             aria-describedby="code-help" required>
+      <p id="code-help" class="hint">Use the eight letters or numbers shown in MediaVault.</p>
+      <button type="submit">Continue to Google</button>
+    </form>
+  </main>
+</body>
+</html>

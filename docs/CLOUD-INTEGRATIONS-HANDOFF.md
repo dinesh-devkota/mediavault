@@ -414,3 +414,11 @@ library. Live Google account/provider behavior requires the installed Drive
 app on an iPhone. The hosted simulator has an isolated local file fixture for
 the folder, protected reads, captions, and playback seek, alongside the
 owner-visible setup UI test. This Files integration is iPhone-only.
+
+## Google Drive companion on Apple TV
+
+The Apple TV companion selects individual Drive files in a phone or computer browser.
+Its synthetic fixture uses local credentials and data. A live check still needs a registered
+Google Cloud project, eligible test account, and hosted HTTPS companion. See the
+[Apple TV Google Drive operator guide](GOOGLE-DRIVE-COMPANION.md) for the deployment
+settings, account scope, and test command.

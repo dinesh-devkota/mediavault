@@ -78,7 +78,7 @@ enum HouseholdPolicy {
     static func allowsPath(profile: HouseholdProfile, sourceID: UUID?, path: String, caseSensitive: Bool = false, entireSourceOnly: Bool = false, allowFolderRoot: Bool = false) -> Bool {
         if profile.isAdmin { return true }
         if entireSourceOnly {
-            guard let sourceID, WebDAVAddress.contains(path, within: "") else { return false }
+            guard let sourceID, WebDAVAddress.contains(path, within: "", allowRoot: allowFolderRoot) else { return false }
             return profile.allowedFolders.contains { $0.sourceID == sourceID && $0.path.isEmpty && (!caseSensitive || $0.caseSensitive == true) }
         }
         if caseSensitive {
@@ -396,7 +396,7 @@ final class HouseholdStore: ObservableObject {
         synced {
             guard allowsPath(sourceID: movie.source?.id, path: movie.filePath,
                              caseSensitive: movie.source.map { $0.caseSensitivePaths || $0.isPlex } == true,
-                             entireSourceOnly: movie.source.map { $0.isPlex || $0.isEmby } == true) else { return false }
+                             entireSourceOnly: movie.source?.requiresEntireSourceGrant == true) else { return false }
             guard let current, !current.isAdmin else { return !isLocked }
             guard !movie.isHidden else { return false }
             if MediaFile.isAudio(path: movie.filePath) || MediaFile.isPhoto(path: movie.filePath) { return true }

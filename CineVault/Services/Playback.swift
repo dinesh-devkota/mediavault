@@ -123,7 +123,7 @@ final class SMBResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         if let allowsRead, await !allowsRead() { throw PlaybackPreparationError.fileUnavailable }
         guard household.sessionIsCurrent(householdSession),
               household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths || config.isPlex,
-                                   entireSourceOnly: config.isPlex || config.isEmby) else { throw PlaybackPreparationError.fileUnavailable }
+                                   entireSourceOnly: config.requiresEntireSourceGrant) else { throw PlaybackPreparationError.fileUnavailable }
     }
 
     func streamBytes(from start: Int64, to end: Int64, respond: (Data) -> Void) async throws {

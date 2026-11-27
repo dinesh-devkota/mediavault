@@ -125,7 +125,7 @@ actor PhotoImageLoader {
         func checkAccess() throws {
             guard household.sessionIsCurrent(session),
                   household.allowsPath(sourceID: config.id, path: path, caseSensitive: config.caseSensitivePaths || config.isPlex,
-                                       entireSourceOnly: config.isPlex || config.isEmby) else { throw PhotoLoadingError.unavailable }
+                                       entireSourceOnly: config.requiresEntireSourceGrant) else { throw PhotoLoadingError.unavailable }
         }
         try checkAccess()
         try Task.checkCancellation()

@@ -36,8 +36,11 @@ enum LocalSubtitleService {
                          }) async throws -> [SubtitleFile] {
         guard let directory = SubtitleFile.directory(for: videoPath, rootPath: config.rootPath, caseSensitive: config.caseSensitivePaths),
               !config.excludesFile(videoPath) else { throw SMBError.sourceChanged }
-        let entries = try await list(config, directory)
+        let listed = try await list(config, directory)
         try Task.checkCancellation()
+        let entries = config.cloudFileProvider == .googleDrive
+            ? try DriveCompanionFileSource.subtitleEntries(listed, videoPath: videoPath, config: config)
+            : listed
         let matches = entries.prefix(4096).filter { !$0.isDirectory }.compactMap { entry -> SubtitleFile? in
             if config.cloudFileProvider == .dropbox {
                 // Dropbox matches filenames without case. Keep the service-supplied
