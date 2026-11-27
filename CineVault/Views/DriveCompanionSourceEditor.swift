@@ -194,7 +194,8 @@ struct DriveCompanionSourceEditor: View {
                                      expiresAt: .now.addingTimeInterval(TimeInterval(pairing.expiresIn)),
                                      qr: Self.makeQR(pairing.verificationUrl)))
             while clock.now < deadline {
-                if let connection = try await client.poll(pairing) {
+                let result = try await client.poll(pairing)
+                if let connection = result {
                     let draft = Draft(endpoint: endpoint, connection: connection)
                     received = draft
                     try requireCurrent(request)
