@@ -2,6 +2,10 @@ import CineVaultCore
 import Foundation
 import XCTest
 @testable import CineVault
+#if os(tvOS)
+import AVFoundation
+import SwiftData
+#endif
 
 final class DriveCompanionFileSourceTests: XCTestCase {
     func testSelectedMediaScansAndSeeksThroughTheSharedFileService() async throws {
@@ -37,6 +41,71 @@ final class DriveCompanionFileSourceTests: XCTestCase {
         let requested = await reads.requested
         XCTAssertEqual(requested, ["video", "photo"])
     }
+
+    #if os(tvOS)
+    @MainActor
+    func testReconnectedDriveSelectionLoadsNativeAssetThroughHTTPS() async throws {
+        let endpoint = try XCTUnwrap(URL(string: "https://127.0.0.1:18477"))
+        let client = try DriveCompanionClient(endpoint: endpoint)
+        let initial = try await approvedFixtureSelection(client)
+        addTeardownBlock { try? await client.disconnect(token: initial.token) }
+
+        let household = HouseholdStore.shared
+        let session = household.sessionToken
+        let authorize = {
+            guard household.isAdmin, household.sessionIsCurrent(session) else { throw HouseholdError.denied }
+        }
+        let container = try ModelContainer(for: MediaSource.self, Movie.self,
+                                           configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = container.mainContext
+        let source = try await DriveCompanionSourceStore.create(name: "Drive playback fixture", endpoint: endpoint,
+            connection: initial, context: context, authorize: authorize)
+        let sourceID = source.id
+        defer { _ = try? DriveCompanionFileSource.remove(sourceID) {} }
+        let scanner = LibraryScanner()
+        await scanner.scan(source, context: context)
+        XCTAssertEqual(source.movies.map(\.filePath), ["Drive Fixture Clip.mp4"], scanner.status ?? "")
+        let movie = try XCTUnwrap(source.movies.first)
+
+        let renewed = try await approvedFixtureSelection(client)
+        addTeardownBlock { try? await client.disconnect(token: renewed.token) }
+        XCTAssertFalse(initial.token == renewed.token, "The fixture must issue a fresh connection on reconnect.")
+        try await DriveCompanionSourceStore.reconnect(source: source, endpoint: endpoint,
+            connection: renewed, context: context, authorize: authorize)
+
+        let loader = SMBResourceLoader(config: try source.config(), path: movie.filePath)
+        var signature = Data()
+        try await loader.streamBytes(from: 4, to: 8) { signature.append($0) }
+        XCTAssertEqual(signature, Data("ftyp".utf8), "The playback loader must return the requested MP4 bytes over the renewed grant.")
+
+        let prepared = try await PlaybackController.prepare(movie: movie, resume: false,
+            services: PlaybackServices(), allowAlternative: false)
+        let controller = try XCTUnwrap(prepared)
+        defer { controller.stop() }
+        let asset = try XCTUnwrap(controller.player.currentItem?.asset as? AVURLAsset)
+        XCTAssertEqual(asset.url.scheme, SMBResourceLoader.scheme)
+        XCTAssertNil(asset.url.query)
+        let duration = try await asset.load(.duration)
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        XCTAssertEqual(duration.seconds, 12, accuracy: 0.1)
+        XCTAssertEqual(videoTracks.count, 1)
+    }
+
+    private func approvedFixtureSelection(_ client: DriveCompanionClient) async throws -> DriveCompanionConnection {
+        let pairing = try await client.beginPairing()
+        do {
+            let first = try await client.poll(pairing)
+            let second = try await client.poll(pairing)
+            XCTAssertNil(first)
+            XCTAssertNil(second)
+            let approved = try await client.poll(pairing)
+            return try XCTUnwrap(approved, "The disposable fixture approves on the third poll.")
+        } catch {
+            try? await client.cancel(pairing)
+            throw error
+        }
+    }
+    #endif
 
     func testSubtitleDiscoveryRequiresAnExplicitSiblingFromTheSelection() throws {
         let files = [
