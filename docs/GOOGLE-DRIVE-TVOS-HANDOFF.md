@@ -53,7 +53,7 @@ starts in [DriveCompanionSourceEditor.swift](../CineVault/Views/DriveCompanionSo
 | Unsigned Apple TV build and Swift core tests | [Passed](https://github.com/dinesh-devkota/mediavault/actions/runs/45928489321) |
 | Apple TV simulator | [282 passed with zero failures or skips](https://github.com/dinesh-devkota/mediavault/actions/runs/45928489445), including remote pairing, reconnect, and an AVPlayer seek to eight seconds |
 | Android TV build and emulator | [Passed after rerunning the Maven Central rate-limit failure](https://github.com/dinesh-devkota/mediavault/actions/runs/45928489281). All 129 emulator tests passed with zero failures or skips |
-| iPhone simulator and unsigned release | Final run in progress. [Earlier source revision passed 277 simulator tests and built the unsigned release](https://github.com/dinesh-devkota/mediavault/actions/runs/45927724910). [Final run](https://github.com/dinesh-devkota/mediavault/actions/runs/45928489292) |
+| iPhone simulator and unsigned release | [277 passed with zero failures or skips](https://github.com/dinesh-devkota/mediavault/actions/runs/45928489292). The unsigned release build and privacy resource check passed |
 
 The two loopback HTTPS fixture tests, seven XCTest report utility tests, workflow lint,
 and Git whitespace checks also passed. This handoff branch adds only Markdown to the
