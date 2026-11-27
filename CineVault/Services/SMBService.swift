@@ -78,6 +78,7 @@ actor SMBService {
              #endif
              case .oneDrive: return try OneDriveFileSource.transport(config)
              case .dropbox: return try DropboxFileSource.transport(config)
+             case .googleDrive: return try DriveCompanionFileSource.transport(config)
              }
          },
          connect: @escaping (SMB2Manager, String) async throws -> Void = { manager, share in
@@ -369,7 +370,8 @@ actor SMBService {
         let check: CloudFileTransport.Permission = {
             try Task.checkCancellation()
             guard household.sessionIsCurrent(session),
-                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: true, allowFolderRoot: allowFolderRoot) else {
+                  household.allowsPath(sourceID: config.id, path: path, caseSensitive: true,
+                                       entireSourceOnly: config.requiresEntireSourceGrant, allowFolderRoot: allowFolderRoot) else {
                 throw HouseholdError.denied
             }
         }

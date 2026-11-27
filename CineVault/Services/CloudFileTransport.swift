@@ -5,12 +5,14 @@ enum CloudFileProvider: String, Hashable, Sendable {
     case appleFiles = "apple-files"
     case oneDrive = "onedrive"
     case dropbox
+    case googleDrive = "google-drive"
 
     var title: String {
         switch self {
         case .appleFiles: "Files"
         case .oneDrive: "OneDrive"
         case .dropbox: "Dropbox"
+        case .googleDrive: "Google Drive"
         }
     }
 }

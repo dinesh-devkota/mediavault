@@ -36,6 +36,7 @@ final class MediaSource {
     var isEmby: Bool { sourceProtocol == "emby" }
     var cloudFileProvider: CloudFileProvider? { sourceProtocol.flatMap(CloudFileProvider.init(rawValue:)) }
     var caseSensitivePaths: Bool { isWebDAV || isJellyfin || cloudFileProvider != nil }
+    var requiresEntireSourceGrant: Bool { isPlex || isEmby || cloudFileProvider == .googleDrive }
 
     private var passwordAccount: String { "source-\(id.uuidString)" }
 
@@ -106,6 +107,7 @@ struct SourceConfig: Sendable, Hashable {
     let isEmby: Bool
     let cloudFileProvider: CloudFileProvider?
     var caseSensitivePaths: Bool { isWebDAV || isJellyfin || cloudFileProvider != nil }
+    var requiresEntireSourceGrant: Bool { isPlex || isEmby || cloudFileProvider == .googleDrive }
 
     init(id: UUID, host: String, port: Int? = nil, share: String, rootPath: String,
          username: String, password: String, ignoredFolders: [String] = [], ignoredFiles: [String] = [],
